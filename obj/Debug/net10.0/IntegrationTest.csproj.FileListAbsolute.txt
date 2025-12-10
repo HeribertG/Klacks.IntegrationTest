@@ -597,3 +597,4 @@ C:\SourceCode\IntegrationTest\obj\Debug\net10.0\refint\IntegrationTest.dll
 C:\SourceCode\IntegrationTest\obj\Debug\net10.0\IntegrationTest.pdb
 C:\SourceCode\IntegrationTest\obj\Debug\net10.0\IntegrationTest.genruntimeconfig.cache
 C:\SourceCode\IntegrationTest\obj\Debug\net10.0\ref\IntegrationTest.dll
+C:\SourceCode\IntegrationTest\obj\Debug\net10.0\IntegrationTest.sourcelink.json

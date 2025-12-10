@@ -23,7 +23,7 @@ public class GetShiftScheduleTests
     public void OneTimeSetUp()
     {
         _connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
-            ?? "Host=localhost;Port=5432;Database=klacks;Username=postgres;Password=postgres";
+            ?? "Host=localhost;Port=5434;Database=klacks1;Username=postgres;Password=admin";
     }
 
     [SetUp]
@@ -445,7 +445,7 @@ public class GetShiftScheduleTests
         var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHolidayBoth", isWeekdayAndHoliday: true);
 
         var monday = GetNextWeekday(DayOfWeek.Monday);
-        var saturday = GetNextWeekday(DayOfWeek.Saturday);
+        var saturday = monday.AddDays(5);
         var startDate = monday;
         var endDate = saturday;
 
