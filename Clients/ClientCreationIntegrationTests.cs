@@ -34,14 +34,32 @@ public class ClientCreationIntegrationTests
     private const string TestClientPrefix = "INTEGRATION_TEST_";
 
     [OneTimeSetUp]
-    public void OneTimeSetUp()
+    public async Task OneTimeSetUp()
     {
         _connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
             ?? "Host=localhost;Port=5434;Database=klacks1;Username=postgres;Password=admin";
+
+        var options = new DbContextOptionsBuilder<DataBaseContext>()
+            .UseNpgsql(_connectionString)
+            .Options;
+
+        var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
+        using var context = new DataBaseContext(options, mockHttpContextAccessor);
+
+        var orphanedTestClients = await context.Client
+            .Where(c => c.FirstName != null && c.FirstName.StartsWith(TestClientPrefix))
+            .ToListAsync();
+
+        if (orphanedTestClients.Count > 0)
+        {
+            Console.WriteLine($"[OneTimeSetUp] Found {orphanedTestClients.Count} orphaned test clients. Cleaning up...");
+            await CleanupTestDataWithContext(context);
+            Console.WriteLine("[OneTimeSetUp] Cleanup completed.");
+        }
     }
 
     [SetUp]
-    public async Task SetUp()
+    public void SetUp()
     {
         var options = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(_connectionString)
@@ -49,8 +67,6 @@ public class ClientCreationIntegrationTests
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
         _context = new DataBaseContext(options, mockHttpContextAccessor);
-
-        await CleanupTestData();
     }
 
     [TearDown]
@@ -62,55 +78,23 @@ public class ClientCreationIntegrationTests
 
     private async Task CleanupTestData()
     {
-        var testClients = await _context.Client
-            .Where(c => c.FirstName != null && c.FirstName.StartsWith(TestClientPrefix))
-            .ToListAsync();
+        await CleanupTestDataWithContext(_context);
+    }
 
-        foreach (var client in testClients)
-        {
-            var clientImage = await _context.ClientImage
-                .FirstOrDefaultAsync(ci => ci.ClientId == client.Id);
-            if (clientImage != null)
-            {
-                _context.ClientImage.Remove(clientImage);
-            }
+    private static async Task CleanupTestDataWithContext(DataBaseContext context)
+    {
+        var sql = $@"
+            DELETE FROM client_image WHERE client_id IN (SELECT id FROM client WHERE first_name LIKE '{TestClientPrefix}%');
+            DELETE FROM membership WHERE client_id IN (SELECT id FROM client WHERE first_name LIKE '{TestClientPrefix}%');
+            DELETE FROM communication WHERE client_id IN (SELECT id FROM client WHERE first_name LIKE '{TestClientPrefix}%');
+            DELETE FROM annotation WHERE client_id IN (SELECT id FROM client WHERE first_name LIKE '{TestClientPrefix}%');
+            DELETE FROM address WHERE client_id IN (SELECT id FROM client WHERE first_name LIKE '{TestClientPrefix}%');
+            DELETE FROM client_contract WHERE client_id IN (SELECT id FROM client WHERE first_name LIKE '{TestClientPrefix}%');
+            DELETE FROM group_item WHERE client_id IN (SELECT id FROM client WHERE first_name LIKE '{TestClientPrefix}%');
+            DELETE FROM client WHERE first_name LIKE '{TestClientPrefix}%';
+        ";
 
-            var membership = await _context.Membership
-                .FirstOrDefaultAsync(m => m.ClientId == client.Id);
-            if (membership != null)
-            {
-                _context.Membership.Remove(membership);
-            }
-
-            var communications = await _context.Communication
-                .Where(c => c.ClientId == client.Id)
-                .ToListAsync();
-            _context.Communication.RemoveRange(communications);
-
-            var annotations = await _context.Annotation
-                .Where(a => a.ClientId == client.Id)
-                .ToListAsync();
-            _context.Annotation.RemoveRange(annotations);
-
-            var addresses = await _context.Address
-                .Where(a => a.ClientId == client.Id)
-                .ToListAsync();
-            _context.Address.RemoveRange(addresses);
-
-            var clientContracts = await _context.ClientContract
-                .Where(cc => cc.ClientId == client.Id)
-                .ToListAsync();
-            _context.ClientContract.RemoveRange(clientContracts);
-
-            var groupItems = await _context.GroupItem
-                .Where(gi => gi.ClientId == client.Id)
-                .ToListAsync();
-            _context.GroupItem.RemoveRange(groupItems);
-
-            _context.Client.Remove(client);
-        }
-
-        await _context.SaveChangesAsync();
+        await context.Database.ExecuteSqlRawAsync(sql);
     }
 
     [Test]
