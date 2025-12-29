@@ -241,7 +241,7 @@ public class WorkNotificationHubTests
         _httpClient.DefaultRequestHeaders.Remove("X-SignalR-ConnectionId");
         _httpClient.DefaultRequestHeaders.Add("X-SignalR-ConnectionId", connectionId1);
 
-        var response = await _httpClient.PostAsJsonAsync("/api/v1/backend/Works", workRequest);
+        var response = await _httpClient.PostAsJsonAsync("/api/backend/Works", workRequest);
         response.EnsureSuccessStatusCode();
 
         await Task.Delay(2000);
@@ -296,7 +296,7 @@ public class WorkNotificationHubTests
         _httpClient.DefaultRequestHeaders.Remove("X-SignalR-ConnectionId");
         _httpClient.DefaultRequestHeaders.Add("X-SignalR-ConnectionId", connectionId1);
 
-        var response = await _httpClient.DeleteAsync($"/api/v1/backend/Works/{workId}");
+        var response = await _httpClient.DeleteAsync($"/api/backend/Works/{workId}");
         response.EnsureSuccessStatusCode();
 
         await Task.Delay(1000);
@@ -356,7 +356,7 @@ public class WorkNotificationHubTests
         _httpClient.DefaultRequestHeaders.Remove("X-SignalR-ConnectionId");
         _httpClient.DefaultRequestHeaders.Add("X-SignalR-ConnectionId", connectionId1);
 
-        var response = await _httpClient.PostAsJsonAsync("/api/v1/backend/Works", workRequest);
+        var response = await _httpClient.PostAsJsonAsync("/api/backend/Works", workRequest);
         response.EnsureSuccessStatusCode();
 
         await Task.Delay(1000);
