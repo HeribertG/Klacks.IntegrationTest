@@ -712,7 +712,7 @@ public class GetShiftScheduleTests
     #region Group Filter Tests
 
     [Test]
-    public async Task GetShiftSchedule_WithGroupFilter_Should_Return_Shift_Without_Group()
+    public async Task GetShiftSchedule_WithGroupFilter_Should_Return_Shift_Without_Group_When_ShowUngrouped()
     {
         // Arrange
         var group = await CreateTestGroup("FilterTest1");
@@ -727,11 +727,12 @@ public class GetShiftScheduleTests
             startDate,
             endDate,
             null,
-            new List<Guid> { group.Id }).ToListAsync();
+            new List<Guid> { group.Id },
+            showUngroupedShifts: true).ToListAsync();
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftWithoutGroup.Id).ToList();
-        shiftResults.Should().HaveCount(1, "Shifts without group should always be returned");
+        shiftResults.Should().HaveCount(1, "Shifts without group should be returned when showUngroupedShifts is true");
     }
 
     [Test]
@@ -917,7 +918,7 @@ public class GetShiftScheduleTests
     #region Visibility Filter Tests (Non-Admin with GroupVisibility)
 
     [Test]
-    public async Task GetShiftSchedule_WithVisibleGroups_Should_Return_Shift_Without_Group()
+    public async Task GetShiftSchedule_WithVisibleGroups_Should_Return_Shift_Without_Group_When_ShowUngrouped()
     {
         // Arrange
         var visibleGroup = await CreateTestGroup("VisibleGroup1");
@@ -932,11 +933,12 @@ public class GetShiftScheduleTests
             startDate,
             endDate,
             null,
-            new List<Guid> { visibleGroup.Id }).ToListAsync();
+            new List<Guid> { visibleGroup.Id },
+            showUngroupedShifts: true).ToListAsync();
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftWithoutGroup.Id).ToList();
-        shiftResults.Should().HaveCount(1, "Shifts without group should always be visible");
+        shiftResults.Should().HaveCount(1, "Shifts without group should be visible when showUngroupedShifts is true");
     }
 
     [Test]
