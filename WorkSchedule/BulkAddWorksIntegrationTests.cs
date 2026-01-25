@@ -114,7 +114,6 @@ public class BulkAddWorksIntegrationTests
 
         _handler = new BulkAddWorksCommandHandler(
             workRepository,
-            shiftRepository,
             scheduleMapper,
             unitOfWork,
             workNotificationService,
@@ -303,6 +302,19 @@ OUTPUT 1, Round(TotalBonus, 2)",
         await _context.SaveChangesAsync();
     }
 
+    private BulkWorkItem CreateWorkItem(DateTime date)
+    {
+        return new BulkWorkItem
+        {
+            ClientId = _testClientId,
+            ShiftId = _testShiftId,
+            CurrentDate = date,
+            WorkTime = 8,
+            StartTime = new TimeOnly(8, 0, 0),
+            EndTime = new TimeOnly(16, 0, 0)
+        };
+    }
+
     [Test]
     public async Task BulkAddWorks_Saturday_ShouldReturnCorrectPeriodHours()
     {
@@ -311,16 +323,9 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
         var request = new BulkAddWorksRequest
         {
-            ShiftId = _testShiftId,
-            WorkTime = 8,
-            Entries = new List<WorkEntry>
-            {
-                new WorkEntry
-                {
-                    ClientId = _testClientId,
-                    CurrentDate = saturday
-                }
-            }
+            Works = [CreateWorkItem(saturday)],
+            PeriodStart = new DateOnly(2025, 1, 1),
+            PeriodEnd = new DateOnly(2025, 1, 31)
         };
         var command = new BulkAddWorksCommand(request);
 
@@ -347,16 +352,9 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
         var request = new BulkAddWorksRequest
         {
-            ShiftId = _testShiftId,
-            WorkTime = 8,
-            Entries = new List<WorkEntry>
-            {
-                new WorkEntry
-                {
-                    ClientId = _testClientId,
-                    CurrentDate = sunday
-                }
-            }
+            Works = [CreateWorkItem(sunday)],
+            PeriodStart = new DateOnly(2025, 1, 1),
+            PeriodEnd = new DateOnly(2025, 1, 31)
         };
         var command = new BulkAddWorksCommand(request);
 
@@ -382,16 +380,9 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
         var request = new BulkAddWorksRequest
         {
-            ShiftId = _testShiftId,
-            WorkTime = 8,
-            Entries = new List<WorkEntry>
-            {
-                new WorkEntry
-                {
-                    ClientId = _testClientId,
-                    CurrentDate = monday
-                }
-            }
+            Works = [CreateWorkItem(monday)],
+            PeriodStart = new DateOnly(2025, 1, 1),
+            PeriodEnd = new DateOnly(2025, 1, 31)
         };
         var command = new BulkAddWorksCommand(request);
 
@@ -419,14 +410,14 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
         var request = new BulkAddWorksRequest
         {
-            ShiftId = _testShiftId,
-            WorkTime = 8,
-            Entries = new List<WorkEntry>
-            {
-                new WorkEntry { ClientId = _testClientId, CurrentDate = saturday },
-                new WorkEntry { ClientId = _testClientId, CurrentDate = sunday },
-                new WorkEntry { ClientId = _testClientId, CurrentDate = monday }
-            }
+            Works =
+            [
+                CreateWorkItem(saturday),
+                CreateWorkItem(sunday),
+                CreateWorkItem(monday)
+            ],
+            PeriodStart = new DateOnly(2025, 1, 1),
+            PeriodEnd = new DateOnly(2025, 1, 31)
         };
         var command = new BulkAddWorksCommand(request);
 
@@ -475,16 +466,9 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
         var request = new BulkAddWorksRequest
         {
-            ShiftId = _testShiftId,
-            WorkTime = 8,
-            Entries = new List<WorkEntry>
-            {
-                new WorkEntry
-                {
-                    ClientId = _testClientId,
-                    CurrentDate = newYear
-                }
-            }
+            Works = [CreateWorkItem(newYear)],
+            PeriodStart = new DateOnly(2025, 1, 1),
+            PeriodEnd = new DateOnly(2025, 1, 31)
         };
         var command = new BulkAddWorksCommand(request);
 
@@ -557,7 +541,6 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
         return new BulkAddWorksCommandHandler(
             workRepository,
-            shiftRepository,
             scheduleMapper,
             unitOfWork,
             workNotificationService,
