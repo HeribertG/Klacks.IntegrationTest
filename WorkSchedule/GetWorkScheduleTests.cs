@@ -154,7 +154,7 @@ public class GetWorkScheduleTests
         // Assert
         result.Should().HaveCount(1);
         result[0].EntryType.Should().Be(0);
-        result[0].ShiftName.Should().Be("TEST_Shift");
+        result[0].EntryName.Should().Be("TEST_Shift");
         result[0].StartTime.Should().Be(new TimeSpan(8, 0, 0));
         result[0].EndTime.Should().Be(new TimeSpan(16, 0, 0));
     }
