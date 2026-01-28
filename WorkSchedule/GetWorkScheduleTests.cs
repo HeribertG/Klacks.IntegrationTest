@@ -1,7 +1,7 @@
 using FluentAssertions;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Models.Schedules;
-using Klacks.Api.Domain.Services.WorkSchedule;
+using Klacks.Api.Domain.Services.ScheduleEntries;
 using Klacks.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -15,8 +15,8 @@ namespace IntegrationTest.WorkSchedule;
 public class GetWorkScheduleTests
 {
     private DataBaseContext _context = null!;
-    private IWorkScheduleService _service = null!;
-    private ILogger<WorkScheduleService> _logger = null!;
+    private IScheduleEntriesService _service = null!;
+    private ILogger<ScheduleEntriesService> _logger = null!;
     private string _connectionString = null!;
 
     private Guid _testClientId;
@@ -41,9 +41,9 @@ public class GetWorkScheduleTests
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
         _context = new DataBaseContext(options, mockHttpContextAccessor);
-        _logger = Substitute.For<ILogger<WorkScheduleService>>();
+        _logger = Substitute.For<ILogger<ScheduleEntriesService>>();
 
-        _service = new WorkScheduleService(_context, _logger);
+        _service = new ScheduleEntriesService(_context, _logger);
 
         await SetupTestData();
     }
@@ -147,7 +147,7 @@ public class GetWorkScheduleTests
         var endDate = new DateOnly(2025, 1, 31);
 
         // Act
-        var result = await _service.GetWorkScheduleQuery(startDate, endDate)
+        var result = await _service.GetScheduleEntriesQuery(startDate, endDate)
             .Where(e => e.ClientId == _testClientId && e.EntryType == 0)
             .ToListAsync();
 
@@ -167,7 +167,7 @@ public class GetWorkScheduleTests
         var endDate = new DateOnly(2025, 1, 31);
 
         // Act
-        var result = await _service.GetWorkScheduleQuery(startDate, endDate)
+        var result = await _service.GetScheduleEntriesQuery(startDate, endDate)
             .Where(e => e.ClientId == _testClientId && e.EntryType == 1)
             .ToListAsync();
 
@@ -186,7 +186,7 @@ public class GetWorkScheduleTests
         var endDate = new DateOnly(2025, 1, 31);
 
         // Act
-        var result = await _service.GetWorkScheduleQuery(startDate, endDate)
+        var result = await _service.GetScheduleEntriesQuery(startDate, endDate)
             .Where(e => e.ClientId == _testClientId && e.EntryType == 2)
             .ToListAsync();
 
@@ -205,7 +205,7 @@ public class GetWorkScheduleTests
         var endDate = new DateOnly(2025, 1, 31);
 
         // Act
-        var result = await _service.GetWorkScheduleQuery(startDate, endDate)
+        var result = await _service.GetScheduleEntriesQuery(startDate, endDate)
             .Where(e => e.ClientId == _testClientId)
             .OrderBy(e => e.EntryType)
             .ToListAsync();
@@ -225,7 +225,7 @@ public class GetWorkScheduleTests
         var endDate = new DateOnly(2025, 2, 28);
 
         // Act
-        var result = await _service.GetWorkScheduleQuery(startDate, endDate)
+        var result = await _service.GetScheduleEntriesQuery(startDate, endDate)
             .Where(e => e.ClientId == _testClientId)
             .ToListAsync();
 
