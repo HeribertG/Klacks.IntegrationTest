@@ -92,6 +92,7 @@ public class BulkAddWorksIntegrationTests
             macroCache,
             macroDataProvider,
             macroEngine,
+            _context,
             Substitute.For<ILogger<WorkMacroService>>());
 
         var workRepository = new WorkRepository(
@@ -517,6 +518,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
             macroCache,
             macroDataProvider,
             macroEngine,
+            _context,
             Substitute.For<ILogger<WorkMacroService>>());
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
