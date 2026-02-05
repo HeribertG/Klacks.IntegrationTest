@@ -94,7 +94,6 @@ public class GetWorkScheduleTests
             WorkTime = 480,
             StartTime = new TimeOnly(8, 0, 0),
             EndTime = new TimeOnly(16, 0, 0),
-            IsSealed = false,
             IsDeleted = false
         };
         _context.Work.Add(work);

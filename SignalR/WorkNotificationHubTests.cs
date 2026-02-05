@@ -281,7 +281,6 @@ public class WorkNotificationHubTests
             ShiftId = _testShiftId,
             CurrentDate = DateOnly.FromDateTime(DateTime.UtcNow),
             WorkTime = 8,
-            IsSealed = false,
             IsDeleted = false
         };
         _context.Work.Add(work);

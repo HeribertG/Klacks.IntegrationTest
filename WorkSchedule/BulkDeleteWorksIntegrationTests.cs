@@ -138,7 +138,6 @@ public class BulkDeleteWorksIntegrationTests
             Surcharges = 0.8m,
             StartTime = new TimeOnly(8, 0, 0),
             EndTime = new TimeOnly(16, 0, 0),
-            IsSealed = false,
             IsDeleted = false
         };
         _context.Work.Add(saturdayWork);
@@ -155,7 +154,6 @@ public class BulkDeleteWorksIntegrationTests
             Surcharges = 0.8m,
             StartTime = new TimeOnly(8, 0, 0),
             EndTime = new TimeOnly(16, 0, 0),
-            IsSealed = false,
             IsDeleted = false
         };
         _context.Work.Add(sundayWork);
@@ -172,7 +170,6 @@ public class BulkDeleteWorksIntegrationTests
             Surcharges = 0m,
             StartTime = new TimeOnly(8, 0, 0),
             EndTime = new TimeOnly(16, 0, 0),
-            IsSealed = false,
             IsDeleted = false
         };
         _context.Work.Add(mondayWork);
