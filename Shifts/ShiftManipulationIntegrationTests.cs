@@ -15,7 +15,7 @@ using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Infrastructure.Repositories.Settings;
 using Klacks.Api.Application.Services.Schedules;
 using Klacks.Api.Infrastructure.Services;
-using Klacks.Api.Application.Services.Common;
+using Klacks.Api.Infrastructure.Services;
 using Klacks.Api.Application.DTOs.Schedules;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
