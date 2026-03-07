@@ -4,6 +4,8 @@ using Klacks.Api.Application.Handlers.Works;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Mappers;
 using Klacks.Api.Domain.Interfaces;
+using Klacks.Api.Domain.Interfaces.Associations;
+using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Services.Common;
 using Klacks.Api.Infrastructure.Services.PeriodHours;
@@ -50,19 +52,23 @@ public class BulkDeleteWorksIntegrationTests
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
         _context = new DataBaseContext(options, mockHttpContextAccessor);
 
+        var contractDataProvider = CreateContractDataProviderMock();
+
         var workNotificationService = Substitute.For<IWorkNotificationService>();
         var periodHoursService = new PeriodHoursService(
             _context,
             Substitute.For<ILogger<PeriodHoursService>>(),
             workNotificationService,
-            Substitute.For<IClientGroupFilterService>());
+            Substitute.For<IClientGroupFilterService>(),
+            contractDataProvider);
 
         var workRepository = new WorkRepository(
             _context,
             Substitute.For<ILogger<Work>>(),
             Substitute.For<IClientGroupFilterService>(),
             Substitute.For<IClientSearchFilterService>(),
-            Substitute.For<IWorkMacroService>());
+            Substitute.For<IWorkMacroService>(),
+            contractDataProvider);
 
         var scheduleMapper = new ScheduleMapper();
         var shiftStatsNotificationService = Substitute.For<IShiftStatsNotificationService>();
@@ -302,5 +308,32 @@ public class BulkDeleteWorksIntegrationTests
         response.SuccessCount.Should().Be(0);
         response.FailedCount.Should().Be(1);
         response.DeletedIds.Should().BeEmpty("No works were deleted");
+    }
+
+    private static IClientContractDataProvider CreateContractDataProviderMock()
+    {
+        var mock = Substitute.For<IClientContractDataProvider>();
+        var defaultData = new EffectiveContractData
+        {
+            GuaranteedHours = 40m,
+            MaximumHours = 48m,
+            FullTime = 40m,
+            DefaultWorkingHours = 8m,
+            NightRate = 0.1m,
+            HolidayRate = 0.15m,
+            SaRate = 0.1m,
+            SoRate = 0.1m,
+            HasActiveContract = true,
+            PaymentInterval = 1
+        };
+        mock.GetEffectiveContractDataAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>(), Arg.Any<int?>())
+            .Returns(defaultData);
+        mock.GetEffectiveContractDataForClientsAsync(Arg.Any<List<Guid>>(), Arg.Any<DateOnly>(), Arg.Any<int?>())
+            .Returns(callInfo =>
+            {
+                var clientIds = callInfo.Arg<List<Guid>>();
+                return Task.FromResult(clientIds.ToDictionary(id => id, _ => defaultData));
+            });
+        return mock;
     }
 }

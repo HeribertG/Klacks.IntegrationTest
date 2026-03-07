@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
+using Klacks.Api.Domain.Interfaces.Associations;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
@@ -196,7 +197,7 @@ public class WorkScheduleFilterTests
         var mockPeriodHoursService = Substitute.For<IPeriodHoursService>();
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
         var mockUnitOfWork = Substitute.For<IUnitOfWork>();
-        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService);
+        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
         var startDate = new DateOnly(now.Year, now.Month, 1).AddDays(-5);
@@ -234,7 +235,7 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService);
+        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
         var startDate = new DateOnly(now.Year, now.Month, 1).AddDays(-5);
@@ -273,7 +274,7 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService);
+        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
         var startDate = new DateOnly(now.Year, now.Month, 1).AddDays(-5);
@@ -310,7 +311,7 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService);
+        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
         var startDate = new DateOnly(now.Year, now.Month, 1).AddDays(-5);
@@ -350,7 +351,7 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService);
+        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
         var startDate = new DateOnly(now.Year, now.Month, 1).AddDays(-5);
