@@ -1,6 +1,6 @@
 using FluentAssertions;
 using Klacks.Api.Domain.Common;
-using Klacks.Api.Domain.Interfaces.Settings;
+using Klacks.Api.Application.Interfaces.Settings;
 using Klacks.Api.Presentation.Controllers.UserBackend;
 using Klacks.Api.Application.DTOs.Config;
 using Microsoft.AspNetCore.Mvc;
