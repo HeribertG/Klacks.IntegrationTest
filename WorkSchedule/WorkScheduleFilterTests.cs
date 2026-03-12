@@ -6,6 +6,7 @@ using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Common;
+using Klacks.Api.Application.Services.Clients;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Domain.Models.Filters;
@@ -197,7 +198,8 @@ public class WorkScheduleFilterTests
         var mockPeriodHoursService = Substitute.For<IPeriodHoursService>();
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
         var mockUnitOfWork = Substitute.For<IUnitOfWork>();
-        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
+        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter);
+        var repository = new WorkRepository(_context, mockLogger, baseQueryService, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
         var startDate = new DateOnly(now.Year, now.Month, 1).AddDays(-5);
@@ -235,7 +237,8 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
+        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter);
+        var repository = new WorkRepository(_context, mockLogger, baseQueryService, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
         var startDate = new DateOnly(now.Year, now.Month, 1).AddDays(-5);
@@ -274,7 +277,8 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
+        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter);
+        var repository = new WorkRepository(_context, mockLogger, baseQueryService, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
         var startDate = new DateOnly(now.Year, now.Month, 1).AddDays(-5);
@@ -311,7 +315,8 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
+        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter);
+        var repository = new WorkRepository(_context, mockLogger, baseQueryService, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
         var startDate = new DateOnly(now.Year, now.Month, 1).AddDays(-5);
@@ -351,7 +356,8 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var repository = new WorkRepository(_context, mockLogger, mockGroupFilter, mockSearchFilter, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
+        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter);
+        var repository = new WorkRepository(_context, mockLogger, baseQueryService, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
         var startDate = new DateOnly(now.Year, now.Month, 1).AddDays(-5);

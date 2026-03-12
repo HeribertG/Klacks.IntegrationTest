@@ -13,6 +13,7 @@ using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Settings;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Common;
+using Klacks.Api.Application.Services.Clients;
 using Klacks.Api.Infrastructure.Services.Macros;
 using Klacks.Api.Infrastructure.Services.PeriodHours;
 using Klacks.Api.Infrastructure.Services.Schedules;
@@ -102,11 +103,11 @@ public class BulkAddWorksIntegrationTests
             macroEngine,
             Substitute.For<ILogger<WorkMacroService>>());
 
+        var baseQueryService = new ClientBaseQueryService(_context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientSearchFilterService>());
         var workRepository = new WorkRepository(
             _context,
             Substitute.For<ILogger<Work>>(),
-            Substitute.For<IClientGroupFilterService>(),
-            Substitute.For<IClientSearchFilterService>(),
+            baseQueryService,
             workMacroService,
             contractDataProvider);
 
@@ -533,11 +534,11 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
 
+        var baseQueryService = new ClientBaseQueryService(_context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientSearchFilterService>());
         var workRepository = new WorkRepository(
             _context,
             Substitute.For<ILogger<Work>>(),
-            Substitute.For<IClientGroupFilterService>(),
-            Substitute.For<IClientSearchFilterService>(),
+            baseQueryService,
             workMacroService,
             contractDataProvider);
 

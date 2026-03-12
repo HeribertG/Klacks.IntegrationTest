@@ -8,6 +8,7 @@ using Klacks.Api.Domain.Interfaces.Associations;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Services.Common;
+using Klacks.Api.Application.Services.Clients;
 using Klacks.Api.Infrastructure.Services.PeriodHours;
 using Klacks.Api.Infrastructure.Hubs;
 using Klacks.Api.Infrastructure.Persistence;
@@ -62,11 +63,11 @@ public class BulkDeleteWorksIntegrationTests
             Substitute.For<IClientGroupFilterService>(),
             contractDataProvider);
 
+        var baseQueryService = new ClientBaseQueryService(_context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientSearchFilterService>());
         var workRepository = new WorkRepository(
             _context,
             Substitute.For<ILogger<Work>>(),
-            Substitute.For<IClientGroupFilterService>(),
-            Substitute.For<IClientSearchFilterService>(),
+            baseQueryService,
             Substitute.For<IWorkMacroService>(),
             contractDataProvider);
 
