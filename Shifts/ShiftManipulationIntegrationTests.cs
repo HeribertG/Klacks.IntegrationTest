@@ -13,6 +13,7 @@ using Klacks.Api.Infrastructure.Repositories;
 using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Application.Services.Schedules;
 using Klacks.Api.Infrastructure.Services;
+using Klacks.Api.Infrastructure.Services.Schedules;
 using Klacks.Api.Infrastructure.Services.Shifts;
 using Klacks.Api.Application.DTOs.Schedules;
 using Microsoft.AspNetCore.Http;
@@ -91,6 +92,7 @@ public class ShiftManipulationIntegrationTests
         var shiftSortingService = new ShiftSortingService();
         var shiftStatusFilterService = new ShiftStatusFilterService();
         var shiftPaginationService = new ShiftPaginationService();
+        var queryPipeline = new ShiftQueryPipelineService(dateRangeFilterService, shiftSearchService, shiftSortingService, shiftStatusFilterService, shiftPaginationService);
 
         // Services with constructor params
         var shiftGroupManagementServiceLogger = Substitute.For<ILogger<ShiftGroupManagementService>>();
@@ -106,11 +108,7 @@ public class ShiftManipulationIntegrationTests
         _shiftRepository = new ShiftRepository(
             _context,
             shiftRepositoryLogger,
-            dateRangeFilterService,
-            shiftSearchService,
-            shiftSortingService,
-            shiftStatusFilterService,
-            shiftPaginationService,
+            queryPipeline,
             shiftGroupManagementService,
             entityCollectionUpdateService,
             shiftValidator,
