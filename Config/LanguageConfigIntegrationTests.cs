@@ -92,8 +92,9 @@ public class LanguageConfigIntegrationTests
 
         var languagePluginService = Substitute.For<ILanguagePluginService>();
         languagePluginService.GetInstalledPluginCodes().Returns(new List<string>());
+        var featurePluginService = Substitute.For<Klacks.Api.Application.Interfaces.Plugins.IFeaturePluginService>();
         var marketplaceClient = Substitute.For<IMarketplaceClientService>();
-        var controller = new LanguageConfigController(configuration, languagePluginService, marketplaceClient);
+        var controller = new LanguageConfigController(configuration, languagePluginService, featurePluginService, marketplaceClient);
 
         // Act
         var result = controller.GetLanguages();
