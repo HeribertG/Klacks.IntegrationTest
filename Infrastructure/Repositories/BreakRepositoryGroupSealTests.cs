@@ -57,15 +57,12 @@ public class BreakRepositoryGroupSealTests
     [TearDown]
     public async Task TearDown()
     {
-        var sql = $@"
-            DELETE FROM break WHERE id IN ('{_break1Id}', '{_break2Id}');
-            DELETE FROM work WHERE id IN ('{_work1Id}', '{_work2Id}');
-            DELETE FROM group_item WHERE group_id IN ('{_group1Id}', '{_group2Id}');
-            DELETE FROM ""group"" WHERE id IN ('{_group1Id}', '{_group2Id}');
-            DELETE FROM shift WHERE id IN ('{_shift1Id}', '{_shift2Id}');
-            DELETE FROM client WHERE id IN ('{_client1Id}', '{_client2Id}');";
-
-        await _context.Database.ExecuteSqlRawAsync(sql);
+        await _context.Break.Where(e => e.Id == _break1Id || e.Id == _break2Id).ExecuteDeleteAsync();
+        await _context.Work.Where(e => e.Id == _work1Id || e.Id == _work2Id).ExecuteDeleteAsync();
+        await _context.GroupItem.Where(e => e.GroupId == _group1Id || e.GroupId == _group2Id).ExecuteDeleteAsync();
+        await _context.Group.Where(e => e.Id == _group1Id || e.Id == _group2Id).ExecuteDeleteAsync();
+        await _context.Shift.Where(e => e.Id == _shift1Id || e.Id == _shift2Id).ExecuteDeleteAsync();
+        await _context.Client.Where(e => e.Id == _client1Id || e.Id == _client2Id).ExecuteDeleteAsync();
         _context.Dispose();
     }
 
