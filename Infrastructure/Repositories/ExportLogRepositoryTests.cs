@@ -36,8 +36,9 @@ public class ExportLogRepositoryTests
     {
         if (_insertedIds.Count > 0)
         {
-            var idList = string.Join("','", _insertedIds);
-            await _context.Database.ExecuteSqlRawAsync($"DELETE FROM export_log WHERE id IN ('{idList}')");
+            await _context.ExportLog
+                .Where(e => _insertedIds.Contains(e.Id))
+                .ExecuteDeleteAsync();
         }
 
         _context.Dispose();
@@ -62,6 +63,7 @@ public class ExportLogRepositoryTests
         };
 
         await _repo.AddAsync(entry);
+        await _context.SaveChangesAsync();
         _insertedIds.Add(entry.Id);
 
         entry.Id.Should().NotBe(Guid.Empty);
@@ -89,6 +91,7 @@ public class ExportLogRepositoryTests
         };
 
         await _repo.AddAsync(entry);
+        await _context.SaveChangesAsync();
         _insertedIds.Add(entry.Id);
 
         _context.ChangeTracker.Clear();
@@ -124,7 +127,9 @@ public class ExportLogRepositoryTests
             ExportedBy = "integration-test"
         };
         await _repo.AddAsync(globalEntry);
+        await _context.SaveChangesAsync();
         await _repo.AddAsync(groupAEntry);
+        await _context.SaveChangesAsync();
         _insertedIds.Add(globalEntry.Id);
         _insertedIds.Add(groupAEntry.Id);
 
@@ -151,6 +156,7 @@ public class ExportLogRepositoryTests
         };
 
         await _repo.AddAsync(entry);
+        await _context.SaveChangesAsync();
         _insertedIds.Add(entry.Id);
 
         _context.ChangeTracker.Clear();

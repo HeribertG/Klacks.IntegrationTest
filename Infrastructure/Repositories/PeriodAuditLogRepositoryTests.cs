@@ -37,8 +37,9 @@ public class PeriodAuditLogRepositoryTests
     {
         if (_insertedIds.Count > 0)
         {
-            var idList = string.Join("','", _insertedIds);
-            await _context.Database.ExecuteSqlRawAsync($"DELETE FROM period_audit_log WHERE id IN ('{idList}')");
+            await _context.PeriodAuditLog
+                .Where(e => _insertedIds.Contains(e.Id))
+                .ExecuteDeleteAsync();
         }
 
         _context.Dispose();
@@ -59,6 +60,7 @@ public class PeriodAuditLogRepositoryTests
         };
 
         await _repo.AddAsync(entry);
+        await _context.SaveChangesAsync();
         _insertedIds.Add(entry.Id);
 
         entry.Id.Should().NotBe(Guid.Empty);
@@ -90,8 +92,10 @@ public class PeriodAuditLogRepositoryTests
         };
 
         await _repo.AddAsync(entry1);
+        await _context.SaveChangesAsync();
         _insertedIds.Add(entry1.Id);
         await _repo.AddAsync(entry2);
+        await _context.SaveChangesAsync();
         _insertedIds.Add(entry2.Id);
 
         _context.ChangeTracker.Clear();
