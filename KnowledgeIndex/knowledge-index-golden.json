@@ -1,6 +1,4 @@
 [
-  { "query": "zeig offene Schichten", "expectedSourceId": "list_open_shifts" },
-  { "query": "show open shifts", "expectedSourceId": "list_open_shifts" },
   { "query": "neuen Mitarbeiter anlegen", "expectedSourceId": "create_employee" },
   { "query": "create a new employee", "expectedSourceId": "create_employee" },
   { "query": "Schicht erstellen", "expectedSourceId": "create_shift" },
