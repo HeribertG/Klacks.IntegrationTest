@@ -28,6 +28,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<None Update="KnowledgeIndex\knowledge-index-golden.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\Klacks.Api\Klacks.Api.csproj" />
 	</ItemGroup>
 
