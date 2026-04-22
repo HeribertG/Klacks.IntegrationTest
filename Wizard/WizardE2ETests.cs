@@ -10,6 +10,7 @@ using Klacks.IntegrationTest.SignalR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using NUnit.Framework;
 
@@ -159,6 +160,65 @@ public class WizardE2ETests
         });
 
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.NotFound);
+    }
+
+    [Test]
+    public async Task WizardContextBuilder_MinimalFixture_ProducesFeasibleContext()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var builder = scope.ServiceProvider
+            .GetRequiredService<Klacks.Api.Application.Services.Schedules.IWizardContextBuilder>();
+
+        var request = new Klacks.Api.Application.Services.Schedules.WizardContextRequest(
+            PeriodFrom: new DateOnly(2099, 1, 5),
+            PeriodUntil: new DateOnly(2099, 1, 7),
+            AgentIds: new[] { _testClientId },
+            ShiftIds: new[] { _testShiftId },
+            AnalyseToken: null);
+
+        var context = await builder.BuildContextAsync(request, CancellationToken.None);
+
+        TestContext.Out.WriteLine($"Agents: {context.Agents.Count}");
+        foreach (var a in context.Agents)
+        {
+            TestContext.Out.WriteLine($"  Agent {a.Id}: FullTime={a.FullTime} PerformsShiftWork={a.PerformsShiftWork} MaxDailyHours={a.MaxDailyHours} MinRestHours={a.MinRestHours} Mo={a.WorkOnMonday} Di={a.WorkOnTuesday} Mi={a.WorkOnWednesday}");
+        }
+
+        TestContext.Out.WriteLine($"Shifts: {context.Shifts.Count}");
+        foreach (var s in context.Shifts)
+        {
+            TestContext.Out.WriteLine($"  Shift {s.Id}: date={s.Date} {s.StartTime}-{s.EndTime} hours={s.Hours}");
+        }
+
+        TestContext.Out.WriteLine($"ContractDays: {context.ContractDays.Count}");
+        foreach (var d in context.ContractDays)
+        {
+            TestContext.Out.WriteLine($"  Day {d.Date}: WorksOnDay={d.WorksOnDay} PerformsShiftWork={d.PerformsShiftWork} MaximumHoursPerDay={d.MaximumHoursPerDay}");
+        }
+
+        TestContext.Out.WriteLine($"SchedulingConstants: MaxConsec={context.SchedulingMaxConsecutiveDays} MinPause={context.SchedulingMinPauseHours} MaxDaily={context.SchedulingMaxDailyHours} MaxWeekly={context.SchedulingMaxWeeklyHours}");
+        TestContext.Out.WriteLine($"Commands: {context.ScheduleCommands.Count}, Breaks: {context.BreakBlockers.Count}, Locked: {context.LockedWorks.Count}, Preferences: {context.ShiftPreferences.Count}");
+
+        var config = new Klacks.ScheduleOptimizer.TokenEvolution.TokenEvolutionConfig
+        {
+            PopulationSize = 20,
+            MaxGenerations = 100,
+            EarlyStopNoImprovementGenerations = 20,
+            RandomSeed = 42,
+        };
+
+        var best = Klacks.ScheduleOptimizer.TokenEvolution.TokenEvolutionLoop.Create().Run(context, config);
+        var violations = new Klacks.ScheduleOptimizer.TokenEvolution.Constraints.TokenConstraintChecker()
+            .Check(best, context);
+
+        TestContext.Out.WriteLine($"Final Stage 0 = {best.FitnessStage0}, Tokens = {best.Tokens.Count}");
+        foreach (var v in violations)
+        {
+            TestContext.Out.WriteLine($"  [{v.Kind}] agent={v.AgentId} date={v.Date} desc={v.Description}");
+        }
+
+        context.Agents.Should().HaveCount(1, "fixture has exactly one test client");
+        context.ContractDays.Should().HaveCount(3, "period covers 3 days");
     }
 
     private async Task<CompletionPayload?> WaitForCompletionAsync(string token, Guid jobId, TimeSpan timeout)
