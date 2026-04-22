@@ -106,6 +106,7 @@ public class MidnightWorkChangeEntryDateTests
     }
 
     [Test]
+    [Ignore("Superseded by WorkChange Phase 2 (DevKnowledge 7769a32c): CorrectionStart always stays on the work date; wc.start_time is no longer a discriminator because duration-only types persist 00:00.")]
     public async Task CorrectionStart_AfterMidnight_MovesToNextDay()
     {
         await AddWorkChange(WorkChangeType.CorrectionStart, new TimeOnly(1, 0, 0), new TimeOnly(1, 30, 0));
