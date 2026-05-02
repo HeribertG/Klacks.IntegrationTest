@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Infrastructure.Services.ScheduleEntries;
@@ -151,11 +151,11 @@ public class GetWorkScheduleTests
             .ToListAsync();
 
         // Assert
-        result.Should().HaveCount(1);
-        result[0].EntryType.Should().Be(0);
-        result[0].EntryName.Should().Be("TEST_Shift");
-        result[0].StartTime.Should().Be(new TimeSpan(8, 0, 0));
-        result[0].EndTime.Should().Be(new TimeSpan(16, 0, 0));
+        result.Count.ShouldBe(1);
+        result[0].EntryType.ShouldBe(0);
+        result[0].EntryName.ShouldBe("TEST_Shift");
+        result[0].StartTime.ShouldBe(new TimeSpan(8, 0, 0));
+        result[0].EndTime.ShouldBe(new TimeSpan(16, 0, 0));
     }
 
     [Test]
@@ -171,10 +171,10 @@ public class GetWorkScheduleTests
             .ToListAsync();
 
         // Assert
-        result.Should().HaveCount(1);
-        result[0].EntryType.Should().Be(1);
-        result[0].ChangeTime.Should().Be(30);
-        result[0].Description.Should().Be("TEST Überstunden");
+        result.Count.ShouldBe(1);
+        result[0].EntryType.ShouldBe(1);
+        result[0].ChangeTime.ShouldBe(30);
+        result[0].Description.ShouldBe("TEST Überstunden");
     }
 
     [Test]
@@ -190,10 +190,10 @@ public class GetWorkScheduleTests
             .ToListAsync();
 
         // Assert
-        result.Should().HaveCount(1);
-        result[0].EntryType.Should().Be(2);
-        result[0].Amount.Should().Be(25.50m);
-        result[0].Description.Should().Be("TEST Fahrtkosten");
+        result.Count.ShouldBe(1);
+        result[0].EntryType.ShouldBe(2);
+        result[0].Amount.ShouldBe(25.50m);
+        result[0].Description.ShouldBe("TEST Fahrtkosten");
     }
 
     [Test]
@@ -210,10 +210,10 @@ public class GetWorkScheduleTests
             .ToListAsync();
 
         // Assert
-        result.Should().HaveCount(3);
-        result[0].EntryType.Should().Be(0);
-        result[1].EntryType.Should().Be(1);
-        result[2].EntryType.Should().Be(2);
+        result.Count.ShouldBe(3);
+        result[0].EntryType.ShouldBe(0);
+        result[1].EntryType.ShouldBe(1);
+        result[2].EntryType.ShouldBe(2);
     }
 
     [Test]
@@ -229,6 +229,6 @@ public class GetWorkScheduleTests
             .ToListAsync();
 
         // Assert
-        result.Should().BeEmpty();
+        result.ShouldBeEmpty();
     }
 }

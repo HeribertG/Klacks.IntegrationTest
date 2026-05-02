@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Application.Commands;
 using Klacks.Api.Application.Commands.Shifts;
 using Klacks.Api.Application.Handlers.Shifts;
@@ -221,8 +221,8 @@ public class ShiftManipulationIntegrationTests
         var result = await _postHandler.Handle(command, CancellationToken.None);
 
         // Assert
-        result.Should().NotBeNull("Handler should return a result");
-        result!.Status.Should().Be(ShiftStatus.OriginalOrder, "Should remain OriginalOrder (not plannable)");
+        result.ShouldNotBeNull("Handler should return a result");
+        result!.Status.ShouldBe(ShiftStatus.OriginalOrder, "Should remain OriginalOrder (not plannable)");
 
         Console.WriteLine("=== CREATE ORIGINAL ORDER TEST ===");
         Console.WriteLine($"Created Shift: Id={result.Id}, Status={result.Status}, Name={result.Name}");
@@ -233,8 +233,8 @@ public class ShiftManipulationIntegrationTests
             .AsNoTracking()
             .ToListAsync();
 
-        shiftsInDb.Should().HaveCount(1, "Should have only 1 shift (OriginalOrder)");
-        shiftsInDb[0].Status.Should().Be(ShiftStatus.OriginalOrder);
+        shiftsInDb.Count.ShouldBe(1, "Should have only 1 shift (OriginalOrder)");
+        shiftsInDb[0].Status.ShouldBe(ShiftStatus.OriginalOrder);
 
         Console.WriteLine("=== TEST PASSED: OriginalOrder created (editable, not plannable) ===");
     }
@@ -247,8 +247,8 @@ public class ShiftManipulationIntegrationTests
         var createCommand = new PostCommand<ShiftResource>(originalOrderResource);
         var originalOrder = await _postHandler.Handle(createCommand, CancellationToken.None);
 
-        originalOrder.Should().NotBeNull();
-        originalOrder!.Status.Should().Be(ShiftStatus.OriginalOrder);
+        originalOrder.ShouldNotBeNull();
+        originalOrder!.Status.ShouldBe(ShiftStatus.OriginalOrder);
 
         Console.WriteLine("=== SEAL ORIGINAL ORDER TEST ===");
         Console.WriteLine($"Step 1: Created OriginalOrder: Id={originalOrder.Id}, Status={originalOrder.Status}");
@@ -259,29 +259,29 @@ public class ShiftManipulationIntegrationTests
         var result = await _putHandler.Handle(sealCommand, CancellationToken.None);
 
         // Assert
-        result.Should().NotBeNull("Handler should return a result");
-        result!.Status.Should().Be(ShiftStatus.OriginalShift, "Returned shift should be OriginalShift (the plannable copy)");
+        result.ShouldNotBeNull("Handler should return a result");
+        result!.Status.ShouldBe(ShiftStatus.OriginalShift, "Returned shift should be OriginalShift (the plannable copy)");
 
         Console.WriteLine($"Step 2: After sealing - Returned: Id={result.Id}, Status={result.Status}, OriginalId={result.OriginalId}");
 
         // Verify database state
         var allShifts = await GetAllShiftsWithOriginalId(result.OriginalId!.Value);
 
-        allShifts.Should().HaveCount(2, "Should have SealedOrder + OriginalShift");
+        allShifts.Count.ShouldBe(2, "Should have SealedOrder + OriginalShift");
 
         var sealedOrder = allShifts.FirstOrDefault(s => s.Status == ShiftStatus.SealedOrder);
         var originalShift = allShifts.FirstOrDefault(s => s.Status == ShiftStatus.OriginalShift);
 
-        sealedOrder.Should().NotBeNull("SealedOrder should exist (permanently sealed)");
-        originalShift.Should().NotBeNull("OriginalShift should exist (plannable copy)");
+        sealedOrder.ShouldNotBeNull("SealedOrder should exist (permanently sealed)");
+        originalShift.ShouldNotBeNull("OriginalShift should exist (plannable copy)");
 
         Console.WriteLine($"SealedOrder: Id={sealedOrder!.Id}, Status={sealedOrder.Status} (permanently sealed)");
         Console.WriteLine($"OriginalShift: Id={originalShift!.Id}, Status={originalShift.Status}, OriginalId={originalShift.OriginalId} (plannable)");
 
         // Verify relationship
-        originalShift.OriginalId.Should().Be(sealedOrder.Id, "OriginalShift.OriginalId should reference SealedOrder");
-        sealedOrder.Name.Should().Be(originalShift.Name, "Names should match");
-        sealedOrder.FromDate.Should().Be(originalShift.FromDate, "FromDate should match");
+        originalShift.OriginalId.ShouldBe(sealedOrder.Id, "OriginalShift.OriginalId should reference SealedOrder");
+        sealedOrder.Name.ShouldBe(originalShift.Name, "Names should match");
+        sealedOrder.FromDate.ShouldBe(originalShift.FromDate, "FromDate should match");
 
         Console.WriteLine("=== TEST PASSED: Workflow OriginalOrder → SealedOrder + OriginalShift ===");
     }
@@ -299,7 +299,7 @@ public class ShiftManipulationIntegrationTests
         var createCommand = new PostCommand<ShiftResource>(shiftResource);
         var createdShift = await _postHandler.Handle(createCommand, CancellationToken.None);
 
-        createdShift.Should().NotBeNull();
+        createdShift.ShouldNotBeNull();
         var originalShiftId = createdShift!.Id;
         var sealedOrderId = createdShift.OriginalId!.Value;
 
@@ -333,22 +333,22 @@ public class ShiftManipulationIntegrationTests
         var results = await _batchCutsHandler.Handle(batchCutsCommand, CancellationToken.None);
 
         // Assert
-        results.Should().HaveCount(2, "Should return 2 SplitShifts");
+        results.Count.ShouldBe(2, "Should return 2 SplitShifts");
 
         foreach (var result in results)
         {
-            result.Status.Should().Be(ShiftStatus.SplitShift, "All results should be SplitShifts");
-            result.OriginalId.Should().Be(sealedOrderId, "OriginalId should reference SealedOrder");
+            result.Status.ShouldBe(ShiftStatus.SplitShift, "All results should be SplitShifts");
+            result.OriginalId.ShouldBe(sealedOrderId, "OriginalId should reference SealedOrder");
             Console.WriteLine($"SplitShift: Id={result.Id}, FromDate={result.FromDate}, UntilDate={result.UntilDate}, " +
                             $"StartShift={result.StartShift}, EndShift={result.EndShift}");
         }
 
         // Verify database state
         var allShifts = await GetAllShiftsWithOriginalId(sealedOrderId);
-        allShifts.Should().HaveCount(4, "Should have SealedOrder + OriginalShift + 2 SplitShifts");
+        allShifts.Count.ShouldBe(4, "Should have SealedOrder + OriginalShift + 2 SplitShifts");
 
         var splitShifts = allShifts.Where(s => s.Status == ShiftStatus.SplitShift).ToList();
-        splitShifts.Should().HaveCount(2, "Should have exactly 2 SplitShifts");
+        splitShifts.Count.ShouldBe(2, "Should have exactly 2 SplitShifts");
 
         Console.WriteLine("=== TEST PASSED ===");
     }
@@ -409,12 +409,12 @@ public class ShiftManipulationIntegrationTests
         var nestedResults = await _batchCutsHandler.Handle(new PostBatchCutsCommand(nestedCutOps), CancellationToken.None);
 
         // Assert
-        nestedResults.Should().HaveCount(2, "Should create 2 nested SplitShifts");
+        nestedResults.Count.ShouldBe(2, "Should create 2 nested SplitShifts");
 
         foreach (var result in nestedResults)
         {
-            result.Status.Should().Be(ShiftStatus.SplitShift);
-            result.ParentId.Should().Be(firstLevelShiftId, "ParentId should reference first-level SplitShift");
+            result.Status.ShouldBe(ShiftStatus.SplitShift);
+            result.ParentId.ShouldBe(firstLevelShiftId, "ParentId should reference first-level SplitShift");
             Console.WriteLine($"Nested SplitShift: Id={result.Id}, ParentId={result.ParentId}, RootId={result.RootId}");
         }
 
@@ -422,10 +422,10 @@ public class ShiftManipulationIntegrationTests
         var allShifts = await GetAllShiftsWithOriginalId(sealedOrderId);
         var splitShifts = allShifts.Where(s => s.Status == ShiftStatus.SplitShift).ToList();
 
-        splitShifts.Should().HaveCount(3, "Should have 3 SplitShifts total (1 first-level + 2 nested)");
+        splitShifts.Count.ShouldBe(3, "Should have 3 SplitShifts total (1 first-level + 2 nested)");
 
         var nestedShifts = splitShifts.Where(s => s.ParentId == firstLevelShiftId).ToList();
-        nestedShifts.Should().HaveCount(2, "Should have 2 nested SplitShifts");
+        nestedShifts.Count.ShouldBe(2, "Should have 2 nested SplitShifts");
 
         Console.WriteLine("=== TEST PASSED ===");
     }
@@ -492,14 +492,14 @@ public class ShiftManipulationIntegrationTests
             s.UntilDate.HasValue &&
             s.UntilDate.Value < new DateOnly(2025, 7, 1)).ToList();
 
-        closedSplits.Should().HaveCountGreaterThanOrEqualTo(0, "Old splits should be closed or deleted");
+        closedSplits.Count.ShouldBeGreaterThanOrEqualTo(0, "Old splits should be closed or deleted");
 
         // Check for new OriginalShift starting from reset date
         var newOriginalShift = resetResults.FirstOrDefault(s =>
             s.Status == ShiftStatus.OriginalShift &&
             s.FromDate >= new DateOnly(2025, 7, 1));
 
-        newOriginalShift.Should().NotBeNull("New OriginalShift should be created from reset date");
+        newOriginalShift.ShouldNotBeNull("New OriginalShift should be created from reset date");
         Console.WriteLine($"New OriginalShift: Id={newOriginalShift!.Id}, FromDate={newOriginalShift.FromDate}");
 
         Console.WriteLine("=== TEST PASSED ===");
@@ -559,12 +559,12 @@ public class ShiftManipulationIntegrationTests
         var updateResults = await _batchCutsHandler.Handle(new PostBatchCutsCommand(updateOps), CancellationToken.None);
 
         // Assert
-        updateResults.Should().HaveCount(1);
+        updateResults.Count.ShouldBe(1);
         var updatedResult = updateResults[0];
 
-        updatedResult.Id.Should().Be(splitShiftId, "Should be the same shift");
-        updatedResult.StartShift.Should().Be(new TimeOnly(9, 0), "StartShift should be updated");
-        updatedResult.EndShift.Should().Be(new TimeOnly(17, 0), "EndShift should be updated");
+        updatedResult.Id.ShouldBe(splitShiftId, "Should be the same shift");
+        updatedResult.StartShift.ShouldBe(new TimeOnly(9, 0), "StartShift should be updated");
+        updatedResult.EndShift.ShouldBe(new TimeOnly(17, 0), "EndShift should be updated");
 
         Console.WriteLine($"Updated SplitShift: Id={updatedResult.Id}, StartShift={updatedResult.StartShift}, EndShift={updatedResult.EndShift}");
         Console.WriteLine("=== TEST PASSED ===");
@@ -641,7 +641,7 @@ public class ShiftManipulationIntegrationTests
         // Verify RootId is set correctly
         foreach (var shift in allSplitShifts)
         {
-            shift.RootId.Should().NotBeNull("RootId should be set for all SplitShifts");
+            shift.RootId.ShouldNotBeNull("RootId should be set for all SplitShifts");
         }
 
         // Verify parent-child relationships
@@ -650,18 +650,18 @@ public class ShiftManipulationIntegrationTests
 
         if (rootShift != null)
         {
-            rootShift.RootId.Should().Be(rootShift.Id, "Root's RootId should reference itself");
+            rootShift.RootId.ShouldBe(rootShift.Id, "Root's RootId should reference itself");
 
             foreach (var child in childShifts)
             {
-                child.RootId.Should().Be(rootShift.RootId, "Children should have same RootId as root");
+                child.RootId.ShouldBe(rootShift.RootId, "Children should have same RootId as root");
             }
         }
 
         // Verify Lft < Rgt for each node (basic nested set invariant)
         foreach (var shift in allSplitShifts.Where(s => s.Lft.HasValue && s.Rgt.HasValue))
         {
-            shift.Lft.Should().BeLessThan(shift.Rgt!.Value, $"Lft should be less than Rgt for {shift.Name}");
+            shift.Lft!.Value.ShouldBeLessThan(shift.Rgt!.Value, $"Lft should be less than Rgt for {shift.Name}");
         }
 
         Console.WriteLine("=== TEST PASSED ===");
@@ -683,8 +683,8 @@ public class ShiftManipulationIntegrationTests
         var createCommand = new PostCommand<ShiftResource>(shiftResource);
         var createdShift = await _postHandler.Handle(createCommand, CancellationToken.None);
 
-        createdShift.Should().NotBeNull();
-        createdShift!.Status.Should().Be(ShiftStatus.OriginalShift);
+        createdShift.ShouldNotBeNull();
+        createdShift!.Status.ShouldBe(ShiftStatus.OriginalShift);
         var sealedOrderId = createdShift.OriginalId!.Value;
         var originalShiftId = createdShift.Id;
 
@@ -709,7 +709,7 @@ public class ShiftManipulationIntegrationTests
         }).ToList();
 
         var splitResults = await _batchCutsHandler.Handle(new PostBatchCutsCommand(splitOps), CancellationToken.None);
-        splitResults.Should().HaveCount(4);
+        splitResults.Count.ShouldBe(4);
 
         foreach (var r in splitResults)
         {
@@ -731,7 +731,7 @@ public class ShiftManipulationIntegrationTests
         };
 
         var updateResults = await _batchCutsHandler.Handle(new PostBatchCutsCommand(updateOps), CancellationToken.None);
-        updateResults[0].StartShift.Should().Be(new TimeOnly(10, 0));
+        updateResults[0].StartShift.ShouldBe(new TimeOnly(10, 0));
         Console.WriteLine($"Updated Q2: StartShift={updateResults[0].StartShift}, EndShift={updateResults[0].EndShift}");
 
         // Step 4: Verify final state
@@ -744,9 +744,9 @@ public class ShiftManipulationIntegrationTests
             Console.WriteLine($"  {s.Name}: Status={s.Status}, FromDate={s.FromDate}, UntilDate={s.UntilDate}");
         }
 
-        finalShifts.Count(s => s.Status == ShiftStatus.SealedOrder).Should().Be(1);
-        finalShifts.Count(s => s.Status == ShiftStatus.OriginalShift).Should().Be(1);
-        finalShifts.Count(s => s.Status == ShiftStatus.SplitShift).Should().Be(4);
+        finalShifts.Count(s => s.Status == ShiftStatus.SealedOrder).ShouldBe(1);
+        finalShifts.Count(s => s.Status == ShiftStatus.OriginalShift).ShouldBe(1);
+        finalShifts.Count(s => s.Status == ShiftStatus.SplitShift).ShouldBe(4);
 
         Console.WriteLine("\n=== FULL WORKFLOW TEST PASSED ===");
     }

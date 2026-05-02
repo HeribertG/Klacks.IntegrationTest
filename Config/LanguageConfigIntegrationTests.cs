@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Common;
 using Klacks.Api.Application.Interfaces.Settings;
 using Klacks.Api.Presentation.Controllers.UserBackend;
@@ -21,12 +21,12 @@ public class LanguageConfigIntegrationTests
         var coreLanguages = MultiLanguage.CoreLanguages;
 
         // Assert
-        coreLanguages.Should().NotBeNull();
-        coreLanguages.Should().HaveCount(4, "MultiLanguage should support exactly 4 core languages");
-        coreLanguages.Should().Contain("de", "German should be supported");
-        coreLanguages.Should().Contain("en", "English should be supported");
-        coreLanguages.Should().Contain("fr", "French should be supported");
-        coreLanguages.Should().Contain("it", "Italian should be supported");
+        coreLanguages.ShouldNotBeNull();
+        coreLanguages.Count().ShouldBe(4, "MultiLanguage should support exactly 4 core languages");
+        coreLanguages.ShouldContain("de", "German should be supported");
+        coreLanguages.ShouldContain("en", "English should be supported");
+        coreLanguages.ShouldContain("fr", "French should be supported");
+        coreLanguages.ShouldContain("it", "Italian should be supported");
 
         Console.WriteLine("=== MultiLanguage.CoreLanguages Test ===");
         Console.WriteLine($"Core languages: [{string.Join(", ", coreLanguages)}]");
@@ -40,12 +40,12 @@ public class LanguageConfigIntegrationTests
         var fallbackOrder = LanguageConfig.FallbackOrder;
 
         // Assert
-        fallbackOrder.Should().NotBeNull();
-        fallbackOrder.Should().HaveCount(4, "FallbackOrder should contain exactly 4 languages");
-        fallbackOrder[0].Should().Be("de", "German should be first fallback");
-        fallbackOrder[1].Should().Be("fr", "French should be second fallback");
-        fallbackOrder[2].Should().Be("it", "Italian should be third fallback");
-        fallbackOrder[3].Should().Be("en", "English should be fourth fallback");
+        fallbackOrder.ShouldNotBeNull();
+        fallbackOrder.Count().ShouldBe(4, "FallbackOrder should contain exactly 4 languages");
+        fallbackOrder[0].ShouldBe("de", "German should be first fallback");
+        fallbackOrder[1].ShouldBe("fr", "French should be second fallback");
+        fallbackOrder[2].ShouldBe("it", "Italian should be third fallback");
+        fallbackOrder[3].ShouldBe("en", "English should be fourth fallback");
 
         Console.WriteLine("=== LanguageConfig.FallbackOrder Test ===");
         Console.WriteLine($"Fallback order: [{string.Join(" -> ", fallbackOrder)}]");
@@ -64,7 +64,7 @@ public class LanguageConfigIntegrationTests
         // Assert
         foreach (var language in fallbackOrder)
         {
-            supportedLanguages.Should().Contain(language,
+            supportedLanguages.ShouldContain(language,
                 $"Fallback language '{language}' must be a supported language");
         }
 
@@ -100,17 +100,17 @@ public class LanguageConfigIntegrationTests
         var result = controller.GetLanguages();
 
         // Assert
-        result.Should().NotBeNull();
-        result.Result.Should().BeOfType<OkObjectResult>();
+        result.ShouldNotBeNull();
+        result.Result.ShouldBeOfType<OkObjectResult>();
 
         var okResult = result.Result as OkObjectResult;
-        okResult.Should().NotBeNull();
-        okResult!.Value.Should().BeOfType<LanguageConfigResponse>();
+        okResult.ShouldNotBeNull();
+        okResult!.Value.ShouldBeOfType<LanguageConfigResponse>();
 
         var response = okResult.Value as LanguageConfigResponse;
-        response.Should().NotBeNull();
-        response!.SupportedLanguages.Should().BeEquivalentTo(LanguageConfig.SupportedLanguages);
-        response.FallbackOrder.Should().BeEquivalentTo(LanguageConfig.FallbackOrder);
+        response.ShouldNotBeNull();
+        response!.SupportedLanguages.ShouldBeEquivalentTo(LanguageConfig.SupportedLanguages);
+        response.FallbackOrder.ShouldBeEquivalentTo(LanguageConfig.FallbackOrder);
 
         Console.WriteLine("=== LanguageConfigController.GetLanguages Test ===");
         Console.WriteLine($"SupportedLanguages: [{string.Join(", ", response.SupportedLanguages)}]");
@@ -133,11 +133,11 @@ public class LanguageConfigIntegrationTests
         };
 
         // Assert
-        response.SupportedLanguages.Should().HaveCount(4);
-        response.FallbackOrder.Should().HaveCount(4);
-        response.Metadata.Should().HaveCount(1);
-        response.Metadata["de"].DisplayName.Should().Be("Deutsch");
-        response.SupportedLanguages.Should().NotBeSameAs(response.FallbackOrder,
+        response.SupportedLanguages.Length.ShouldBe(4);
+        response.FallbackOrder.Length.ShouldBe(4);
+        response.Metadata.Count.ShouldBe(1);
+        response.Metadata["de"].DisplayName.ShouldBe("Deutsch");
+        response.SupportedLanguages.ShouldNotBeSameAs(response.FallbackOrder,
             "SupportedLanguages and FallbackOrder should be independent arrays");
 
         Console.WriteLine("=== LanguageConfigResponse Structure Test ===");
@@ -158,12 +158,12 @@ public class LanguageConfigIntegrationTests
         };
 
         // Act & Assert
-        multiLanguage.GetValue("de").Should().Be("Deutsch");
-        multiLanguage.GetValue("en").Should().Be("English");
-        multiLanguage.GetValue("fr").Should().Be("Français");
-        multiLanguage.GetValue("it").Should().Be("Italiano");
-        multiLanguage.GetValue("DE").Should().Be("Deutsch", "GetValue should be case-insensitive");
-        multiLanguage.GetValue("unknown").Should().BeNull("Unknown language should return null");
+        multiLanguage.GetValue("de").ShouldBe("Deutsch");
+        multiLanguage.GetValue("en").ShouldBe("English");
+        multiLanguage.GetValue("fr").ShouldBe("Français");
+        multiLanguage.GetValue("it").ShouldBe("Italiano");
+        multiLanguage.GetValue("DE").ShouldBe("Deutsch", "GetValue should be case-insensitive");
+        multiLanguage.GetValue("unknown").ShouldBeNull("Unknown language should return null");
 
         Console.WriteLine("=== MultiLanguage.GetValue Test ===");
         Console.WriteLine("All language values retrieved correctly.");
@@ -183,10 +183,10 @@ public class LanguageConfigIntegrationTests
         multiLanguage.SetValue("it", "Ciao");
 
         // Assert
-        multiLanguage.De.Should().Be("Hallo");
-        multiLanguage.En.Should().Be("Hello");
-        multiLanguage.Fr.Should().Be("Bonjour");
-        multiLanguage.It.Should().Be("Ciao");
+        multiLanguage.De.ShouldBe("Hallo");
+        multiLanguage.En.ShouldBe("Hello");
+        multiLanguage.Fr.ShouldBe("Bonjour");
+        multiLanguage.It.ShouldBe("Ciao");
 
         Console.WriteLine("=== MultiLanguage.SetValue Test ===");
         Console.WriteLine("All language values set correctly.");
@@ -204,8 +204,8 @@ public class LanguageConfigIntegrationTests
         multiLanguage.SetValue("pt", "Olá");
 
         // Assert
-        multiLanguage.GetValue("es").Should().Be("Hola");
-        multiLanguage.GetValue("pt").Should().Be("Olá");
+        multiLanguage.GetValue("es").ShouldBe("Hola");
+        multiLanguage.GetValue("pt").ShouldBe("Olá");
 
         Console.WriteLine("=== MultiLanguage Dynamic Languages Test ===");
         Console.WriteLine("Dynamic language values set and retrieved correctly.");
@@ -227,9 +227,9 @@ public class LanguageConfigIntegrationTests
         };
 
         // Assert
-        emptyMultiLanguage.IsEmpty.Should().BeTrue("MultiLanguage with no values should be empty");
-        partialMultiLanguage.IsEmpty.Should().BeFalse("MultiLanguage with at least one value should not be empty");
-        fullMultiLanguage.IsEmpty.Should().BeFalse("MultiLanguage with all values should not be empty");
+        emptyMultiLanguage.IsEmpty.ShouldBeTrue("MultiLanguage with no values should be empty");
+        partialMultiLanguage.IsEmpty.ShouldBeFalse("MultiLanguage with at least one value should not be empty");
+        fullMultiLanguage.IsEmpty.ShouldBeFalse("MultiLanguage with all values should not be empty");
 
         Console.WriteLine("=== MultiLanguage.IsEmpty Test ===");
         Console.WriteLine("IsEmpty property works correctly.");
@@ -252,11 +252,11 @@ public class LanguageConfigIntegrationTests
         var dictionary = multiLanguage.ToDictionary();
 
         // Assert
-        dictionary.Should().HaveCount(2, "Only non-empty values should be included");
-        dictionary.Should().ContainKey("de");
-        dictionary.Should().ContainKey("fr");
-        dictionary.Should().NotContainKey("en", "Null values should not be included");
-        dictionary.Should().NotContainKey("it", "Empty strings should not be included");
+        dictionary.Count.ShouldBe(2, "Only non-empty values should be included");
+        dictionary.ShouldContainKey("de");
+        dictionary.ShouldContainKey("fr");
+        dictionary.ShouldNotContainKey("en", "Null values should not be included");
+        dictionary.ShouldNotContainKey("it", "Empty strings should not be included");
 
         Console.WriteLine("=== MultiLanguage.ToDictionary Test ===");
         Console.WriteLine($"Dictionary keys: [{string.Join(", ", dictionary.Keys)}]");
@@ -278,10 +278,10 @@ public class LanguageConfigIntegrationTests
         var populatedLanguages = multiLanguage.GetPopulatedLanguages().ToList();
 
         // Assert
-        populatedLanguages.Should().HaveCount(3);
-        populatedLanguages.Should().Contain("de");
-        populatedLanguages.Should().Contain("fr");
-        populatedLanguages.Should().Contain("es");
+        populatedLanguages.Count.ShouldBe(3);
+        populatedLanguages.ShouldContain("de");
+        populatedLanguages.ShouldContain("fr");
+        populatedLanguages.ShouldContain("es");
 
         Console.WriteLine("=== MultiLanguage.GetPopulatedLanguages Test ===");
         Console.WriteLine($"Populated languages: [{string.Join(", ", populatedLanguages)}]");

@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
@@ -148,9 +148,9 @@ public class GetShiftScheduleTests
 
         // Assert
         var mondayResults = result.Where(r => r.ShiftId == mondayShift.Id).ToList();
-        mondayResults.Should().HaveCount(1);
-        mondayResults.Single().DayOfWeek.Should().Be(1);
-        mondayResults.Single().Date.DayOfWeek.Should().Be(DayOfWeek.Monday);
+        mondayResults.Count.ShouldBe(1);
+        mondayResults.Single().DayOfWeek.ShouldBe(1);
+        mondayResults.Single().Date.DayOfWeek.ShouldBe(DayOfWeek.Monday);
     }
 
     [Test]
@@ -168,8 +168,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var tuesdayResults = result.Where(r => r.ShiftId == tuesdayShift.Id).ToList();
-        tuesdayResults.Should().HaveCount(1);
-        tuesdayResults.Single().DayOfWeek.Should().Be(2);
+        tuesdayResults.Count.ShouldBe(1);
+        tuesdayResults.Single().DayOfWeek.ShouldBe(2);
     }
 
     [Test]
@@ -187,8 +187,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var wednesdayResults = result.Where(r => r.ShiftId == wednesdayShift.Id).ToList();
-        wednesdayResults.Should().HaveCount(1);
-        wednesdayResults.Single().DayOfWeek.Should().Be(3);
+        wednesdayResults.Count.ShouldBe(1);
+        wednesdayResults.Single().DayOfWeek.ShouldBe(3);
     }
 
     [Test]
@@ -206,8 +206,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var thursdayResults = result.Where(r => r.ShiftId == thursdayShift.Id).ToList();
-        thursdayResults.Should().HaveCount(1);
-        thursdayResults.Single().DayOfWeek.Should().Be(4);
+        thursdayResults.Count.ShouldBe(1);
+        thursdayResults.Single().DayOfWeek.ShouldBe(4);
     }
 
     [Test]
@@ -225,8 +225,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var fridayResults = result.Where(r => r.ShiftId == fridayShift.Id).ToList();
-        fridayResults.Should().HaveCount(1);
-        fridayResults.Single().DayOfWeek.Should().Be(5);
+        fridayResults.Count.ShouldBe(1);
+        fridayResults.Single().DayOfWeek.ShouldBe(5);
     }
 
     [Test]
@@ -244,8 +244,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var saturdayResults = result.Where(r => r.ShiftId == saturdayShift.Id).ToList();
-        saturdayResults.Should().HaveCount(1);
-        saturdayResults.Single().DayOfWeek.Should().Be(6);
+        saturdayResults.Count.ShouldBe(1);
+        saturdayResults.Single().DayOfWeek.ShouldBe(6);
     }
 
     [Test]
@@ -263,8 +263,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var sundayResults = result.Where(r => r.ShiftId == sundayShift.Id).ToList();
-        sundayResults.Should().HaveCount(1);
-        sundayResults.Single().DayOfWeek.Should().Be(7);
+        sundayResults.Count.ShouldBe(1);
+        sundayResults.Single().DayOfWeek.ShouldBe(7);
     }
 
     [Test]
@@ -288,8 +288,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == multiDayShift.Id).ToList();
-        shiftResults.Should().HaveCount(5);
-        shiftResults.Select(r => r.DayOfWeek).Should().BeEquivalentTo(new[] { 1, 2, 3, 4, 5 });
+        shiftResults.Count.ShouldBe(5);
+        shiftResults.Select(r => r.DayOfWeek).ToArray().ShouldBeEquivalentTo(new[] { 1, 2, 3, 4, 5 });
     }
 
     [Test]
@@ -307,7 +307,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == mondayOnlyShift.Id).ToList();
-        shiftResults.Should().BeEmpty();
+        shiftResults.ShouldBeEmpty();
     }
 
     #endregion
@@ -330,8 +330,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == holidayShift.Id).ToList();
-        shiftResults.Should().HaveCount(1);
-        shiftResults.Single().Date.Should().Be(holidayDate);
+        shiftResults.Count.ShouldBe(1);
+        shiftResults.Single().Date.ShouldBe(holidayDate);
     }
 
     [Test]
@@ -349,7 +349,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == holidayShift.Id).ToList();
-        shiftResults.Should().BeEmpty();
+        shiftResults.ShouldBeEmpty();
     }
 
     [Test]
@@ -371,8 +371,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == holidayShift.Id).ToList();
-        shiftResults.Should().HaveCount(2);
-        shiftResults.Select(r => r.Date).Should().BeEquivalentTo(new[] { holiday1, holiday2 });
+        shiftResults.Count.ShouldBe(2);
+        shiftResults.Select(r => r.Date).ToArray().ShouldBeEquivalentTo(new[] { holiday1, holiday2 });
     }
 
     [Test]
@@ -392,7 +392,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == mondayShift.Id).ToList();
-        shiftResults.Should().BeEmpty();
+        shiftResults.ShouldBeEmpty();
     }
 
     #endregion
@@ -414,8 +414,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Should().HaveCount(5);
-        shiftResults.Select(r => r.DayOfWeek).Should().BeEquivalentTo(new[] { 1, 2, 3, 4, 5 });
+        shiftResults.Count.ShouldBe(5);
+        shiftResults.Select(r => r.DayOfWeek).ToArray().ShouldBeEquivalentTo(new[] { 1, 2, 3, 4, 5 });
     }
 
     [Test]
@@ -435,8 +435,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Should().HaveCount(1);
-        shiftResults.Single().Date.Should().Be(saturday);
+        shiftResults.Count.ShouldBe(1);
+        shiftResults.Single().Date.ShouldBe(saturday);
     }
 
     [Test]
@@ -455,7 +455,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Should().BeEmpty();
+        shiftResults.ShouldBeEmpty();
     }
 
     [Test]
@@ -476,9 +476,9 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Should().HaveCount(6);
-        shiftResults.Where(r => r.DayOfWeek >= 1 && r.DayOfWeek <= 5).Should().HaveCount(5);
-        shiftResults.Where(r => r.Date == saturday).Should().HaveCount(1);
+        shiftResults.Count.ShouldBe(6);
+        shiftResults.Where(r => r.DayOfWeek >= 1 && r.DayOfWeek <= 5).Count().ShouldBe(5);
+        shiftResults.Where(r => r.Date == saturday).Count().ShouldBe(1);
     }
 
     [Test]
@@ -498,7 +498,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Should().HaveCount(1);
+        shiftResults.Count.ShouldBe(1);
     }
 
     #endregion
@@ -522,8 +522,8 @@ public class GetShiftScheduleTests
             new List<DateOnly> { saturday }).ToListAsync();
 
         // Assert
-        result.Where(r => r.ShiftId == holidayOnlyShift.Id).Should().HaveCount(1);
-        result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).Should().HaveCount(1);
+        result.Where(r => r.ShiftId == holidayOnlyShift.Id).Count().ShouldBe(1);
+        result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).Count().ShouldBe(1);
     }
 
     [Test]
@@ -541,8 +541,8 @@ public class GetShiftScheduleTests
         var result = await _service.GetShiftScheduleQuery(startDate, endDate).ToListAsync();
 
         // Assert
-        result.Where(r => r.ShiftId == holidayOnlyShift.Id).Should().BeEmpty();
-        result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).Should().HaveCount(1);
+        result.Where(r => r.ShiftId == holidayOnlyShift.Id).ShouldBeEmpty();
+        result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).Count().ShouldBe(1);
     }
 
     [Test]
@@ -559,7 +559,7 @@ public class GetShiftScheduleTests
         var result = await _service.GetShiftScheduleQuery(startDate, endDate).ToListAsync();
 
         // Assert
-        result.Where(r => r.ShiftId == holidayOnlyShift.Id).Should().BeEmpty();
+        result.Where(r => r.ShiftId == holidayOnlyShift.Id).ShouldBeEmpty();
     }
 
     #endregion
@@ -585,7 +585,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == futureShift.Id).ToList();
-        shiftResults.Should().BeEmpty();
+        shiftResults.ShouldBeEmpty();
     }
 
     [Test]
@@ -608,7 +608,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == expiredShift.Id).ToList();
-        shiftResults.Should().BeEmpty();
+        shiftResults.ShouldBeEmpty();
     }
 
     #endregion
@@ -635,8 +635,8 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == nightShift.Id).ToList();
-        shiftResults.Should().HaveCount(1);
-        shiftResults.Single().Date.DayOfWeek.Should().Be(DayOfWeek.Monday);
+        shiftResults.Count.ShouldBe(1);
+        shiftResults.Single().Date.DayOfWeek.ShouldBe(DayOfWeek.Monday);
     }
 
     [Test]
@@ -659,7 +659,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == nightShift.Id).ToList();
-        shiftResults.Should().BeEmpty();
+        shiftResults.ShouldBeEmpty();
     }
 
     #endregion
@@ -732,7 +732,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftWithoutGroup.Id).ToList();
-        shiftResults.Should().HaveCount(1, "Shifts without group should be returned when showUngroupedShifts is true");
+        shiftResults.Count.ShouldBe(1, "Shifts without group should be returned when showUngroupedShifts is true");
     }
 
     [Test]
@@ -756,7 +756,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftInGroup.Id).ToList();
-        shiftResults.Should().HaveCount(1, "Shift in selected group should be returned");
+        shiftResults.Count.ShouldBe(1, "Shift in selected group should be returned");
     }
 
     [Test]
@@ -781,7 +781,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftInGroupA.Id).ToList();
-        shiftResults.Should().BeEmpty("Shift in different group should not be returned");
+        shiftResults.ShouldBeEmpty("Shift in different group should not be returned");
     }
 
     [Test]
@@ -806,7 +806,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftInChildGroup.Id).ToList();
-        shiftResults.Should().HaveCount(1, "Shift in child group should be returned when parent is selected");
+        shiftResults.Count.ShouldBe(1, "Shift in child group should be returned when parent is selected");
     }
 
     [Test]
@@ -832,7 +832,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftInGrandchildGroup.Id).ToList();
-        shiftResults.Should().HaveCount(1, "Shift in grandchild group should be returned when grandparent is selected");
+        shiftResults.Count.ShouldBe(1, "Shift in grandchild group should be returned when grandparent is selected");
     }
 
     [Test]
@@ -857,7 +857,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftInParentGroup.Id).ToList();
-        shiftResults.Should().BeEmpty("Shift in parent group should not be returned when child is selected");
+        shiftResults.ShouldBeEmpty("Shift in parent group should not be returned when child is selected");
     }
 
     [Test]
@@ -883,8 +883,8 @@ public class GetShiftScheduleTests
         // Assert
         var shiftWithGroupResults = result.Where(r => r.ShiftId == shiftWithGroup.Id).ToList();
         var shiftWithoutGroupResults = result.Where(r => r.ShiftId == shiftWithoutGroup.Id).ToList();
-        shiftWithGroupResults.Should().HaveCount(1, "Shift with group should be returned when no filter");
-        shiftWithoutGroupResults.Should().HaveCount(1, "Shift without group should be returned when no filter");
+        shiftWithGroupResults.Count.ShouldBe(1, "Shift with group should be returned when no filter");
+        shiftWithoutGroupResults.Count.ShouldBe(1, "Shift without group should be returned when no filter");
     }
 
     [Test]
@@ -910,7 +910,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftWithMultipleGroups.Id).ToList();
-        shiftResults.Should().HaveCount(1, "Shift with multiple groups should be returned if one matches");
+        shiftResults.Count.ShouldBe(1, "Shift with multiple groups should be returned if one matches");
     }
 
     #endregion
@@ -938,7 +938,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftWithoutGroup.Id).ToList();
-        shiftResults.Should().HaveCount(1, "Shifts without group should be visible when showUngroupedShifts is true");
+        shiftResults.Count.ShouldBe(1, "Shifts without group should be visible when showUngroupedShifts is true");
     }
 
     [Test]
@@ -962,7 +962,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftInVisibleGroup.Id).ToList();
-        shiftResults.Should().HaveCount(1, "Shift in visible group should be returned");
+        shiftResults.Count.ShouldBe(1, "Shift in visible group should be returned");
     }
 
     [Test]
@@ -987,7 +987,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftInNonVisibleGroup.Id).ToList();
-        shiftResults.Should().BeEmpty("Shift in non-visible group should not be returned");
+        shiftResults.ShouldBeEmpty("Shift in non-visible group should not be returned");
     }
 
     [Test]
@@ -1012,7 +1012,7 @@ public class GetShiftScheduleTests
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == shiftInChildGroup.Id).ToList();
-        shiftResults.Should().HaveCount(1, "Shift in child of visible group should be returned");
+        shiftResults.Count.ShouldBe(1, "Shift in child of visible group should be returned");
     }
 
     [Test]
@@ -1043,9 +1043,9 @@ public class GetShiftScheduleTests
             new List<Guid> { visibleGroup1.Id, visibleGroup2.Id }).ToListAsync();
 
         // Assert
-        result.Where(r => r.ShiftId == shiftInGroup1.Id).Should().HaveCount(1);
-        result.Where(r => r.ShiftId == shiftInGroup2.Id).Should().HaveCount(1);
-        result.Where(r => r.ShiftId == shiftInNonVisible.Id).Should().BeEmpty();
+        result.Where(r => r.ShiftId == shiftInGroup1.Id).Count().ShouldBe(1);
+        result.Where(r => r.ShiftId == shiftInGroup2.Id).Count().ShouldBe(1);
+        result.Where(r => r.ShiftId == shiftInNonVisible.Id).ShouldBeEmpty();
     }
 
     [Test]
@@ -1069,8 +1069,8 @@ public class GetShiftScheduleTests
             new List<Guid>()).ToListAsync();
 
         // Assert
-        result.Where(r => r.ShiftId == shiftWithGroup.Id).Should().HaveCount(1, "Admin should see shift with group");
-        result.Where(r => r.ShiftId == shiftWithoutGroup.Id).Should().HaveCount(1, "Admin should see shift without group");
+        result.Where(r => r.ShiftId == shiftWithGroup.Id).Count().ShouldBe(1, "Admin should see shift with group");
+        result.Where(r => r.ShiftId == shiftWithoutGroup.Id).Count().ShouldBe(1, "Admin should see shift without group");
     }
 
     [Test]
@@ -1098,8 +1098,8 @@ public class GetShiftScheduleTests
             new List<Guid> { targetGroup.Id }).ToListAsync();
 
         // Assert
-        result.Where(r => r.ShiftId == shiftInTarget.Id).Should().HaveCount(1, "Shift in target group should be returned");
-        result.Where(r => r.ShiftId == shiftInOther.Id).Should().BeEmpty("Shift in other group should not be returned");
+        result.Where(r => r.ShiftId == shiftInTarget.Id).Count().ShouldBe(1, "Shift in target group should be returned");
+        result.Where(r => r.ShiftId == shiftInOther.Id).ShouldBeEmpty("Shift in other group should not be returned");
     }
 
     #endregion

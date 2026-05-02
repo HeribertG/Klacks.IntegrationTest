@@ -1,6 +1,6 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Infrastructure.KnowledgeIndex.Domain;
 using Klacks.Api.Infrastructure.KnowledgeIndex.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
@@ -66,7 +66,7 @@ public class KnowledgeIndexRepositoryTests
             topN: 5,
             CancellationToken.None);
 
-        result.Should().ContainSingle().Which.SourceId.Should().Be("ListOpenShifts");
+        result.ShouldHaveSingleItem().SourceId.ShouldBe("ListOpenShifts");
     }
 
     [Test]
@@ -107,7 +107,7 @@ public class KnowledgeIndexRepositoryTests
             topN: 10,
             CancellationToken.None);
 
-        result.Should().ContainSingle().Which.SourceId.Should().Be("PublicSkill");
+        result.ShouldHaveSingleItem().SourceId.ShouldBe("PublicSkill");
     }
 
     [Test]
@@ -123,7 +123,7 @@ public class KnowledgeIndexRepositoryTests
 
         var result = await _repo.FindNearestAsync(embedding, [], adminBypass: true, topN: 10, CancellationToken.None);
 
-        result.Should().HaveCount(2);
+        result.Count.ShouldBe(2);
     }
 
     [Test]
@@ -139,8 +139,8 @@ public class KnowledgeIndexRepositoryTests
 
         var hashes = await _repo.GetAllHashesAsync(CancellationToken.None);
 
-        hashes.Should().ContainKey((KnowledgeEntryKind.Skill, "HashSkill"))
-            .WhoseValue.Should().BeEquivalentTo(hash);
+        hashes.ContainsKey((KnowledgeEntryKind.Skill, "HashSkill")).ShouldBeTrue();
+        hashes[(KnowledgeEntryKind.Skill, "HashSkill")].ShouldBeEquivalentTo(hash);
     }
 
     [Test]
@@ -157,7 +157,7 @@ public class KnowledgeIndexRepositoryTests
         await _repo.DeleteAsync([(KnowledgeEntryKind.Skill, "ToDelete")], CancellationToken.None);
 
         var hashes = await _repo.GetAllHashesAsync(CancellationToken.None);
-        hashes.Keys.Should().NotContain((KnowledgeEntryKind.Skill, "ToDelete"));
-        hashes.Keys.Should().Contain((KnowledgeEntryKind.Skill, "ToKeep"));
+        hashes.Keys.ShouldNotContain((KnowledgeEntryKind.Skill, "ToDelete"));
+        hashes.Keys.ShouldContain((KnowledgeEntryKind.Skill, "ToKeep"));
     }
 }

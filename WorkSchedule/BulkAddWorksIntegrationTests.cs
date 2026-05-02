@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Application.Commands.Works;
 using Klacks.Api.Application.Handlers.Works;
 using Klacks.Api.Application.Interfaces;
@@ -122,6 +122,12 @@ public class BulkAddWorksIntegrationTests
 
         var completionService = Substitute.For<IScheduleCompletionService>();
         completionService.SaveBulkAndTrackAsync(Arg.Any<List<(Guid ClientId, DateOnly CurrentDate, Guid? AnalyseToken)>>())
+            .Returns(async callInfo => { await _context.SaveChangesAsync(); });
+        completionService.SaveBulkAndTrackRangeAsync(
+                Arg.Any<List<(Guid ClientId, DateOnly CurrentDate, Guid? AnalyseToken)>>(),
+                Arg.Any<DateOnly>(),
+                Arg.Any<DateOnly>(),
+                Arg.Any<Guid?>())
             .Returns(async callInfo => { await _context.SaveChangesAsync(); });
 
         _handler = new BulkAddWorksCommandHandler(
@@ -343,15 +349,15 @@ OUTPUT 1, Round(TotalBonus, 2)",
         var response = await _handler.Handle(command, CancellationToken.None);
 
         // Assert
-        response.SuccessCount.Should().Be(1);
-        response.FailedCount.Should().Be(0);
+        response.SuccessCount.ShouldBe(1);
+        response.FailedCount.ShouldBe(0);
 
-        response.PeriodHours.Should().NotBeNull();
-        response.PeriodHours.Should().ContainKey(_testClientId);
+        response.PeriodHours.ShouldNotBeNull();
+        response.PeriodHours.ShouldContainKey(_testClientId);
 
         var periodHours = response.PeriodHours![_testClientId];
-        periodHours.Hours.Should().Be(8m, "Saturday work: 8 hours");
-        periodHours.Surcharges.Should().Be(0.8m, "Saturday surcharge: 10% of 8 hours");
+        periodHours.Hours.ShouldBe(8m, "Saturday work: 8 hours");
+        periodHours.Surcharges.ShouldBe(0.8m, "Saturday surcharge: 10% of 8 hours");
     }
 
     [Test]
@@ -372,14 +378,14 @@ OUTPUT 1, Round(TotalBonus, 2)",
         var response = await _handler.Handle(command, CancellationToken.None);
 
         // Assert
-        response.SuccessCount.Should().Be(1);
-        response.FailedCount.Should().Be(0);
-        response.PeriodHours.Should().NotBeNull();
-        response.PeriodHours.Should().ContainKey(_testClientId);
+        response.SuccessCount.ShouldBe(1);
+        response.FailedCount.ShouldBe(0);
+        response.PeriodHours.ShouldNotBeNull();
+        response.PeriodHours.ShouldContainKey(_testClientId);
 
         var periodHours = response.PeriodHours![_testClientId];
-        periodHours.Hours.Should().Be(8m, "Sunday work: 8 hours");
-        periodHours.Surcharges.Should().Be(0.8m, "Sunday surcharge: 10% of 8 hours");
+        periodHours.Hours.ShouldBe(8m, "Sunday work: 8 hours");
+        periodHours.Surcharges.ShouldBe(0.8m, "Sunday surcharge: 10% of 8 hours");
     }
 
     [Test]
@@ -400,14 +406,14 @@ OUTPUT 1, Round(TotalBonus, 2)",
         var response = await _handler.Handle(command, CancellationToken.None);
 
         // Assert
-        response.SuccessCount.Should().Be(1);
-        response.FailedCount.Should().Be(0);
-        response.PeriodHours.Should().NotBeNull();
-        response.PeriodHours.Should().ContainKey(_testClientId);
+        response.SuccessCount.ShouldBe(1);
+        response.FailedCount.ShouldBe(0);
+        response.PeriodHours.ShouldNotBeNull();
+        response.PeriodHours.ShouldContainKey(_testClientId);
 
         var periodHours = response.PeriodHours![_testClientId];
-        periodHours.Hours.Should().Be(8m, "Monday work: 8 hours");
-        periodHours.Surcharges.Should().Be(0m, "Monday: no surcharge");
+        periodHours.Hours.ShouldBe(8m, "Monday work: 8 hours");
+        periodHours.Surcharges.ShouldBe(0m, "Monday: no surcharge");
     }
 
     [Test]
@@ -435,16 +441,16 @@ OUTPUT 1, Round(TotalBonus, 2)",
         var response = await _handler.Handle(command, CancellationToken.None);
 
         // Assert
-        response.SuccessCount.Should().Be(3);
-        response.FailedCount.Should().Be(0);
-        response.CreatedIds.Should().HaveCount(3);
+        response.SuccessCount.ShouldBe(3);
+        response.FailedCount.ShouldBe(0);
+        response.CreatedIds.Count.ShouldBe(3);
 
-        response.PeriodHours.Should().NotBeNull();
-        response.PeriodHours.Should().ContainKey(_testClientId);
+        response.PeriodHours.ShouldNotBeNull();
+        response.PeriodHours.ShouldContainKey(_testClientId);
 
         var periodHours = response.PeriodHours![_testClientId];
-        periodHours.Hours.Should().Be(24m, "3 works @ 8 hours each");
-        periodHours.Surcharges.Should().Be(1.6m, "Saturday 0.8 + Sunday 0.8");
+        periodHours.Hours.ShouldBe(24m, "3 works @ 8 hours each");
+        periodHours.Surcharges.ShouldBe(1.6m, "Saturday 0.8 + Sunday 0.8");
     }
 
     [Test]
@@ -486,14 +492,14 @@ OUTPUT 1, Round(TotalBonus, 2)",
         var response = await handler.Handle(command, CancellationToken.None);
 
         // Assert
-        response.SuccessCount.Should().Be(1);
-        response.FailedCount.Should().Be(0);
-        response.PeriodHours.Should().NotBeNull();
-        response.PeriodHours.Should().ContainKey(_testClientId);
+        response.SuccessCount.ShouldBe(1);
+        response.FailedCount.ShouldBe(0);
+        response.PeriodHours.ShouldNotBeNull();
+        response.PeriodHours.ShouldContainKey(_testClientId);
 
         var periodHours = response.PeriodHours![_testClientId];
-        periodHours.Hours.Should().Be(8m, "Holiday work: 8 hours");
-        periodHours.Surcharges.Should().Be(1.2m, "Holiday surcharge: 15% of 8 hours = 1.2");
+        periodHours.Hours.ShouldBe(8m, "Holiday work: 8 hours");
+        periodHours.Surcharges.ShouldBe(1.2m, "Holiday surcharge: 15% of 8 hours = 1.2");
     }
 
     private BulkAddWorksCommandHandler CreateHandlerWithMockedMacroDataProvider(IMacroDataProvider macroDataProvider)
@@ -551,6 +557,12 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
         var completionService = Substitute.For<IScheduleCompletionService>();
         completionService.SaveBulkAndTrackAsync(Arg.Any<List<(Guid ClientId, DateOnly CurrentDate, Guid? AnalyseToken)>>())
+            .Returns(async callInfo => { await _context.SaveChangesAsync(); });
+        completionService.SaveBulkAndTrackRangeAsync(
+                Arg.Any<List<(Guid ClientId, DateOnly CurrentDate, Guid? AnalyseToken)>>(),
+                Arg.Any<DateOnly>(),
+                Arg.Any<DateOnly>(),
+                Arg.Any<Guid?>())
             .Returns(async callInfo => { await _context.SaveChangesAsync(); });
 
         return new BulkAddWorksCommandHandler(

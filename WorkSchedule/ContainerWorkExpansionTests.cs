@@ -6,7 +6,7 @@
 /// direct EF queries filtered by ParentWorkId.
 /// </summary>
 
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Common;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Schedules;
@@ -163,8 +163,8 @@ public class ContainerWorkExpansionTests
             .AsNoTracking()
             .FirstOrDefaultAsync(w => w.Id == subWorkId);
 
-        loaded.Should().NotBeNull();
-        loaded!.ParentWorkId.Should().Be(containerWorkId);
+        loaded.ShouldNotBeNull();
+        loaded!.ParentWorkId.ShouldBe(containerWorkId);
     }
 
     [Test]
@@ -208,8 +208,8 @@ public class ContainerWorkExpansionTests
             .AsNoTracking()
             .FirstOrDefaultAsync(b => b.Id == subBreakId);
 
-        loaded.Should().NotBeNull();
-        loaded!.ParentWorkId.Should().Be(containerWorkId);
+        loaded.ShouldNotBeNull();
+        loaded!.ParentWorkId.ShouldBe(containerWorkId);
     }
 
     [Test]
@@ -291,8 +291,8 @@ public class ContainerWorkExpansionTests
             .Where(b => b.ParentWorkId == containerWorkId && !b.IsDeleted)
             .ToListAsync();
 
-        remainingSubWorks.Should().BeEmpty();
-        remainingSubBreaks.Should().BeEmpty();
+        remainingSubWorks.ShouldBeEmpty();
+        remainingSubBreaks.ShouldBeEmpty();
     }
 
     [Test]
@@ -345,11 +345,11 @@ public class ContainerWorkExpansionTests
                         && !w.IsDeleted)
             .ToListAsync();
 
-        topLevelWorks.Should().HaveCount(1);
-        topLevelWorks[0].Id.Should().Be(containerWorkId);
+        topLevelWorks.Count.ShouldBe(1);
+        topLevelWorks[0].Id.ShouldBe(containerWorkId);
 
-        allWorks.Should().HaveCount(2);
-        allWorks.Should().Contain(w => w.Id == containerWorkId);
-        allWorks.Should().Contain(w => w.Id == subWorkId);
+        allWorks.Count.ShouldBe(2);
+        allWorks.ShouldContain(w => w.Id == containerWorkId);
+        allWorks.ShouldContain(w => w.Id == subWorkId);
     }
 }

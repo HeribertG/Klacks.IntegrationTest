@@ -8,7 +8,7 @@
 /// <param name="_geocodingService">Real GeocodingService calling Nominatim API</param>
 /// <param name="_stateResolver">Resolves Nominatim state names to DB abbreviations</param>
 
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Interfaces.RouteOptimization;
 using Klacks.Api.Domain.Models.Settings;
 using Klacks.Api.Domain.Services.Common;
@@ -78,13 +78,13 @@ public class AddressValidationIntegrationTests
 
         Console.WriteLine($"Swiss Bern: Found={result.Found}, State={result.State}, Address={result.ReturnedAddress}");
 
-        result.Found.Should().BeTrue();
-        result.State.Should().NotBeNullOrWhiteSpace();
+        result.Found.ShouldBeTrue();
+        result.State.ShouldNotBeNullOrWhiteSpace();
 
         var abbreviation = await _stateResolver.ResolveAsync(result.State);
         Console.WriteLine($"  Resolved: {result.State} -> {abbreviation}");
 
-        abbreviation.Should().Be("BE");
+        abbreviation.ShouldBe("BE");
     }
 
     [Test]
@@ -95,13 +95,13 @@ public class AddressValidationIntegrationTests
 
         Console.WriteLine($"Swiss Zürich: Found={result.Found}, State={result.State}, Address={result.ReturnedAddress}");
 
-        result.Found.Should().BeTrue();
-        result.State.Should().NotBeNullOrWhiteSpace();
+        result.Found.ShouldBeTrue();
+        result.State.ShouldNotBeNullOrWhiteSpace();
 
         var abbreviation = await _stateResolver.ResolveAsync(result.State);
         Console.WriteLine($"  Resolved: {result.State} -> {abbreviation}");
 
-        abbreviation.Should().Be("ZH");
+        abbreviation.ShouldBe("ZH");
     }
 
     [Test]
@@ -112,13 +112,13 @@ public class AddressValidationIntegrationTests
 
         Console.WriteLine($"Swiss Liebefeld 3097: Found={result.Found}, State={result.State}, MatchType={result.MatchType}");
 
-        result.Found.Should().BeTrue();
-        result.State.Should().NotBeNullOrWhiteSpace();
+        result.Found.ShouldBeTrue();
+        result.State.ShouldNotBeNullOrWhiteSpace();
 
         var abbreviation = await _stateResolver.ResolveAsync(result.State);
         Console.WriteLine($"  Resolved: {result.State} -> {abbreviation}");
 
-        abbreviation.Should().Be("BE");
+        abbreviation.ShouldBe("BE");
     }
 
     [Test]
@@ -129,7 +129,7 @@ public class AddressValidationIntegrationTests
 
         Console.WriteLine($"German Berlin: Found={result.Found}, State={result.State}, Address={result.ReturnedAddress}");
 
-        result.Found.Should().BeTrue();
+        result.Found.ShouldBeTrue();
         Console.WriteLine($"  State from Nominatim: {result.State ?? "NULL (city-state, expected for Berlin)"}");
     }
 
@@ -141,8 +141,8 @@ public class AddressValidationIntegrationTests
 
         Console.WriteLine($"German München: Found={result.Found}, State={result.State}, Address={result.ReturnedAddress}");
 
-        result.Found.Should().BeTrue();
-        result.State.Should().NotBeNullOrWhiteSpace();
+        result.Found.ShouldBeTrue();
+        result.State.ShouldNotBeNullOrWhiteSpace();
         Console.WriteLine($"  State from Nominatim: {result.State}");
     }
 
@@ -154,7 +154,7 @@ public class AddressValidationIntegrationTests
 
         Console.WriteLine($"Austrian Wien: Found={result.Found}, State={result.State}, Address={result.ReturnedAddress}");
 
-        result.Found.Should().BeTrue();
+        result.Found.ShouldBeTrue();
         Console.WriteLine($"  State from Nominatim: {result.State ?? "NULL (city-state, expected for Wien)"}");
     }
 
@@ -166,7 +166,7 @@ public class AddressValidationIntegrationTests
 
         Console.WriteLine($"French Paris: Found={result.Found}, State={result.State}, Address={result.ReturnedAddress}");
 
-        result.Found.Should().BeTrue();
+        result.Found.ShouldBeTrue();
         Console.WriteLine($"  State from Nominatim: {result.State}");
     }
 
@@ -178,7 +178,7 @@ public class AddressValidationIntegrationTests
 
         Console.WriteLine($"Italian Roma: Found={result.Found}, State={result.State}, Address={result.ReturnedAddress}");
 
-        result.Found.Should().BeTrue();
+        result.Found.ShouldBeTrue();
         Console.WriteLine($"  State from Nominatim: {result.State}");
     }
 
@@ -190,7 +190,7 @@ public class AddressValidationIntegrationTests
 
         Console.WriteLine($"Liechtenstein Vaduz: Found={result.Found}, State={result.State}, Address={result.ReturnedAddress}");
 
-        result.Found.Should().BeTrue();
+        result.Found.ShouldBeTrue();
 
         var abbreviation = await _stateResolver.ResolveAsync(result.State);
         Console.WriteLine($"  Resolved: {result.State} -> {abbreviation ?? "NULL (no state in DB, expected for Liechtenstein)"}");
@@ -204,7 +204,7 @@ public class AddressValidationIntegrationTests
 
         Console.WriteLine($"Invalid address: Found={result.Found}, MatchType={result.MatchType}");
 
-        result.Found.Should().BeFalse();
+        result.Found.ShouldBeFalse();
     }
 
     [Test]
@@ -213,17 +213,17 @@ public class AddressValidationIntegrationTests
         var result = await _geocodingService.ValidateExactAddressAsync(
             "Bundesplatz 3", "3005", "Bern", "Schweiz");
 
-        result.Found.Should().BeTrue();
+        result.Found.ShouldBeTrue();
 
         var correctState = await _stateResolver.ResolveAsync(result.State);
-        correctState.Should().Be("BE");
+        correctState.ShouldBe("BE");
 
         var wrongState = "AG";
         var isMatch = string.Equals(wrongState, correctState, StringComparison.OrdinalIgnoreCase);
 
         Console.WriteLine($"State mismatch test: Entered=AG, Expected={correctState}, Match={isMatch}");
 
-        isMatch.Should().BeFalse("AG should not match BE for Bern address");
+        isMatch.ShouldBeFalse("AG should not match BE for Bern address");
     }
 
     [Test]
@@ -232,14 +232,14 @@ public class AddressValidationIntegrationTests
         var result = await _geocodingService.ValidateExactAddressAsync(
             null, "8001", "Zürich", "Schweiz");
 
-        result.Found.Should().BeTrue();
-        result.State.Should().NotBeNullOrWhiteSpace();
+        result.Found.ShouldBeTrue();
+        result.State.ShouldNotBeNullOrWhiteSpace();
 
         var abbreviation = await _stateResolver.ResolveAsync(result.State);
 
         Console.WriteLine($"Auto-fill test: Nominatim returned '{result.State}', resolved to '{abbreviation}'");
 
-        abbreviation.Should().NotBeNullOrWhiteSpace();
-        abbreviation.Should().Be("ZH");
+        abbreviation.ShouldNotBeNullOrWhiteSpace();
+        abbreviation.ShouldBe("ZH");
     }
 }

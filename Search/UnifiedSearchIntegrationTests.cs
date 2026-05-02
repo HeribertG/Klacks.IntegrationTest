@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Models.Associations;
@@ -160,14 +160,14 @@ public class UnifiedSearchIntegrationTests
         var absenceIds = absenceResult.Select(c => c.IdNumber).OrderBy(x => x).ToList();
         var availabilityIds = availabilityResult.Select(c => c.IdNumber).OrderBy(x => x).ToList();
 
-        scheduleIds.Should().BeEquivalentTo(absenceIds, "Schedule and Absence must return identical results");
-        absenceIds.Should().BeEquivalentTo(availabilityIds, "Absence and Client-Availability must return identical results");
+        scheduleIds.ShouldBeEquivalentTo(absenceIds, "Schedule and Absence must return identical results");
+        absenceIds.ShouldBeEquivalentTo(availabilityIds, "Absence and Client-Availability must return identical results");
 
-        scheduleResult.Should().Contain(c => c.IdNumber == 91001, "Elle Abel - exact match");
-        scheduleResult.Should().Contain(c => c.IdNumber == 91002, "Abel Elle - reversed order, AND across fields");
-        scheduleResult.Should().Contain(c => c.IdNumber == 91003, "Gabrielle Abel - partial match in FirstName");
-        scheduleResult.Should().NotContain(c => c.IdNumber == 91004, "Max Mustermann - no match");
-        scheduleResult.Should().Contain(c => c.IdNumber == 91005, "Peter Firma - Company match 'Elle Abel GmbH'");
+        scheduleResult.ShouldContain(c => c.IdNumber == 91001, "Elle Abel - exact match");
+        scheduleResult.ShouldContain(c => c.IdNumber == 91002, "Abel Elle - reversed order, AND across fields");
+        scheduleResult.ShouldContain(c => c.IdNumber == 91003, "Gabrielle Abel - partial match in FirstName");
+        scheduleResult.ShouldNotContain(c => c.IdNumber == 91004, "Max Mustermann - no match");
+        scheduleResult.ShouldContain(c => c.IdNumber == 91005, "Peter Firma - Company match 'Elle Abel GmbH'");
 
         Console.WriteLine("\nFound clients:");
         foreach (var c in scheduleResult.OrderBy(c => c.IdNumber))
@@ -203,8 +203,8 @@ public class UnifiedSearchIntegrationTests
         Console.WriteLine($"WorkFilter.SearchString:          '{workFilter.SearchString}'");
         Console.WriteLine($"SearchString is passed through:   {searchStringIsPassedThrough}");
 
-        searchStringIsPassedThrough.Should().BeTrue("WorkFilter.SearchString must carry the value from WorkScheduleFilter");
-        workFilter.SearchString.Should().Be("Elle Abel");
+        searchStringIsPassedThrough.ShouldBeTrue("WorkFilter.SearchString must carry the value from WorkScheduleFilter");
+        workFilter.SearchString.ShouldBe("Elle Abel");
     }
 
     [Test]
@@ -221,7 +221,7 @@ public class UnifiedSearchIntegrationTests
         // Assert
         Console.WriteLine("=== CLIENT-AVAILABILITY: Backend search finds reversed name order ===\n");
 
-        clients.Should().Contain(c => c.IdNumber == 91002,
+        clients.ShouldContain(c => c.IdNumber == 91002,
             "Abel Elle is now found - backend AND logic instead of frontend displayName.includes()");
 
         var allClients = await GetTestClientQuery().ToListAsync();
@@ -249,7 +249,7 @@ public class UnifiedSearchIntegrationTests
             Console.WriteLine($"  {c.IdNumber}: {FormatClientDisplayName(c)}");
         }
 
-        clients.Count.Should().BeGreaterThanOrEqualTo(frontendSimulation.Count,
+        clients.Count.ShouldBeGreaterThanOrEqualTo(frontendSimulation.Count,
             "Backend AND logic finds at least as many results as frontend substring match");
     }
 
@@ -270,7 +270,7 @@ public class UnifiedSearchIntegrationTests
         Console.WriteLine($"Total test clients: {totalCount}");
         Console.WriteLine($"Result count:       {result.Count}");
 
-        result.Should().HaveCount(totalCount, "empty search string must return all clients");
+        result.Count.ShouldBe(totalCount, "empty search string must return all clients");
     }
 
     [Test]
@@ -297,11 +297,11 @@ public class UnifiedSearchIntegrationTests
         Console.WriteLine($"Paged result count: {pagedResult.Count}");
         Console.WriteLine($"Paged StartRow=1, RowCount=2");
 
-        pagedResult.Should().HaveCountLessThanOrEqualTo(2, "Take(2) limits to max 2 results");
+        pagedResult.Count.ShouldBeLessThanOrEqualTo(2, "Take(2) limits to max 2 results");
 
         if (fullResult.Count > 1)
         {
-            pagedResult.First().IdNumber.Should().Be(fullResult[1].IdNumber,
+            pagedResult.First().IdNumber.ShouldBe(fullResult[1].IdNumber,
                 "Skip(1) skips the first result");
         }
 

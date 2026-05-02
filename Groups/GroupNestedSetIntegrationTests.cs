@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Models.Associations;
@@ -206,9 +206,9 @@ public class GroupNestedSetIntegrationTests
         Console.WriteLine($"  Parent: {savedGroup.Parent?.ToString() ?? "NULL"}");
         Console.WriteLine($"  Root: {savedGroup.Root?.ToString() ?? "NULL"}");
 
-        savedGroup.Parent.Should().BeNull("Root group should have no parent");
-        savedGroup.Root.Should().BeNull("Root group should have Root = NULL");
-        savedGroup.Rgt.Should().Be(savedGroup.Lft + 1, "Root without children should have Rgt = Lft + 1");
+        savedGroup.Parent.ShouldBeNull("Root group should have no parent");
+        savedGroup.Root.ShouldBeNull("Root group should have Root = NULL");
+        savedGroup.Rgt.ShouldBe(savedGroup.Lft + 1, "Root without children should have Rgt = Lft + 1");
 
         Console.WriteLine("=== TEST PASSED ===");
     }
@@ -238,11 +238,11 @@ public class GroupNestedSetIntegrationTests
         Console.WriteLine($"Child: Lft={savedChild.Lft}, Rgt={savedChild.Rgt}, Parent={savedChild.Parent}, Root={savedChild.Root}");
 
         // Verify parent and root references are set correctly
-        savedChild.Parent.Should().Be(rootGroup.Id, "Child should reference parent");
-        savedChild.Root.Should().Be(rootGroup.Id, "Child should reference root");
+        savedChild.Parent.ShouldBe(rootGroup.Id, "Child should reference parent");
+        savedChild.Root.ShouldBe(rootGroup.Id, "Child should reference root");
 
         // Basic nested set rule: Rgt = Lft + 1 for leaf nodes
-        savedChild.Rgt.Should().Be(savedChild.Lft + 1, "Leaf node should have Rgt = Lft + 1");
+        savedChild.Rgt.ShouldBe(savedChild.Lft + 1, "Leaf node should have Rgt = Lft + 1");
 
         Console.WriteLine("=== TEST PASSED ===");
     }
@@ -291,15 +291,15 @@ public class GroupNestedSetIntegrationTests
         Console.WriteLine($"  Child2: Lft={savedChild2.Lft}, Rgt={savedChild2.Rgt}, Parent={savedChild2.Parent}");
 
         // Verify Parent and Root references are correct
-        savedChild1.Parent.Should().Be(root.Id, "Child1 should have Root as parent");
-        savedChild2.Parent.Should().Be(root.Id, "Child2 should have Root as parent");
-        savedGrandchild1.Parent.Should().Be(child1.Id, "Grandchild1 should have Child1 as parent");
-        savedGrandchild2.Parent.Should().Be(child1.Id, "Grandchild2 should have Child1 as parent");
+        savedChild1.Parent.ShouldBe(root.Id, "Child1 should have Root as parent");
+        savedChild2.Parent.ShouldBe(root.Id, "Child2 should have Root as parent");
+        savedGrandchild1.Parent.ShouldBe(child1.Id, "Grandchild1 should have Child1 as parent");
+        savedGrandchild2.Parent.ShouldBe(child1.Id, "Grandchild2 should have Child1 as parent");
 
-        savedChild1.Root.Should().Be(root.Id, "Child1 should have Root as root");
-        savedChild2.Root.Should().Be(root.Id, "Child2 should have Root as root");
-        savedGrandchild1.Root.Should().Be(root.Id, "Grandchild1 should have Root as root");
-        savedGrandchild2.Root.Should().Be(root.Id, "Grandchild2 should have Root as root");
+        savedChild1.Root.ShouldBe(root.Id, "Child1 should have Root as root");
+        savedChild2.Root.ShouldBe(root.Id, "Child2 should have Root as root");
+        savedGrandchild1.Root.ShouldBe(root.Id, "Grandchild1 should have Root as root");
+        savedGrandchild2.Root.ShouldBe(root.Id, "Grandchild2 should have Root as root");
 
         Console.WriteLine("=== TEST PASSED ===");
     }
@@ -336,10 +336,10 @@ public class GroupNestedSetIntegrationTests
             Console.WriteLine($"  - {child.Name}");
         }
 
-        children.Should().HaveCount(2, "Should return only direct children");
-        children.Should().Contain(c => c.Id == child1.Id);
-        children.Should().Contain(c => c.Id == child2.Id);
-        children.Should().NotContain(c => c.Id == grandchild.Id, "Should not include grandchildren");
+        children.Count().ShouldBe(2, "Should return only direct children");
+        children.ShouldContain(c => c.Id == child1.Id);
+        children.ShouldContain(c => c.Id == child2.Id);
+        children.ShouldNotContain(c => c.Id == grandchild.Id, "Should not include grandchildren");
 
         Console.WriteLine("=== TEST PASSED ===");
     }
@@ -373,8 +373,8 @@ public class GroupNestedSetIntegrationTests
         Console.WriteLine("Due to how nested set values are managed, this may return 0 in certain configurations");
 
         // Just verify the method doesn't throw and returns some result
-        childDescendants.Should().NotBeNull();
-        childDescendantsWithParent.Should().NotBeNull();
+        childDescendants.ShouldNotBeNull();
+        childDescendantsWithParent.ShouldNotBeNull();
 
         Console.WriteLine("=== TEST PASSED ===");
     }
@@ -411,8 +411,8 @@ public class GroupNestedSetIntegrationTests
 
         // Note: Ancestor query uses g.Root == node.Root, so it only finds ancestors with same Root value
         // Grandchild has Root = root.Id, and so does Child, but Root itself has Root = NULL
-        ancestors.Should().HaveCountGreaterThanOrEqualTo(1, "Grandchild should have at least child as ancestor");
-        ancestorsWithNode.Count().Should().BeGreaterThan(ancestors.Count(), "Including node should add 1");
+        ancestors.Count().ShouldBeGreaterThanOrEqualTo(1, "Grandchild should have at least child as ancestor");
+        ancestorsWithNode.Count().ShouldBeGreaterThan(ancestors.Count(), "Including node should add 1");
 
         Console.WriteLine("=== TEST PASSED ===");
     }
@@ -448,8 +448,8 @@ public class GroupNestedSetIntegrationTests
         // Note: Depth calculation uses Root comparison
         // Root.Root = NULL, Child.Root = root.Id, Grandchild.Root = root.Id
         // So depth queries only work correctly within same Root tree
-        rootDepth.Should().Be(0, "Root should have depth 0 (no parent)");
-        grandchildDepth.Should().BeGreaterThan(childDepth, "Grandchild should be deeper than child");
+        rootDepth.ShouldBe(0, "Root should have depth 0 (no parent)");
+        grandchildDepth.ShouldBeGreaterThan(childDepth, "Grandchild should be deeper than child");
 
         Console.WriteLine("=== TEST PASSED ===");
     }
@@ -489,10 +489,10 @@ public class GroupNestedSetIntegrationTests
         Console.WriteLine($"  Child1 exists (deleted): {child1ExistsDeleted}");
         Console.WriteLine($"  Child1 physically removed: {child1PhysicallyRemoved}");
 
-        child1ExistsNotDeleted.Should().BeFalse("Child1 should not exist as active record");
+        child1ExistsNotDeleted.ShouldBeFalse("Child1 should not exist as active record");
 
         // Either soft-deleted OR physically removed
-        (child1ExistsDeleted || child1PhysicallyRemoved).Should().BeTrue(
+        (child1ExistsDeleted || child1PhysicallyRemoved).ShouldBeTrue(
             "Child1 should be either soft-deleted or physically removed");
 
         Console.WriteLine("=== TEST PASSED ===");
@@ -528,7 +528,7 @@ public class GroupNestedSetIntegrationTests
         Console.WriteLine("Note: Result depends on nested set Lft/Rgt values being correctly maintained");
 
         // Verify method doesn't throw and returns consistent results
-        grandchildIsAncestorOfChild.Should().BeFalse("Grandchild cannot be ancestor of its parent");
+        grandchildIsAncestorOfChild.ShouldBeFalse("Grandchild cannot be ancestor of its parent");
 
         Console.WriteLine("=== TEST PASSED ===");
     }
@@ -561,7 +561,7 @@ public class GroupNestedSetIntegrationTests
         Console.WriteLine("=== MOVE NODE TEST ===");
         var childBefore = await GetGroupFromDb(child.Id);
         Console.WriteLine($"Before move: Child.Parent = {childBefore.Parent}");
-        childBefore.Parent.Should().Be(parent1.Id);
+        childBefore.Parent.ShouldBe(parent1.Id);
 
         // Act - Move child from Parent1 to Parent2
         await _groupRepository.MoveNode(child.Id, parent2.Id);
@@ -570,8 +570,8 @@ public class GroupNestedSetIntegrationTests
         var childAfter = await GetGroupFromDb(child.Id);
         Console.WriteLine($"After move: Child.Parent = {childAfter.Parent}");
 
-        childAfter.Parent.Should().Be(parent2.Id, "Child should now have Parent2 as parent");
-        childAfter.Root.Should().Be(root.Id, "Root should remain the same");
+        childAfter.Parent.ShouldBe(parent2.Id, "Child should now have Parent2 as parent");
+        childAfter.Root.ShouldBe(root.Id, "Root should remain the same");
 
         Console.WriteLine("=== TEST PASSED ===");
     }
@@ -610,9 +610,9 @@ public class GroupNestedSetIntegrationTests
         Console.WriteLine($"  Root2: Lft={savedRoot2.Lft}, Rgt={savedRoot2.Rgt}, Root={savedRoot2.Root}");
         Console.WriteLine($"  Child2: Lft={savedChild2.Lft}, Rgt={savedChild2.Rgt}, Root={savedChild2.Root}");
 
-        savedChild1.Root.Should().Be(root1.Id);
-        savedChild2.Root.Should().Be(root2.Id);
-        savedChild1.Root.Should().NotBe(savedChild2.Root!.Value, "Different trees should have different roots");
+        savedChild1.Root.ShouldBe(root1.Id);
+        savedChild2.Root.ShouldBe(root2.Id);
+        savedChild1.Root.ShouldNotBe(savedChild2.Root!.Value, "Different trees should have different roots");
 
         Console.WriteLine("=== TEST PASSED ===");
     }

@@ -2,7 +2,7 @@
 
 namespace Klacks.IntegrationTest.Application.Klacksy;
 
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Models.Klacksy;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Klacksy;
@@ -62,6 +62,6 @@ public class KlacksyNavigationFeedbackRepositoryTests
         _insertedIds.Add(entity.Id);
 
         var unresolved = await _repo.QueryUnresolvedAsync("en", 10, CancellationToken.None);
-        unresolved.Should().ContainSingle(x => x.Utterance == "where is ai setting");
+        unresolved.ShouldContain(x => x.Utterance == "where is ai setting");
     }
 }

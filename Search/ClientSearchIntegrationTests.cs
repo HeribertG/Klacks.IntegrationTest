@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Models.Associations;
@@ -151,12 +151,12 @@ public class ClientSearchIntegrationTests
             Console.WriteLine($"  IdNumber={c.IdNumber}, FirstName='{c.FirstName?.Replace(TestClientPrefix, "")}', Name='{c.Name}', Company='{c.Company}'");
         }
 
-        clients.Should().Contain(c => c.IdNumber == 90001, "Elle Abel - exakter Match");
-        clients.Should().Contain(c => c.IdNumber == 90002, "Abel Elle - umgekehrte Reihenfolge, AND auf verschiedene Felder");
-        clients.Should().Contain(c => c.IdNumber == 90003, "Gabrielle Abel - 'elle' in FirstName enthalten");
-        clients.Should().Contain(c => c.IdNumber == 90009, "Elle Abelson - 'abel' in Name enthalten");
-        clients.Should().NotContain(c => c.IdNumber == 90006, "Max Mustermann - kein Match");
-        clients.Should().NotContain(c => c.IdNumber == 90007, "Anna Schmidt - kein Match");
+        clients.ShouldContain(c => c.IdNumber == 90001, "Elle Abel - exakter Match");
+        clients.ShouldContain(c => c.IdNumber == 90002, "Abel Elle - umgekehrte Reihenfolge, AND auf verschiedene Felder");
+        clients.ShouldContain(c => c.IdNumber == 90003, "Gabrielle Abel - 'elle' in FirstName enthalten");
+        clients.ShouldContain(c => c.IdNumber == 90009, "Elle Abelson - 'abel' in Name enthalten");
+        clients.ShouldNotContain(c => c.IdNumber == 90006, "Max Mustermann - kein Match");
+        clients.ShouldNotContain(c => c.IdNumber == 90007, "Anna Schmidt - kein Match");
 
         Console.WriteLine("\n=== BACKEND: Sucht 'elle' AND 'abel' in Name/FirstName/SecondName/MaidenName/Company ===");
     }
@@ -226,7 +226,7 @@ public class ClientSearchIntegrationTests
         Console.WriteLine($"");
         Console.WriteLine($"Differenz: {withoutSearch - withSearch} Clients werden FÄLSCHLICHERWEISE angezeigt!");
 
-        withoutSearch.Should().BeGreaterThan(withSearch,
+        withoutSearch.ShouldBeGreaterThan(withSearch,
             "SearchString=string.Empty gibt alle Clients zurück, SearchString='Elle Abel' filtert korrekt");
 
         Console.WriteLine("\n=== BUG: GetScheduleEntriesQueryHandler.cs Zeile 147: SearchString = string.Empty ===");
@@ -307,7 +307,7 @@ public class ClientSearchIntegrationTests
             Console.WriteLine("  Keine Unterschiede zwischen Backend und Frontend-Filter");
         }
 
-        scheduleResults.Count.Should().BeGreaterThan(backendResults.Count,
+        scheduleResults.Count.ShouldBeGreaterThan(backendResults.Count,
             "Schedule zeigt ALLE Clients weil SearchString ignoriert wird");
 
         Console.WriteLine("\n=== FAZIT ===");
@@ -337,7 +337,7 @@ public class ClientSearchIntegrationTests
             Console.WriteLine($"  {c.IdNumber}: {c.FirstName?.Replace(TestClientPrefix, "")} {c.Name}");
         }
 
-        result.Count.Should().BeGreaterThanOrEqualTo(1,
+        result.Count.ShouldBeGreaterThanOrEqualTo(1,
             "OR-Suche findet mehr oder gleich viele wie AND-Suche");
 
         Console.WriteLine("\n=== '+' Separator verwendet OR-Logik statt AND ===");
@@ -363,11 +363,11 @@ public class ClientSearchIntegrationTests
             Console.WriteLine($"  {c.IdNumber}: {c.FirstName?.Replace(TestClientPrefix, "")} {c.Name}");
         }
 
-        result.Should().Contain(c => c.IdNumber == 90001, "Elle Abel");
-        result.Should().Contain(c => c.IdNumber == 90002, "Abel Elle");
-        result.Should().Contain(c => c.IdNumber == 90003, "Gabrielle Abel");
-        result.Should().Contain(c => c.IdNumber == 90005, "Elena Mabel - 'abel' in Name 'Mabel' enthalten");
-        result.Should().Contain(c => c.IdNumber == 90009, "Elle Abelson");
+        result.ShouldContain(c => c.IdNumber == 90001, "Elle Abel");
+        result.ShouldContain(c => c.IdNumber == 90002, "Abel Elle");
+        result.ShouldContain(c => c.IdNumber == 90003, "Gabrielle Abel");
+        result.ShouldContain(c => c.IdNumber == 90005, "Elena Mabel - 'abel' in Name 'Mabel' enthalten");
+        result.ShouldContain(c => c.IdNumber == 90009, "Elle Abelson");
     }
 
     [Test]
@@ -390,9 +390,9 @@ public class ClientSearchIntegrationTests
             Console.WriteLine($"  {c.IdNumber}: {c.FirstName?.Replace(TestClientPrefix, "")} {c.Name}");
         }
 
-        result.Should().Contain(c => c.IdNumber == 90001, "Elle Abel - Name startet mit 'A'");
-        result.Should().Contain(c => c.IdNumber == 90003, "Gabrielle Abel - Name startet mit 'A'");
-        result.Should().NotContain(c => c.IdNumber == 90007, "Anna Schmidt - FirstName hat TestPrefix, startet nicht mit 'A'");
+        result.ShouldContain(c => c.IdNumber == 90001, "Elle Abel - Name startet mit 'A'");
+        result.ShouldContain(c => c.IdNumber == 90003, "Gabrielle Abel - Name startet mit 'A'");
+        result.ShouldNotContain(c => c.IdNumber == 90007, "Anna Schmidt - FirstName hat TestPrefix, startet nicht mit 'A'");
 
         Console.WriteLine("\n=== Einzelnes Zeichen nutzt StartsWith statt Contains ===");
     }
@@ -424,7 +424,7 @@ public class ClientSearchIntegrationTests
         Console.WriteLine("Frontend-Filter findet ihn NICHT, weil:");
         Console.WriteLine($"  displayName='{displayName}' enthält NICHT 'elle abel' als zusammenhängenden Substring");
 
-        isFound.Should().BeFalse("displayName '{0}' enthält nicht 'elle abel' als zusammenhängenden Substring", displayName);
+        isFound.ShouldBeFalse($"displayName '{displayName}' enthält nicht 'elle abel' als zusammenhängenden Substring");
     }
 
     private IQueryable<Client> GetTestClientQuery()

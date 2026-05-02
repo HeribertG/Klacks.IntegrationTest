@@ -1,7 +1,7 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 using System.Net.Http.Json;
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
@@ -91,13 +91,13 @@ public class WizardE2ETests
 
         startResponse.EnsureSuccessStatusCode();
         var startBody = await startResponse.Content.ReadFromJsonAsync<StartResponse>();
-        startBody.Should().NotBeNull();
-        startBody!.JobId.Should().NotBe(Guid.Empty);
+        startBody.ShouldNotBeNull();
+        startBody!.JobId.ShouldNotBe(Guid.Empty);
 
         var completion = await WaitForCompletionAsync(token, startBody.JobId, TimeSpan.FromSeconds(60));
-        completion.Should().NotBeNull("wizard job did not finish within the timeout");
-        completion!.JobId.Should().Be(startBody.JobId);
-        completion.TokenCount.Should().BeGreaterThan(0, "GA must produce at least one token");
+        completion.ShouldNotBeNull("wizard job did not finish within the timeout");
+        completion!.JobId.ShouldBe(startBody.JobId);
+        completion.TokenCount.ShouldBeGreaterThan(0, "GA must produce at least one token");
 
         var applyResponse = await _httpClient.PostAsJsonAsync("/api/backend/Wizard/Apply", new
         {
@@ -106,8 +106,8 @@ public class WizardE2ETests
 
         applyResponse.EnsureSuccessStatusCode();
         var applyBody = await applyResponse.Content.ReadFromJsonAsync<ApplyResponse>();
-        applyBody.Should().NotBeNull();
-        applyBody!.CreatedWorkIds.Should().NotBeEmpty();
+        applyBody.ShouldNotBeNull();
+        applyBody!.CreatedWorkIds.ShouldNotBeEmpty();
 
         var createdWorks = await _context.Work
             .AsNoTracking()
@@ -116,8 +116,8 @@ public class WizardE2ETests
                         && w.CurrentDate <= periodUntil)
             .ToListAsync();
 
-        createdWorks.Should().HaveCountGreaterThanOrEqualTo(1, "apply must persist at least one work row");
-        createdWorks.Should().OnlyContain(w => w.ShiftId == _testShiftId);
+        createdWorks.Count.ShouldBeGreaterThanOrEqualTo(1, "apply must persist at least one work row");
+        createdWorks.ShouldAllBe(w => w.ShiftId == _testShiftId);
     }
 
     [Test]
@@ -144,7 +144,7 @@ public class WizardE2ETests
         });
         cancelResponse.EnsureSuccessStatusCode();
         var cancelBody = await cancelResponse.Content.ReadFromJsonAsync<CancelResponse>();
-        cancelBody!.Cancelled.Should().BeTrue();
+        cancelBody!.Cancelled.ShouldBeTrue();
     }
 
     [Test]
@@ -159,7 +159,7 @@ public class WizardE2ETests
             jobId = Guid.NewGuid(),
         });
 
-        response.StatusCode.Should().Be(System.Net.HttpStatusCode.NotFound);
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.NotFound);
     }
 
     [Test]
@@ -217,8 +217,8 @@ public class WizardE2ETests
             TestContext.Out.WriteLine($"  [{v.Kind}] agent={v.AgentId} date={v.Date} desc={v.Description}");
         }
 
-        context.Agents.Should().HaveCount(1, "fixture has exactly one test client");
-        context.ContractDays.Should().HaveCount(3, "period covers 3 days");
+        context.Agents.Count.ShouldBe(1, "fixture has exactly one test client");
+        context.ContractDays.Count.ShouldBe(3, "period covers 3 days");
     }
 
     private async Task<CompletionPayload?> WaitForCompletionAsync(string token, Guid jobId, TimeSpan timeout)

@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Interfaces.Associations;
@@ -220,8 +220,8 @@ public class WorkScheduleFilterTests
 
         // Assert
         var testClients = result.Clients.Where(c => c.Name!.Contains("TEST_")).ToList();
-        testClients.Should().HaveCount(2);
-        testClients.Should().OnlyContain(c => c.Type == EntityTypeEnum.Employee);
+        testClients.Count.ShouldBe(2);
+        testClients.ShouldAllBe(c => c.Type == EntityTypeEnum.Employee);
     }
 
     [Test]
@@ -259,9 +259,9 @@ public class WorkScheduleFilterTests
 
         // Assert
         var testClients = result.Clients.Where(c => c.Name!.Contains("TEST_")).ToList();
-        testClients.Should().HaveCount(1);
-        testClients[0].Type.Should().Be(EntityTypeEnum.ExternEmp);
-        testClients[0].FirstName.Should().Be("Charlie");
+        testClients.Count.ShouldBe(1);
+        testClients[0].Type.ShouldBe(EntityTypeEnum.ExternEmp);
+        testClients[0].FirstName.ShouldBe("Charlie");
     }
 
     [Test]
@@ -299,7 +299,7 @@ public class WorkScheduleFilterTests
 
         // Assert
         var testClients = result.Clients.Where(c => c.Name!.Contains("TEST_")).ToList();
-        testClients.Should().BeEmpty();
+        testClients.ShouldBeEmpty();
     }
 
     [Test]
@@ -338,9 +338,9 @@ public class WorkScheduleFilterTests
 
         // Assert
         var testClients = result.Clients.Where(c => c.Name!.Contains("TEST_")).ToList();
-        testClients.Should().HaveCount(2);
-        testClients[0].FirstName.Should().Be("Alice");
-        testClients[1].FirstName.Should().Be("Bob");
+        testClients.Count.ShouldBe(2);
+        testClients[0].FirstName.ShouldBe("Alice");
+        testClients[1].FirstName.ShouldBe("Bob");
     }
 
     [Test]
@@ -393,9 +393,9 @@ public class WorkScheduleFilterTests
         // Assert
         var testClientsWithHours = resultWithHours.Clients.Where(c => c.Name!.Contains("TEST_")).ToList();
         var testClientsWithoutHours = resultWithoutHours.Clients.Where(c => c.Name!.Contains("TEST_")).ToList();
-        testClientsWithHours.Should().HaveCount(3);
-        testClientsWithoutHours.Should().HaveCount(3);
-        testClientsWithHours[0].FirstName.Should().Be("Charlie");
-        testClientsWithoutHours[0].FirstName.Should().Be("Charlie");
+        testClientsWithHours.Count.ShouldBe(3);
+        testClientsWithoutHours.Count.ShouldBe(3);
+        testClientsWithHours[0].FirstName.ShouldBe("Charlie");
+        testClientsWithoutHours[0].FirstName.ShouldBe("Charlie");
     }
 }

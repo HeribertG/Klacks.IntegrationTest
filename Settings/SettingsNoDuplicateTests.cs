@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Application.Commands.Settings.Settings;
 using Klacks.Api.Application.Handlers.Settings.Setting;
 using Klacks.Api.Application.Interfaces;
@@ -95,12 +95,12 @@ public class SettingsNoDuplicateTests
         var firstResult = await handler.Handle(firstCommand, CancellationToken.None);
 
         // Assert - Setting was created
-        firstResult.Should().NotBeNull();
-        firstResult!.Type.Should().Be(testType);
-        firstResult.Value.Should().Be(originalValue);
+        firstResult.ShouldNotBeNull();
+        firstResult!.Type.ShouldBe(testType);
+        firstResult.Value.ShouldBe(originalValue);
 
         var countAfterFirstPost = await _context.Settings.CountAsync(s => s.Type == testType);
-        countAfterFirstPost.Should().Be(1);
+        countAfterFirstPost.ShouldBe(1);
 
         // Arrange - Second POST with same type but different value
         var secondSetting = new Klacks.Api.Domain.Models.Settings.Settings
@@ -114,16 +114,16 @@ public class SettingsNoDuplicateTests
         var secondResult = await handler.Handle(secondCommand, CancellationToken.None);
 
         // Assert - No duplicate created, value was updated
-        secondResult.Should().NotBeNull();
-        secondResult!.Type.Should().Be(testType);
-        secondResult.Value.Should().Be(updatedValue);
+        secondResult.ShouldNotBeNull();
+        secondResult!.Type.ShouldBe(testType);
+        secondResult.Value.ShouldBe(updatedValue);
 
         var countAfterSecondPost = await _context.Settings.CountAsync(s => s.Type == testType);
-        countAfterSecondPost.Should().Be(1, "POST with existing type should update, not create duplicate");
+        countAfterSecondPost.ShouldBe(1, "POST with existing type should update, not create duplicate");
 
         var finalSetting = await _context.Settings.FirstOrDefaultAsync(s => s.Type == testType);
-        finalSetting.Should().NotBeNull();
-        finalSetting!.Value.Should().Be(updatedValue);
+        finalSetting.ShouldNotBeNull();
+        finalSetting!.Value.ShouldBe(updatedValue);
     }
 
     [Test]
@@ -151,13 +151,13 @@ public class SettingsNoDuplicateTests
         var result = await handler.Handle(command, CancellationToken.None);
 
         // Assert
-        result.Should().NotBeNull();
-        result!.Type.Should().Be(testType);
-        result.Value.Should().Be(value);
-        result.Id.Should().NotBe(Guid.Empty);
+        result.ShouldNotBeNull();
+        result!.Type.ShouldBe(testType);
+        result.Value.ShouldBe(value);
+        result.Id.ShouldNotBe(Guid.Empty);
 
         var dbSetting = await _context.Settings.FirstOrDefaultAsync(s => s.Type == testType);
-        dbSetting.Should().NotBeNull();
+        dbSetting.ShouldNotBeNull();
     }
 
     [Test]
@@ -187,10 +187,10 @@ public class SettingsNoDuplicateTests
 
         // Assert - Only one entry should exist
         var count = await _context.Settings.CountAsync(s => s.Type == testType);
-        count.Should().Be(1, "Multiple POSTs with same type should result in only one entry");
+        count.ShouldBe(1, "Multiple POSTs with same type should result in only one entry");
 
         var finalSetting = await _context.Settings.FirstOrDefaultAsync(s => s.Type == testType);
-        finalSetting!.Value.Should().Be("value_5", "Last POST value should be persisted");
+        finalSetting!.Value.ShouldBe("value_5", "Last POST value should be persisted");
     }
 
     private ISettingsRepository CreateSettingsRepository()

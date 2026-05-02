@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
@@ -75,14 +75,14 @@ public class BreakRepositoryGroupSealTests
             WorkLockLevel.Confirmed,
             "test-user");
 
-        affected.Should().Be(1);
+        affected.ShouldBe(1);
 
         _context.ChangeTracker.Clear();
         var break1 = await _context.Break.FindAsync(_break1Id);
         var break2 = await _context.Break.FindAsync(_break2Id);
 
-        break1!.LockLevel.Should().Be(WorkLockLevel.Confirmed);
-        break2!.LockLevel.Should().Be(WorkLockLevel.None);
+        break1!.LockLevel.ShouldBe(WorkLockLevel.Confirmed);
+        break2!.LockLevel.ShouldBe(WorkLockLevel.None);
     }
 
     [Test]
@@ -100,14 +100,14 @@ public class BreakRepositoryGroupSealTests
             _group1Id,
             WorkLockLevel.Confirmed);
 
-        affected.Should().Be(1);
+        affected.ShouldBe(1);
 
         _context.ChangeTracker.Clear();
         var break1 = await _context.Break.FindAsync(_break1Id);
         var break2 = await _context.Break.FindAsync(_break2Id);
 
-        break1!.LockLevel.Should().Be(WorkLockLevel.None);
-        break2!.LockLevel.Should().Be(WorkLockLevel.Confirmed);
+        break1!.LockLevel.ShouldBe(WorkLockLevel.None);
+        break2!.LockLevel.ShouldBe(WorkLockLevel.Confirmed);
     }
 
     private async Task SeedTwoGroupsWithOneClientEach()

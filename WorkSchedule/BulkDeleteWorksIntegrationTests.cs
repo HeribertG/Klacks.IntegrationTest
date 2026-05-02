@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Application.Commands.Works;
 using Klacks.Api.Application.Handlers.Works;
 using Klacks.Api.Application.Interfaces;
@@ -223,16 +223,16 @@ public class BulkDeleteWorksIntegrationTests
         var response = await _handler.Handle(command, CancellationToken.None);
 
         // Assert
-        response.SuccessCount.Should().Be(1);
-        response.FailedCount.Should().Be(0);
-        response.DeletedIds.Should().HaveCount(1);
+        response.SuccessCount.ShouldBe(1);
+        response.FailedCount.ShouldBe(0);
+        response.DeletedIds.Count.ShouldBe(1);
 
-        response.PeriodHours.Should().NotBeNull();
-        response.PeriodHours.Should().ContainKey(_testClientId);
+        response.PeriodHours.ShouldNotBeNull();
+        response.PeriodHours.ShouldContainKey(_testClientId);
 
         var periodHours = response.PeriodHours![_testClientId];
-        periodHours.Hours.Should().Be(16m, "2 remaining works @ 8h each (Saturday + Sunday)");
-        periodHours.Surcharges.Should().Be(1.6m, "Saturday 0.8 + Sunday 0.8");
+        periodHours.Hours.ShouldBe(16m, "2 remaining works @ 8h each (Saturday + Sunday)");
+        periodHours.Surcharges.ShouldBe(1.6m, "Saturday 0.8 + Sunday 0.8");
     }
 
     [Test]
@@ -251,14 +251,14 @@ public class BulkDeleteWorksIntegrationTests
         var response = await _handler.Handle(command, CancellationToken.None);
 
         // Assert
-        response.SuccessCount.Should().Be(1);
-        response.PeriodHours.Should().NotBeNull();
-        response.PeriodHours.Should().ContainKey(_testClientId);
+        response.SuccessCount.ShouldBe(1);
+        response.PeriodHours.ShouldNotBeNull();
+        response.PeriodHours.ShouldContainKey(_testClientId);
 
         var periodHours = response.PeriodHours![_testClientId];
         // Remaining: Sunday (8h, 0.8) + Monday (8h, 0.0) = 16h total, 0.8 surcharges
-        periodHours.Hours.Should().Be(16m, "2 remaining works @ 8h each");
-        periodHours.Surcharges.Should().Be(0.8m, "Only Sunday surcharge remains");
+        periodHours.Hours.ShouldBe(16m, "2 remaining works @ 8h each");
+        periodHours.Surcharges.ShouldBe(0.8m, "Only Sunday surcharge remains");
     }
 
     [Test]
@@ -275,13 +275,13 @@ public class BulkDeleteWorksIntegrationTests
         var response = await _handler.Handle(command, CancellationToken.None);
 
         // Assert
-        response.SuccessCount.Should().Be(3);
-        response.PeriodHours.Should().NotBeNull();
-        response.PeriodHours.Should().ContainKey(_testClientId);
+        response.SuccessCount.ShouldBe(3);
+        response.PeriodHours.ShouldNotBeNull();
+        response.PeriodHours.ShouldContainKey(_testClientId);
 
         var periodHours = response.PeriodHours![_testClientId];
-        periodHours.Hours.Should().Be(0m, "All works deleted");
-        periodHours.Surcharges.Should().Be(0m, "All works deleted");
+        periodHours.Hours.ShouldBe(0m, "All works deleted");
+        periodHours.Surcharges.ShouldBe(0m, "All works deleted");
     }
 
     [Test]
@@ -299,9 +299,9 @@ public class BulkDeleteWorksIntegrationTests
         var response = await _handler.Handle(command, CancellationToken.None);
 
         // Assert
-        response.SuccessCount.Should().Be(0);
-        response.FailedCount.Should().Be(1);
-        response.DeletedIds.Should().BeEmpty("No works were deleted");
+        response.SuccessCount.ShouldBe(0);
+        response.FailedCount.ShouldBe(1);
+        response.DeletedIds.ShouldBeEmpty("No works were deleted");
     }
 
     private static IClientContractDataProvider CreateContractDataProviderMock()

@@ -14,7 +14,7 @@
 ///   StartTime/EndTime. The SP echoes them unchanged.
 /// </summary>
 
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces.Macros;
 using Klacks.Api.Domain.Interfaces.Schedules;
@@ -153,9 +153,9 @@ public class WorkChangeDurationStorageTests
 
         var stored = await _context.WorkChange.AsNoTracking().FirstAsync(wc => wc.Id == id);
 
-        stored.StartTime.Should().Be(TimeOnly.MinValue, "duration-based types must persist StartTime as 00:00");
-        stored.EndTime.Should().Be(TimeOnly.MinValue, "duration-based types must persist EndTime as 00:00");
-        stored.ChangeTime.Should().Be(0.5m, "ChangeTime (hours) is the duration source of truth");
+        stored.StartTime.ShouldBe(TimeOnly.MinValue, "duration-based types must persist StartTime as 00:00");
+        stored.EndTime.ShouldBe(TimeOnly.MinValue, "duration-based types must persist EndTime as 00:00");
+        stored.ChangeTime.ShouldBe(0.5m, "ChangeTime (hours) is the duration source of truth");
     }
 
     [TestCase(WorkChangeType.TravelWithin)]
@@ -170,9 +170,9 @@ public class WorkChangeDurationStorageTests
 
         var stored = await _context.WorkChange.AsNoTracking().FirstAsync(wc => wc.Id == id);
 
-        stored.StartTime.Should().Be(start);
-        stored.EndTime.Should().Be(end);
-        stored.ChangeTime.Should().Be(1.0m);
+        stored.StartTime.ShouldBe(start);
+        stored.EndTime.ShouldBe(end);
+        stored.ChangeTime.ShouldBe(1.0m);
     }
 
     [Test]
@@ -182,9 +182,9 @@ public class WorkChangeDurationStorageTests
 
         var entry = await LoadSingleWorkChangeEntry();
 
-        entry.StartTime.Should().Be(T(16, 0));
-        entry.EndTime.Should().Be(T(16, 30));
-        entry.WorkChangeType.Should().Be((int)WorkChangeType.CorrectionEnd);
+        entry.StartTime.ShouldBe(T(16, 0));
+        entry.EndTime.ShouldBe(T(16, 30));
+        entry.WorkChangeType.ShouldBe((int)WorkChangeType.CorrectionEnd);
     }
 
     [Test]
@@ -194,9 +194,9 @@ public class WorkChangeDurationStorageTests
 
         var entry = await LoadSingleWorkChangeEntry();
 
-        entry.StartTime.Should().Be(T(7, 30));
-        entry.EndTime.Should().Be(T(8, 0));
-        entry.WorkChangeType.Should().Be((int)WorkChangeType.CorrectionStart);
+        entry.StartTime.ShouldBe(T(7, 30));
+        entry.EndTime.ShouldBe(T(8, 0));
+        entry.WorkChangeType.ShouldBe((int)WorkChangeType.CorrectionStart);
     }
 
     [Test]
@@ -206,8 +206,8 @@ public class WorkChangeDurationStorageTests
 
         var entry = await LoadSingleWorkChangeEntry();
 
-        entry.StartTime.Should().Be(T(7, 30));
-        entry.EndTime.Should().Be(T(8, 0));
+        entry.StartTime.ShouldBe(T(7, 30));
+        entry.EndTime.ShouldBe(T(8, 0));
     }
 
     [Test]
@@ -217,8 +217,8 @@ public class WorkChangeDurationStorageTests
 
         var entry = await LoadSingleWorkChangeEntry();
 
-        entry.StartTime.Should().Be(T(16, 0));
-        entry.EndTime.Should().Be(T(16, 30));
+        entry.StartTime.ShouldBe(T(16, 0));
+        entry.EndTime.ShouldBe(T(16, 30));
     }
 
     [Test]
@@ -228,8 +228,8 @@ public class WorkChangeDurationStorageTests
 
         var entry = await LoadSingleWorkChangeEntry();
 
-        entry.StartTime.Should().Be(T(7, 30));
-        entry.EndTime.Should().Be(T(8, 0));
+        entry.StartTime.ShouldBe(T(7, 30));
+        entry.EndTime.ShouldBe(T(8, 0));
     }
 
     [Test]
@@ -239,8 +239,8 @@ public class WorkChangeDurationStorageTests
 
         var entry = await LoadSingleWorkChangeEntry();
 
-        entry.StartTime.Should().Be(T(16, 0));
-        entry.EndTime.Should().Be(T(16, 30));
+        entry.StartTime.ShouldBe(T(16, 0));
+        entry.EndTime.ShouldBe(T(16, 30));
     }
 
     [Test]
@@ -250,8 +250,8 @@ public class WorkChangeDurationStorageTests
 
         var entry = await LoadSingleWorkChangeEntry();
 
-        entry.StartTime.Should().Be(T(12, 0));
-        entry.EndTime.Should().Be(T(13, 0));
+        entry.StartTime.ShouldBe(T(12, 0));
+        entry.EndTime.ShouldBe(T(13, 0));
     }
 
     [Test]
@@ -261,9 +261,9 @@ public class WorkChangeDurationStorageTests
 
         var entries = await LoadWorkChangeEntries();
 
-        entries.Should().HaveCount(2, "ReplacementWithin produces one row per involved client");
-        entries.Should().Contain(e => e.ClientId == _clientId && e.StartTime == T(12, 0) && e.EndTime == T(13, 0));
-        entries.Should().Contain(e => e.ClientId == _replaceClientId && e.StartTime == T(12, 0) && e.EndTime == T(13, 0));
+        entries.Count.ShouldBe(2, "ReplacementWithin produces one row per involved client");
+        entries.ShouldContain(e => e.ClientId == _clientId && e.StartTime == T(12, 0) && e.EndTime == T(13, 0));
+        entries.ShouldContain(e => e.ClientId == _replaceClientId && e.StartTime == T(12, 0) && e.EndTime == T(13, 0));
     }
 
     [Test]
@@ -273,14 +273,14 @@ public class WorkChangeDurationStorageTests
 
         var entries = await LoadWorkChangeEntries();
 
-        entries.Should().HaveCount(2);
+        entries.Count.ShouldBe(2);
         var owner = entries.Single(e => e.ClientId == _clientId);
         var replace = entries.Single(e => e.ClientId == _replaceClientId);
 
-        owner.StartTime.Should().Be(ShiftStartSpan);
-        owner.EndTime.Should().Be(T(8, 30));
-        replace.StartTime.Should().Be(ShiftStartSpan);
-        replace.EndTime.Should().Be(T(8, 30));
+        owner.StartTime.ShouldBe(ShiftStartSpan);
+        owner.EndTime.ShouldBe(T(8, 30));
+        replace.StartTime.ShouldBe(ShiftStartSpan);
+        replace.EndTime.ShouldBe(T(8, 30));
     }
 
     [Test]
@@ -290,14 +290,14 @@ public class WorkChangeDurationStorageTests
 
         var entries = await LoadWorkChangeEntries();
 
-        entries.Should().HaveCount(2);
+        entries.Count.ShouldBe(2);
         var owner = entries.Single(e => e.ClientId == _clientId);
         var replace = entries.Single(e => e.ClientId == _replaceClientId);
 
-        owner.StartTime.Should().Be(T(15, 30));
-        owner.EndTime.Should().Be(ShiftEndSpan);
-        replace.StartTime.Should().Be(T(15, 30));
-        replace.EndTime.Should().Be(ShiftEndSpan);
+        owner.StartTime.ShouldBe(T(15, 30));
+        owner.EndTime.ShouldBe(ShiftEndSpan);
+        replace.StartTime.ShouldBe(T(15, 30));
+        replace.EndTime.ShouldBe(ShiftEndSpan);
     }
 
     [Test]
@@ -309,19 +309,19 @@ public class WorkChangeDurationStorageTests
 
         var entries = await LoadWorkChangeEntries();
 
-        entries.Should().HaveCount(3);
+        entries.Count.ShouldBe(3);
         var correction = entries.Single(e => e.WorkChangeType == (int)WorkChangeType.CorrectionStart);
         var briefing = entries.Single(e => e.WorkChangeType == (int)WorkChangeType.Briefing);
         var travel = entries.Single(e => e.WorkChangeType == (int)WorkChangeType.TravelStart);
 
-        correction.EndTime.Should().Be(ShiftStartSpan);
-        correction.StartTime.Should().Be(T(7, 45));
+        correction.EndTime.ShouldBe(ShiftStartSpan);
+        correction.StartTime.ShouldBe(T(7, 45));
 
-        briefing.EndTime.Should().Be(T(7, 45));
-        briefing.StartTime.Should().Be(T(7, 15));
+        briefing.EndTime.ShouldBe(T(7, 45));
+        briefing.StartTime.ShouldBe(T(7, 15));
 
-        travel.EndTime.Should().Be(T(7, 15));
-        travel.StartTime.Should().Be(T(5, 15));
+        travel.EndTime.ShouldBe(T(7, 15));
+        travel.StartTime.ShouldBe(T(5, 15));
     }
 
     [TestCase(WorkChangeType.CorrectionEnd)]
@@ -348,10 +348,10 @@ public class WorkChangeDurationStorageTests
 
         await service.ProcessWorkChangeMacroAsync(workChange);
 
-        workChange.ChangeTime.Should().Be(0.5m,
+        workChange.ChangeTime.ShouldBe(0.5m,
             "duration-only types send ChangeTime directly; macro must not overwrite it from 00:00-00:00");
-        workChange.StartTime.Should().Be(TimeOnly.MinValue);
-        workChange.EndTime.Should().Be(TimeOnly.MinValue);
+        workChange.StartTime.ShouldBe(TimeOnly.MinValue);
+        workChange.EndTime.ShouldBe(TimeOnly.MinValue);
     }
 
     [TestCase(WorkChangeType.TravelWithin)]
@@ -372,7 +372,7 @@ public class WorkChangeDurationStorageTests
 
         await service.ProcessWorkChangeMacroAsync(workChange);
 
-        workChange.ChangeTime.Should().Be(1.5m, "within types derive ChangeTime from the explicit Von/Bis span");
+        workChange.ChangeTime.ShouldBe(1.5m, "within types derive ChangeTime from the explicit Von/Bis span");
     }
 
     [Test]
@@ -384,19 +384,19 @@ public class WorkChangeDurationStorageTests
 
         var entries = await LoadWorkChangeEntries();
 
-        entries.Should().HaveCount(3);
+        entries.Count.ShouldBe(3);
         var correction = entries.Single(e => e.WorkChangeType == (int)WorkChangeType.CorrectionEnd);
         var debriefing = entries.Single(e => e.WorkChangeType == (int)WorkChangeType.Debriefing);
         var travel = entries.Single(e => e.WorkChangeType == (int)WorkChangeType.TravelEnd);
 
-        correction.StartTime.Should().Be(ShiftEndSpan);
-        correction.EndTime.Should().Be(T(16, 15));
+        correction.StartTime.ShouldBe(ShiftEndSpan);
+        correction.EndTime.ShouldBe(T(16, 15));
 
-        debriefing.StartTime.Should().Be(T(16, 15));
-        debriefing.EndTime.Should().Be(T(16, 45));
+        debriefing.StartTime.ShouldBe(T(16, 15));
+        debriefing.EndTime.ShouldBe(T(16, 45));
 
-        travel.StartTime.Should().Be(T(16, 45));
-        travel.EndTime.Should().Be(T(18, 45));
+        travel.StartTime.ShouldBe(T(16, 45));
+        travel.EndTime.ShouldBe(T(18, 45));
     }
 
     private WorkMacroService CreateWorkMacroService()
@@ -439,7 +439,7 @@ public class WorkChangeDurationStorageTests
     private async Task<ScheduleCell> LoadSingleWorkChangeEntry()
     {
         var entries = await LoadWorkChangeEntries();
-        entries.Should().HaveCount(1);
+        entries.Count.ShouldBe(1);
         return entries.Single();
     }
 

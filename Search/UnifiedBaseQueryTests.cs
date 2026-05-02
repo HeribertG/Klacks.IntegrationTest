@@ -1,6 +1,6 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Application.DTOs.Filter;
 using Klacks.Api.Application.Handlers.ClientAvailabilities;
 using Klacks.Api.Application.Queries.ClientAvailabilities;
@@ -119,7 +119,7 @@ public class UnifiedBaseQueryTests
             Console.WriteLine($"  Availability: {c.Name}, {c.FirstName} (IdNumber={c.IdNumber})");
         }
 
-        scheduleTotalCount.Should().Be(availabilityResult.TotalCount,
+        scheduleTotalCount.ShouldBe(availabilityResult.TotalCount,
             "Bei identischen Parametern müssen Schedule und Availability gleiche Ergebnisse liefern");
     }
 
@@ -159,7 +159,7 @@ public class UnifiedBaseQueryTests
             Console.WriteLine($"  {c.Name}, {c.FirstName} | Type={c.Type} | IdNr={c.IdNumber} | ValidFrom={c.ValidFrom:yyyy-MM-dd} | ValidUntil={c.ValidUntil?.ToString("yyyy-MM-dd") ?? "NULL"}");
         }
 
-        results.Should().NotBeEmpty("'Ella Abel' sollte mindestens 1 Treffer haben");
+        results.ShouldNotBeEmpty("'Ella Abel' sollte mindestens 1 Treffer haben");
     }
 
     [Test]
@@ -222,6 +222,6 @@ public class UnifiedBaseQueryTests
             }
         }
 
-        exactCount.Should().Be(extendedCount, "Membership-Filter mit unterschiedlichen Zeiträumen sollte für aktive Clients kein Unterschied machen");
+        exactCount.ShouldBe(extendedCount, "Membership-Filter mit unterschiedlichen Zeiträumen sollte für aktive Clients kein Unterschied machen");
     }
 }

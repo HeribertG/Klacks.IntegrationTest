@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Staffs;
@@ -217,36 +217,36 @@ public class ClientCreationIntegrationTests
             .Include(c => c.GroupItems)
             .FirstOrDefaultAsync(c => c.Id == _testClientId);
 
-        savedClient.Should().NotBeNull("Client should be saved");
+        savedClient.ShouldNotBeNull("Client should be saved");
         Console.WriteLine($"Client: {savedClient!.FirstName} {savedClient.Name} (ID: {savedClient.Id})");
         Console.WriteLine($"  Type: {savedClient.Type}");
         Console.WriteLine($"  IdNumber: {savedClient.IdNumber}");
 
-        savedClient.Membership.Should().NotBeNull("Membership should be saved");
+        savedClient.Membership.ShouldNotBeNull("Membership should be saved");
         Console.WriteLine($"\nMembership:");
         Console.WriteLine($"  ValidFrom: {savedClient.Membership!.ValidFrom:yyyy-MM-dd}");
         Console.WriteLine($"  ValidUntil: {savedClient.Membership.ValidUntil?.ToString("yyyy-MM-dd") ?? "NULL (unlimited)"}");
 
-        savedClient.Addresses.Should().HaveCount(1, "Address should be saved");
+        savedClient.Addresses.Count.ShouldBe(1, "Address should be saved");
         var address = savedClient.Addresses.First();
         Console.WriteLine($"\nAddress:");
         Console.WriteLine($"  Street: {address.Street}");
         Console.WriteLine($"  City: {address.Zip} {address.City}");
         Console.WriteLine($"  Country: {address.Country}, State: {address.State}");
 
-        savedClient.Communications.Should().HaveCount(2, "Communications should be saved");
+        savedClient.Communications.Count.ShouldBe(2, "Communications should be saved");
         Console.WriteLine($"\nCommunications ({savedClient.Communications.Count}):");
         foreach (var comm in savedClient.Communications)
         {
             Console.WriteLine($"  {comm.Type}: {comm.Value}");
         }
 
-        savedClient.Annotations.Should().HaveCount(1, "Annotation should be saved");
+        savedClient.Annotations.Count.ShouldBe(1, "Annotation should be saved");
         var annotation = savedClient.Annotations.First();
         Console.WriteLine($"\nAnnotation:");
         Console.WriteLine($"  Note: {annotation.Note}");
 
-        savedClient.ClientImage.Should().NotBeNull("ClientImage should be saved");
+        savedClient.ClientImage.ShouldNotBeNull("ClientImage should be saved");
         Console.WriteLine($"\nClientImage:");
         Console.WriteLine($"  FileName: {savedClient.ClientImage!.FileName}");
         Console.WriteLine($"  ContentType: {savedClient.ClientImage.ContentType}");
@@ -255,7 +255,7 @@ public class ClientCreationIntegrationTests
 
         if (existingContract != null)
         {
-            savedClient.ClientContracts.Should().HaveCount(1, "ClientContract should be saved");
+            savedClient.ClientContracts.Count.ShouldBe(1, "ClientContract should be saved");
             var contract = savedClient.ClientContracts.First();
             Console.WriteLine($"\nClientContract:");
             Console.WriteLine($"  ContractId: {contract.ContractId}");
@@ -269,7 +269,7 @@ public class ClientCreationIntegrationTests
 
         if (existingGroup != null)
         {
-            savedClient.GroupItems.Should().HaveCount(1, "GroupItem should be saved");
+            savedClient.GroupItems.Count.ShouldBe(1, "GroupItem should be saved");
             var groupItem = savedClient.GroupItems.First();
             Console.WriteLine($"\nGroupItem:");
             Console.WriteLine($"  GroupId: {groupItem.GroupId}");
@@ -322,8 +322,8 @@ public class ClientCreationIntegrationTests
         Console.WriteLine($"Client without filter: {(clientWithoutFilter != null ? "FOUND" : "NOT FOUND")}");
         Console.WriteLine($"Client with membership filter: {(clientWithMembershipFilter != null ? "FOUND" : "NOT FOUND")}");
 
-        clientWithoutFilter.Should().NotBeNull("Client should exist in database");
-        clientWithMembershipFilter.Should().BeNull("Client without membership should NOT pass the filter");
+        clientWithoutFilter.ShouldNotBeNull("Client should exist in database");
+        clientWithMembershipFilter.ShouldBeNull("Client without membership should NOT pass the filter");
 
         Console.WriteLine("\n=== TEST PASSED: Client without Membership is correctly filtered out ===");
     }
@@ -409,12 +409,12 @@ public class ClientCreationIntegrationTests
         Console.WriteLine($"  annotation:    {annotationCount} (expected: 1)");
         Console.WriteLine($"  client_image:  {clientImageCount} (expected: 1)");
 
-        clientCount.Should().Be(1, "client table should have 1 entry");
-        membershipCount.Should().Be(1, "membership table should have 1 entry");
-        addressCount.Should().Be(1, "address table should have 1 entry");
-        communicationCount.Should().Be(1, "communication table should have 1 entry");
-        annotationCount.Should().Be(1, "annotation table should have 1 entry");
-        clientImageCount.Should().Be(1, "client_image table should have 1 entry");
+        clientCount.ShouldBe(1, "client table should have 1 entry");
+        membershipCount.ShouldBe(1, "membership table should have 1 entry");
+        addressCount.ShouldBe(1, "address table should have 1 entry");
+        communicationCount.ShouldBe(1, "communication table should have 1 entry");
+        annotationCount.ShouldBe(1, "annotation table should have 1 entry");
+        clientImageCount.ShouldBe(1, "client_image table should have 1 entry");
 
         Console.WriteLine("\n=== ALL DATABASE TABLES VERIFIED ===");
     }

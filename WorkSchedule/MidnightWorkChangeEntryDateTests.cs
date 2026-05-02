@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Infrastructure.Persistence;
@@ -102,7 +102,7 @@ public class MidnightWorkChangeEntryDateTests
 
         var result = await LoadEntry();
 
-        result.EntryDate.Date.Should().Be(WorkDate.ToDateTime(TimeOnly.MinValue), "correction-start before shift start belongs to the work date, not the day after");
+        result.EntryDate.Date.ShouldBe(WorkDate.ToDateTime(TimeOnly.MinValue), "correction-start before shift start belongs to the work date, not the day after");
     }
 
     [Test]
@@ -113,7 +113,7 @@ public class MidnightWorkChangeEntryDateTests
 
         var result = await LoadEntry();
 
-        result.EntryDate.Date.Should().Be(WorkDate.AddDays(1).ToDateTime(TimeOnly.MinValue), "correction-start between midnight and shift end is on the next calendar day");
+        result.EntryDate.Date.ShouldBe(WorkDate.AddDays(1).ToDateTime(TimeOnly.MinValue), "correction-start between midnight and shift end is on the next calendar day");
     }
 
     [Test]
@@ -123,7 +123,7 @@ public class MidnightWorkChangeEntryDateTests
 
         var result = await LoadEntry();
 
-        result.EntryDate.Date.Should().Be(WorkDate.AddDays(1).ToDateTime(TimeOnly.MinValue), "correction-end after shift end stays on the day the shift terminates");
+        result.EntryDate.Date.ShouldBe(WorkDate.AddDays(1).ToDateTime(TimeOnly.MinValue), "correction-end after shift end stays on the day the shift terminates");
     }
 
     private async Task AddWorkChange(WorkChangeType type, TimeOnly start, TimeOnly end)
@@ -152,7 +152,7 @@ public class MidnightWorkChangeEntryDateTests
         var entries = await _service.GetScheduleEntriesQuery(start, end)
             .Where(e => e.ClientId == _clientId && e.EntryType == 1)
             .ToListAsync();
-        entries.Should().HaveCount(1);
+        entries.Count.ShouldBe(1);
         return entries[0];
     }
 }

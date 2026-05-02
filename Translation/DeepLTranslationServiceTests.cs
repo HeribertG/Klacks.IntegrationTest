@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Domain.Common;
 using Klacks.Api.Domain.Interfaces;
@@ -103,7 +103,7 @@ public class DeepLTranslationServiceTests
         var isConfigured = await _translationService.IsConfiguredAsync();
 
         // Assert
-        isConfigured.Should().BeTrue("DeepL API key should be configured in the database");
+        isConfigured.ShouldBeTrue("DeepL API key should be configured in the database");
     }
 
     [Test]
@@ -118,11 +118,11 @@ public class DeepLTranslationServiceTests
         var result = await _translationService.TranslateAsync(germanText, sourceLanguage, targetLanguage);
 
         // Assert
-        result.Should().NotBeNull();
-        result.TranslatedText.Should().NotBeNullOrEmpty();
-        result.TranslatedText.ToLower().Should().Contain("morning", "Translation should contain 'morning'");
-        result.SourceLanguage.Should().Be(sourceLanguage);
-        result.TargetLanguage.Should().Be(targetLanguage);
+        result.ShouldNotBeNull();
+        result.TranslatedText.ShouldNotBeNullOrEmpty();
+        result.TranslatedText.ToLower().ShouldContain("morning");
+        result.SourceLanguage.ShouldBe(sourceLanguage);
+        result.TargetLanguage.ShouldBe(targetLanguage);
     }
 
     [Test]
@@ -137,9 +137,9 @@ public class DeepLTranslationServiceTests
         var result = await _translationService.TranslateAsync(englishText, sourceLanguage, targetLanguage);
 
         // Assert
-        result.Should().NotBeNull();
-        result.TranslatedText.Should().NotBeNullOrEmpty();
-        result.TranslatedText.ToLower().Should().ContainAny("guten", "morgen");
+        result.ShouldNotBeNull();
+        result.TranslatedText.ShouldNotBeNullOrEmpty();
+        (result.TranslatedText.ToLower().Contains("guten") || result.TranslatedText.ToLower().Contains("morgen")).ShouldBeTrue();
     }
 
     [Test]
@@ -154,9 +154,9 @@ public class DeepLTranslationServiceTests
         var result = await _translationService.TranslateAsync(germanText, sourceLanguage, targetLanguage);
 
         // Assert
-        result.Should().NotBeNull();
-        result.TranslatedText.Should().NotBeNullOrEmpty();
-        result.TranslatedText.ToLower().Should().ContainAny("vacances", "congé");
+        result.ShouldNotBeNull();
+        result.TranslatedText.ShouldNotBeNullOrEmpty();
+        (result.TranslatedText.ToLower().Contains("vacances") || result.TranslatedText.ToLower().Contains("congé")).ShouldBeTrue();
     }
 
     [Test]
@@ -171,9 +171,9 @@ public class DeepLTranslationServiceTests
         var result = await _translationService.TranslateAsync(germanText, sourceLanguage, targetLanguage);
 
         // Assert
-        result.Should().NotBeNull();
-        result.TranslatedText.Should().NotBeNullOrEmpty();
-        result.TranslatedText.ToLower().Should().ContainAny("malattia", "malato");
+        result.ShouldNotBeNull();
+        result.TranslatedText.ShouldNotBeNullOrEmpty();
+        (result.TranslatedText.ToLower().Contains("malattia") || result.TranslatedText.ToLower().Contains("malato")).ShouldBeTrue();
     }
 
     [Test]
@@ -188,8 +188,8 @@ public class DeepLTranslationServiceTests
         var result = await _translationService.TranslateAsync(emptyText, sourceLanguage, targetLanguage);
 
         // Assert
-        result.Should().NotBeNull();
-        result.TranslatedText.Should().BeEmpty();
+        result.ShouldNotBeNull();
+        result.TranslatedText.ShouldBeEmpty();
     }
 
     [Test]
@@ -204,8 +204,8 @@ public class DeepLTranslationServiceTests
         var result = await _translationService.TranslateAsync(whitespaceText, sourceLanguage, targetLanguage);
 
         // Assert
-        result.Should().NotBeNull();
-        result.TranslatedText.Should().Be(whitespaceText);
+        result.ShouldNotBeNull();
+        result.TranslatedText.ShouldBe(whitespaceText);
     }
 
     [Test]
@@ -219,17 +219,17 @@ public class DeepLTranslationServiceTests
         var results = await _translationService.TranslateToAllLanguagesAsync(germanText, sourceLanguage);
 
         // Assert
-        results.Should().NotBeNull();
-        results.Should().HaveCount(4);
-        results.Should().ContainKey("de");
-        results.Should().ContainKey("en");
-        results.Should().ContainKey("fr");
-        results.Should().ContainKey("it");
+        results.ShouldNotBeNull();
+        results.Count.ShouldBe(4);
+        results.ShouldContainKey("de");
+        results.ShouldContainKey("en");
+        results.ShouldContainKey("fr");
+        results.ShouldContainKey("it");
 
-        results["de"].Should().Be(germanText, "Source language should keep original text");
-        results["en"].Should().NotBeNullOrEmpty();
-        results["fr"].Should().NotBeNullOrEmpty();
-        results["it"].Should().NotBeNullOrEmpty();
+        results["de"].ShouldBe(germanText, "Source language should keep original text");
+        results["en"].ShouldNotBeNullOrEmpty();
+        results["fr"].ShouldNotBeNullOrEmpty();
+        results["it"].ShouldNotBeNullOrEmpty();
     }
 
     [Test]
@@ -243,12 +243,12 @@ public class DeepLTranslationServiceTests
         var results = await _translationService.TranslateToAllLanguagesAsync(englishText, sourceLanguage);
 
         // Assert
-        results.Should().NotBeNull();
-        results.Should().HaveCount(4);
-        results["en"].Should().Be(englishText, "Source language should keep original text");
-        results["de"].Should().NotBeNullOrEmpty();
-        results["fr"].Should().NotBeNullOrEmpty();
-        results["it"].Should().NotBeNullOrEmpty();
+        results.ShouldNotBeNull();
+        results.Count.ShouldBe(4);
+        results["en"].ShouldBe(englishText, "Source language should keep original text");
+        results["de"].ShouldNotBeNullOrEmpty();
+        results["fr"].ShouldNotBeNullOrEmpty();
+        results["it"].ShouldNotBeNullOrEmpty();
     }
 
     [Test]
@@ -258,11 +258,11 @@ public class DeepLTranslationServiceTests
         var supportedLanguages = MultiLanguage.SupportedLanguages;
 
         // Assert
-        supportedLanguages.Should().HaveCount(4);
-        supportedLanguages.Should().Contain("de");
-        supportedLanguages.Should().Contain("en");
-        supportedLanguages.Should().Contain("fr");
-        supportedLanguages.Should().Contain("it");
+        supportedLanguages.Count().ShouldBe(4);
+        supportedLanguages.ShouldContain("de");
+        supportedLanguages.ShouldContain("en");
+        supportedLanguages.ShouldContain("fr");
+        supportedLanguages.ShouldContain("it");
     }
 
     [Test]
@@ -281,11 +281,11 @@ public class DeepLTranslationServiceTests
         var result = await _multiLanguageTranslationService.TranslateEmptyFieldsAsync(multiLanguage);
 
         // Assert
-        result.Should().NotBeNull();
-        result.De.Should().Be("Mitarbeiter", "Source language should keep original text");
-        result.En.Should().NotBeNullOrEmpty("English should be translated");
-        result.Fr.Should().NotBeNullOrEmpty("French should be translated");
-        result.It.Should().NotBeNullOrEmpty("Italian should be translated");
+        result.ShouldNotBeNull();
+        result.De.ShouldBe("Mitarbeiter", "Source language should keep original text");
+        result.En.ShouldNotBeNullOrEmpty("English should be translated");
+        result.Fr.ShouldNotBeNullOrEmpty("French should be translated");
+        result.It.ShouldNotBeNullOrEmpty("Italian should be translated");
     }
 
     [Test]
@@ -304,11 +304,11 @@ public class DeepLTranslationServiceTests
         var result = await _multiLanguageTranslationService.TranslateEmptyFieldsAsync(multiLanguage);
 
         // Assert
-        result.Should().NotBeNull();
-        result.En.Should().Be("Employee", "Source language should keep original text");
-        result.De.Should().NotBeNullOrEmpty("German should be translated");
-        result.Fr.Should().NotBeNullOrEmpty("French should be translated");
-        result.It.Should().NotBeNullOrEmpty("Italian should be translated");
+        result.ShouldNotBeNull();
+        result.En.ShouldBe("Employee", "Source language should keep original text");
+        result.De.ShouldNotBeNullOrEmpty("German should be translated");
+        result.Fr.ShouldNotBeNullOrEmpty("French should be translated");
+        result.It.ShouldNotBeNullOrEmpty("Italian should be translated");
     }
 
     [Test]
@@ -327,11 +327,11 @@ public class DeepLTranslationServiceTests
         var result = await _multiLanguageTranslationService.TranslateEmptyFieldsAsync(multiLanguage);
 
         // Assert
-        result.Should().NotBeNull();
-        result.De.Should().Be("Deutsch");
-        result.En.Should().Be("English");
-        result.Fr.Should().Be("Francais");
-        result.It.Should().Be("Italiano");
+        result.ShouldNotBeNull();
+        result.De.ShouldBe("Deutsch");
+        result.En.ShouldBe("English");
+        result.Fr.ShouldBe("Francais");
+        result.It.ShouldBe("Italiano");
     }
 
     [Test]
@@ -350,11 +350,11 @@ public class DeepLTranslationServiceTests
         var result = await _multiLanguageTranslationService.TranslateEmptyFieldsAsync(multiLanguage);
 
         // Assert
-        result.Should().NotBeNull();
-        result.De.Should().BeNull();
-        result.En.Should().BeNull();
-        result.Fr.Should().BeNull();
-        result.It.Should().BeNull();
+        result.ShouldNotBeNull();
+        result.De.ShouldBeNull();
+        result.En.ShouldBeNull();
+        result.Fr.ShouldBeNull();
+        result.It.ShouldBeNull();
     }
 
     [Test]
@@ -373,11 +373,11 @@ public class DeepLTranslationServiceTests
         var result = await _multiLanguageTranslationService.TranslateEmptyFieldsAsync(multiLanguage);
 
         // Assert
-        result.Should().NotBeNull();
-        result.De.Should().Be("Test", "Should keep original German");
-        result.En.Should().Be("Existing", "Should keep existing English");
-        result.Fr.Should().NotBeNullOrEmpty("French should be translated from German");
-        result.It.Should().NotBeNullOrEmpty("Italian should be translated from German");
+        result.ShouldNotBeNull();
+        result.De.ShouldBe("Test", "Should keep original German");
+        result.En.ShouldBe("Existing", "Should keep existing English");
+        result.Fr.ShouldNotBeNullOrEmpty("French should be translated from German");
+        result.It.ShouldNotBeNullOrEmpty("Italian should be translated from German");
     }
 
     [Test]
@@ -393,11 +393,11 @@ public class DeepLTranslationServiceTests
         };
 
         // Act & Assert
-        multiLanguage.GetValue("de").Should().Be("Deutsch");
-        multiLanguage.GetValue("en").Should().Be("English");
-        multiLanguage.GetValue("fr").Should().Be("Francais");
-        multiLanguage.GetValue("it").Should().Be("Italiano");
-        multiLanguage.GetValue("DE").Should().Be("Deutsch", "Should be case-insensitive");
+        multiLanguage.GetValue("de").ShouldBe("Deutsch");
+        multiLanguage.GetValue("en").ShouldBe("English");
+        multiLanguage.GetValue("fr").ShouldBe("Francais");
+        multiLanguage.GetValue("it").ShouldBe("Italiano");
+        multiLanguage.GetValue("DE").ShouldBe("Deutsch", "Should be case-insensitive");
     }
 
     [Test]
@@ -413,10 +413,10 @@ public class DeepLTranslationServiceTests
         multiLanguage.SetValue("IT", "Italiano");
 
         // Assert
-        multiLanguage.De.Should().Be("Deutsch");
-        multiLanguage.En.Should().Be("English");
-        multiLanguage.Fr.Should().Be("Francais");
-        multiLanguage.It.Should().Be("Italiano");
+        multiLanguage.De.ShouldBe("Deutsch");
+        multiLanguage.En.ShouldBe("English");
+        multiLanguage.Fr.ShouldBe("Francais");
+        multiLanguage.It.ShouldBe("Italiano");
     }
 
     private ISettingsRepository CreateSettingsRepository()

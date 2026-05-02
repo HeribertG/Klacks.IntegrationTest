@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Services.Clients;
 using Klacks.Api.Domain.Enums;
@@ -83,14 +83,14 @@ public class WorkRepositoryGroupSealTests
             WorkLockLevel.Confirmed,
             "test-user");
 
-        affected.Should().Be(1);
+        affected.ShouldBe(1);
 
         _context.ChangeTracker.Clear();
         var work1 = await _context.Work.FindAsync(_work1Id);
         var work2 = await _context.Work.FindAsync(_work2Id);
 
-        work1!.LockLevel.Should().Be(WorkLockLevel.Confirmed);
-        work2!.LockLevel.Should().Be(WorkLockLevel.None);
+        work1!.LockLevel.ShouldBe(WorkLockLevel.Confirmed);
+        work2!.LockLevel.ShouldBe(WorkLockLevel.None);
     }
 
     [Test]
@@ -108,14 +108,14 @@ public class WorkRepositoryGroupSealTests
             _group1Id,
             WorkLockLevel.Confirmed);
 
-        affected.Should().Be(1);
+        affected.ShouldBe(1);
 
         _context.ChangeTracker.Clear();
         var work1 = await _context.Work.FindAsync(_work1Id);
         var work2 = await _context.Work.FindAsync(_work2Id);
 
-        work1!.LockLevel.Should().Be(WorkLockLevel.None);
-        work2!.LockLevel.Should().Be(WorkLockLevel.Confirmed);
+        work1!.LockLevel.ShouldBe(WorkLockLevel.None);
+        work2!.LockLevel.ShouldBe(WorkLockLevel.Confirmed);
     }
 
     private async Task SeedTwoGroupsWithOneClientEach()

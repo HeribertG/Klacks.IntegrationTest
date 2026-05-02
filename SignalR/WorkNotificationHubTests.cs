@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Infrastructure.Persistence;
@@ -262,11 +262,11 @@ public class WorkNotificationHubTests
         await Task.Delay(2000);
 
         // Assert
-        receivedByConnection1.Should().BeNull("Sender should not receive their own notification");
-        receivedByConnection2.Should().NotBeNull($"Other clients should receive the notification. Response was: {responseContent}");
-        receivedByConnection2!.ClientId.Should().Be(_testClientId);
-        receivedByConnection2.ShiftId.Should().Be(_testShiftId);
-        receivedByConnection2.OperationType.Should().Be("created");
+        receivedByConnection1.ShouldBeNull("Sender should not receive their own notification");
+        receivedByConnection2.ShouldNotBeNull($"Other clients should receive the notification. Response was: {responseContent}");
+        receivedByConnection2!.ClientId.ShouldBe(_testClientId);
+        receivedByConnection2.ShiftId.ShouldBe(_testShiftId);
+        receivedByConnection2.OperationType.ShouldBe("created");
     }
 
     [Test]
@@ -324,9 +324,9 @@ public class WorkNotificationHubTests
         await Task.Delay(1000);
 
         // Assert
-        receivedByConnection2.Should().NotBeNull("Other clients should receive delete notification");
-        receivedByConnection2!.WorkId.Should().Be(workId);
-        receivedByConnection2.OperationType.Should().Be("deleted");
+        receivedByConnection2.ShouldNotBeNull("Other clients should receive delete notification");
+        receivedByConnection2!.WorkId.ShouldBe(workId);
+        receivedByConnection2.OperationType.ShouldBe("deleted");
     }
 
     [Test]
@@ -395,10 +395,10 @@ public class WorkNotificationHubTests
         await Task.Delay(1000);
 
         // Assert
-        receivedNotifications.Should().HaveCount(2, "Two other clients should receive notification");
-        receivedNotifications.Should().NotContain(n => n.ConnectionName == "connection1",
+        receivedNotifications.Count.ShouldBe(2, "Two other clients should receive notification");
+        receivedNotifications.ShouldNotContain(n => n.ConnectionName == "connection1",
             "Sender should not receive notification");
-        receivedNotifications.Should().Contain(n => n.ConnectionName == "connection2");
-        receivedNotifications.Should().Contain(n => n.ConnectionName == "connection3");
+        receivedNotifications.ShouldContain(n => n.ConnectionName == "connection2");
+        receivedNotifications.ShouldContain(n => n.ConnectionName == "connection3");
     }
 }

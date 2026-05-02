@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Models.Exports;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Exports;
@@ -66,11 +66,11 @@ public class ExportLogRepositoryTests
         await _context.SaveChangesAsync();
         _insertedIds.Add(entry.Id);
 
-        entry.Id.Should().NotBe(Guid.Empty);
+        entry.Id.ShouldNotBe(Guid.Empty);
         _context.ChangeTracker.Clear();
         var reloaded = await _context.ExportLog.FindAsync(entry.Id);
-        reloaded.Should().NotBeNull();
-        reloaded!.RecordCount.Should().Be(50);
+        reloaded.ShouldNotBeNull();
+        reloaded!.RecordCount.ShouldBe(50);
     }
 
     [Test]
@@ -100,7 +100,7 @@ public class ExportLogRepositoryTests
             new DateOnly(2026, 3, 20),
             null);
 
-        result.Should().BeTrue();
+        result.ShouldBeTrue();
     }
 
     [Test]
@@ -134,8 +134,8 @@ public class ExportLogRepositoryTests
         _insertedIds.Add(groupAEntry.Id);
 
         var randomGroupId = Guid.NewGuid();
-        (await _repo.HasExportForPeriodAsync(new DateOnly(2026, 6, 10), new DateOnly(2026, 6, 15), randomGroupId)).Should().BeTrue();
-        (await _repo.HasExportForPeriodAsync(new DateOnly(2026, 6, 10), new DateOnly(2026, 6, 15), null)).Should().BeTrue();
+        (await _repo.HasExportForPeriodAsync(new DateOnly(2026, 6, 10), new DateOnly(2026, 6, 15), randomGroupId)).ShouldBeTrue();
+        (await _repo.HasExportForPeriodAsync(new DateOnly(2026, 6, 10), new DateOnly(2026, 6, 15), null)).ShouldBeTrue();
     }
 
     [Test]
@@ -165,6 +165,6 @@ public class ExportLogRepositoryTests
             new DateOnly(2026, 5, 31),
             null);
 
-        result.Should().BeFalse();
+        result.ShouldBeFalse();
     }
 }

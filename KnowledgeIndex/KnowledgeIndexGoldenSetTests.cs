@@ -1,7 +1,7 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 using System.Text.Json;
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Infrastructure.KnowledgeIndex.Application.Constants;
 using Klacks.Api.Infrastructure.KnowledgeIndex.Application.Services;
 using Klacks.Api.Infrastructure.KnowledgeIndex.Infrastructure.Onnx;
@@ -66,8 +66,7 @@ public class KnowledgeIndexGoldenSetTests
             }
         }
 
-        failures.Should().BeEmpty(
-            because: "all golden set queries should return the expected skill within top-3");
+        failures.ShouldBeEmpty("all golden set queries should return the expected skill within top-3");
     }
 
     private static List<GoldenItem> LoadGoldenSet()

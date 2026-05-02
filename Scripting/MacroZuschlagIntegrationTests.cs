@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Infrastructure.Scripting;
 using NUnit.Framework;
 
@@ -70,8 +70,8 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         var compiled = CompiledScript.Compile(ZuschlagMacroScript);
 
         // Assert
-        compiled.HasError.Should().BeFalse($"Compilation failed: {compiled.Error?.Description}");
-        compiled.Instructions.Count.Should().BeGreaterThan(100);
+        compiled.HasError.ShouldBeFalse($"Compilation failed: {compiled.Error?.Description}");
+        compiled.Instructions.Count.ShouldBeGreaterThan(100);
     }
 
     [Test]
@@ -79,7 +79,7 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
     {
         // Arrange
         var compiled = CompiledScript.Compile(ZuschlagMacroScript);
-        compiled.HasError.Should().BeFalse();
+        compiled.HasError.ShouldBeFalse();
 
         // Act - Set all 12 external variables
         SetStandardValues(compiled);
@@ -88,8 +88,8 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         var context = new ScriptExecutionContext(compiled);
         var result = context.Execute();
 
-        result.Success.Should().BeTrue($"Execution failed: {result.Error?.Description}");
-        result.Messages.Should().HaveCount(1);
+        result.Success.ShouldBeTrue($"Execution failed: {result.Error?.Description}");
+        result.Messages.Count.ShouldBe(1);
     }
 
     [Test]
@@ -108,9 +108,9 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue($"Execution failed: {result.Error?.Description}");
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(0.8m);
+        result.Success.ShouldBeTrue($"Execution failed: {result.Error?.Description}");
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(0.8m);
     }
 
     [Test]
@@ -129,9 +129,9 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue($"Execution failed: {result.Error?.Description}");
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(1.2m);
+        result.Success.ShouldBeTrue($"Execution failed: {result.Error?.Description}");
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(1.2m);
     }
 
     [Test]
@@ -149,9 +149,9 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue($"Execution failed: {result.Error?.Description}");
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(0m);
+        result.Success.ShouldBeTrue($"Execution failed: {result.Error?.Description}");
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(0m);
     }
 
     [Test]
@@ -171,9 +171,9 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue($"Execution failed: {result.Error?.Description}");
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(2.0m);
+        result.Success.ShouldBeTrue($"Execution failed: {result.Error?.Description}");
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(2.0m);
     }
 
     [Test]
@@ -192,9 +192,9 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue($"Execution failed: {result.Error?.Description}");
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().BeGreaterThan(0m);
+        result.Success.ShouldBeTrue($"Execution failed: {result.Error?.Description}");
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBeGreaterThan(0m);
     }
 
     [Test]
@@ -216,10 +216,10 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue($"Execution failed: {result.Error?.Description}");
-        result.Messages.Should().HaveCount(1);
+        result.Success.ShouldBeTrue($"Execution failed: {result.Error?.Description}");
+        result.Messages.Count.ShouldBe(1);
         decimal bonus = decimal.Parse(result.Messages[0].Message);
-        bonus.Should().BeGreaterThan(0m);
+        bonus.ShouldBeGreaterThan(0m);
     }
 
     [Test]
@@ -245,9 +245,9 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue($"Execution failed: {result.Error?.Description}");
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(0.8m);
+        result.Success.ShouldBeTrue($"Execution failed: {result.Error?.Description}");
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(0.8m);
     }
 
     [Test]
@@ -268,9 +268,9 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue($"Execution failed: {result.Error?.Description}");
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(2.0m);
+        result.Success.ShouldBeTrue($"Execution failed: {result.Error?.Description}");
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(2.0m);
     }
 
     [Test]
@@ -289,13 +289,13 @@ OUTPUT 1, nextday
         compiled.SetExternalValue("weekday", 7);
         var context1 = new ScriptExecutionContext(compiled);
         var result1 = context1.Execute();
-        result1.Messages[0].Message.Should().Be("1");
+        result1.Messages[0].Message.ShouldBe("1");
 
         // Act & Assert - Saturday (6) -> Sunday (7)
         compiled.SetExternalValue("weekday", 6);
         var context2 = new ScriptExecutionContext(compiled);
         var result2 = context2.Execute();
-        result2.Messages[0].Message.Should().Be("7");
+        result2.Messages[0].Message.ShouldBe("7");
     }
 
     private static void SetStandardValues(CompiledScript compiled)

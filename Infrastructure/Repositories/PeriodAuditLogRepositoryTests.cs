@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Infrastructure.Persistence;
@@ -63,11 +63,11 @@ public class PeriodAuditLogRepositoryTests
         await _context.SaveChangesAsync();
         _insertedIds.Add(entry.Id);
 
-        entry.Id.Should().NotBe(Guid.Empty);
+        entry.Id.ShouldNotBe(Guid.Empty);
         _context.ChangeTracker.Clear();
         var reloaded = await _context.PeriodAuditLog.FindAsync(entry.Id);
-        reloaded.Should().NotBeNull();
-        reloaded!.AffectedCount.Should().Be(42);
+        reloaded.ShouldNotBeNull();
+        reloaded!.AffectedCount.ShouldBe(42);
     }
 
     [Test]
@@ -101,9 +101,9 @@ public class PeriodAuditLogRepositoryTests
         _context.ChangeTracker.Clear();
         var result = await _repo.GetRangeAsync(new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31));
 
-        result.Where(r => _insertedIds.Contains(r.Id)).Should().HaveCount(2);
+        result.Where(r => _insertedIds.Contains(r.Id)).Count().ShouldBe(2);
         var ownResults = result.Where(r => _insertedIds.Contains(r.Id)).ToList();
-        ownResults[0].Action.Should().Be(PeriodAuditAction.Unseal);
-        ownResults[1].Action.Should().Be(PeriodAuditAction.Seal);
+        ownResults[0].Action.ShouldBe(PeriodAuditAction.Unseal);
+        ownResults[1].Action.ShouldBe(PeriodAuditAction.Seal);
     }
 }

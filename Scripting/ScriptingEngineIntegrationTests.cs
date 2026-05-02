@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Shouldly;
 using Klacks.Api.Infrastructure.Scripting;
 using NUnit.Framework;
 
@@ -21,8 +21,8 @@ OUTPUT 1, x
         var compiled = CompiledScript.Compile(script);
 
         // Assert
-        compiled.HasError.Should().BeFalse();
-        compiled.Instructions.Should().NotBeEmpty();
+        compiled.HasError.ShouldBeFalse();
+        compiled.Instructions.ShouldNotBeEmpty();
     }
 
     [Test]
@@ -49,9 +49,9 @@ OUTPUT 1, result
         var result = context.Execute();
 
         // Assert
-        compiled.HasError.Should().BeFalse();
-        result.Success.Should().BeTrue();
-        decimal.Parse(result.Messages[0].Message).Should().Be(0.8m);
+        compiled.HasError.ShouldBeFalse();
+        result.Success.ShouldBeTrue();
+        decimal.Parse(result.Messages[0].Message).ShouldBe(0.8m);
     }
 
     [Test]
@@ -72,7 +72,7 @@ OUTPUT 1, result
         var compiled = CompiledScript.Compile(script);
 
         // Assert
-        compiled.HasError.Should().BeFalse();
+        compiled.HasError.ShouldBeFalse();
     }
 
     [Test]
@@ -93,7 +93,7 @@ OUTPUT 1, x
         {
             var context = new ScriptExecutionContext(compiled);
             var result = context.Execute();
-            result.Success.Should().BeFalse();
+            result.Success.ShouldBeFalse();
         }
     }
 
@@ -115,10 +115,10 @@ OUTPUT 1, result
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue();
-        result.Messages.Should().HaveCount(1);
-        result.Messages[0].Type.Should().Be(1);
-        result.Messages[0].Message.Should().Be("15");
+        result.Success.ShouldBeTrue();
+        result.Messages.Count.ShouldBe(1);
+        result.Messages[0].Type.ShouldBe(1);
+        result.Messages[0].Message.ShouldBe("15");
     }
 
     [Test]
@@ -142,9 +142,9 @@ OUTPUT 1, bonus
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue();
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(0.8m);
+        result.Success.ShouldBeTrue();
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(0.8m);
     }
 
     [Test]
@@ -172,9 +172,9 @@ OUTPUT 1, MaxRate
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue();
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(0.15m);
+        result.Success.ShouldBeTrue();
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(0.15m);
     }
 
     [Test]
@@ -202,9 +202,9 @@ OUTPUT 1, maxrate
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue();
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(0.20m);
+        result.Success.ShouldBeTrue();
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(0.20m);
     }
 
     [Test]
@@ -228,9 +228,9 @@ OUTPUT 1, duration
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue();
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(8.5m);
+        result.Success.ShouldBeTrue();
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(8.5m);
     }
 
     [Test]
@@ -254,9 +254,9 @@ OUTPUT 1, nighthours
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue();
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(7m);
+        result.Success.ShouldBeTrue();
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(7m);
     }
 
     [Test]
@@ -282,9 +282,9 @@ OUTPUT 1, isWeekend
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue();
-        result.Messages.Should().HaveCount(1);
-        result.Messages[0].Message.Should().Be("1");
+        result.Success.ShouldBeTrue();
+        result.Messages.Count.ShouldBe(1);
+        result.Messages[0].Message.ShouldBe("1");
     }
 
     [Test]
@@ -313,7 +313,7 @@ OUTPUT 1, daycode
         {
             Console.WriteLine($"Compile Error: {compiled.Error?.Description} at line {compiled.Error?.Line}");
         }
-        compiled.HasError.Should().BeFalse($"Compilation failed: {compiled.Error?.Description}");
+        compiled.HasError.ShouldBeFalse($"Compilation failed: {compiled.Error?.Description}");
 
         var context = new ScriptExecutionContext(compiled);
         var result = context.Execute();
@@ -329,9 +329,9 @@ OUTPUT 1, daycode
             Console.WriteLine($"  Output: Type={msg.Type}, Value={msg.Message}");
         }
 
-        result.Success.Should().BeTrue($"Execution failed: {result.Error?.Description}");
-        result.Messages.Should().HaveCount(1);
-        result.Messages[0].Message.Should().Be("600");
+        result.Success.ShouldBeTrue($"Execution failed: {result.Error?.Description}");
+        result.Messages.Count.ShouldBe(1);
+        result.Messages[0].Message.ShouldBe("600");
     }
 
     [Test]
@@ -351,9 +351,9 @@ OUTPUT 1, rounded
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue();
-        result.Messages.Should().HaveCount(1);
-        decimal.Parse(result.Messages[0].Message).Should().Be(3.14m);
+        result.Success.ShouldBeTrue();
+        result.Messages.Count.ShouldBe(1);
+        decimal.Parse(result.Messages[0].Message).ShouldBe(3.14m);
     }
 
     [Test]
@@ -379,9 +379,9 @@ OUTPUT 1, bonus
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue();
-        result.Messages.Should().HaveCount(1);
-        result.Messages[0].Message.Should().Be("100");
+        result.Success.ShouldBeTrue();
+        result.Messages.Count.ShouldBe(1);
+        result.Messages[0].Message.ShouldBe("100");
     }
 
     [Test]
@@ -403,9 +403,9 @@ OUTPUT 1, nextday
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue();
-        result.Messages.Should().HaveCount(1);
-        result.Messages[0].Message.Should().Be("1");
+        result.Success.ShouldBeTrue();
+        result.Messages.Count.ShouldBe(1);
+        result.Messages[0].Message.ShouldBe("1");
     }
 
     [Test]
@@ -424,13 +424,13 @@ OUTPUT 3, 300
         var result = context.Execute();
 
         // Assert
-        result.Success.Should().BeTrue();
-        result.Messages.Should().HaveCount(3);
-        result.Messages[0].Type.Should().Be(1);
-        result.Messages[0].Message.Should().Be("100");
-        result.Messages[1].Type.Should().Be(2);
-        result.Messages[1].Message.Should().Be("200");
-        result.Messages[2].Type.Should().Be(3);
-        result.Messages[2].Message.Should().Be("300");
+        result.Success.ShouldBeTrue();
+        result.Messages.Count.ShouldBe(3);
+        result.Messages[0].Type.ShouldBe(1);
+        result.Messages[0].Message.ShouldBe("100");
+        result.Messages[1].Type.ShouldBe(2);
+        result.Messages[1].Message.ShouldBe("200");
+        result.Messages[2].Type.ShouldBe(3);
+        result.Messages[2].Message.ShouldBe("300");
     }
 }
