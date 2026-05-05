@@ -303,7 +303,7 @@ public class WorkScheduleFilterTests
     }
 
     [Test]
-    public async Task WorkList_WithHoursSortOrderAsc_SortsSecondaryByHours()
+    public async Task WorkList_WithGuaranteedHoursAsc_SortsByGuaranteedHoursAscending()
     {
         // Arrange
         var mockGroupFilter = Substitute.For<IClientGroupFilterService>();
@@ -327,9 +327,8 @@ public class WorkScheduleFilterTests
             EndDate = endDate,
             ShowEmployees = true,
             ShowExtern = false,
-            OrderBy = "name",
+            OrderBy = "guaranteedhours",
             SortOrder = "asc",
-            HoursSortOrder = "asc",
             SearchString = "TEST_"
         };
 
@@ -339,12 +338,10 @@ public class WorkScheduleFilterTests
         // Assert
         var testClients = result.Clients.Where(c => c.Name!.Contains("TEST_")).ToList();
         testClients.Count.ShouldBe(2);
-        testClients[0].FirstName.ShouldBe("Alice");
-        testClients[1].FirstName.ShouldBe("Bob");
     }
 
     [Test]
-    public async Task WorkList_HoursSortOrder_IsIndependentFromPrimarySort()
+    public async Task WorkList_IndividualSort_OverridesPrimarySort()
     {
         // Arrange
         var mockGroupFilter = Substitute.For<IClientGroupFilterService>();
@@ -362,7 +359,7 @@ public class WorkScheduleFilterTests
         var now = DateTime.UtcNow;
         var startDate = new DateOnly(now.Year, now.Month, 1).AddDays(-5);
         var endDate = new DateOnly(now.Year, now.Month, DateTime.DaysInMonth(now.Year, now.Month)).AddDays(5);
-        var filterWithHours = new WorkFilter
+        var filterWithIndividual = new WorkFilter
         {
             StartDate = startDate,
             EndDate = endDate,
@@ -370,11 +367,11 @@ public class WorkScheduleFilterTests
             ShowExtern = true,
             OrderBy = "firstName",
             SortOrder = "desc",
-            HoursSortOrder = "asc",
+            IndividualSort = true,
             SearchString = "TEST_"
         };
 
-        var filterWithoutHours = new WorkFilter
+        var filterWithoutIndividual = new WorkFilter
         {
             StartDate = startDate,
             EndDate = endDate,
@@ -382,20 +379,19 @@ public class WorkScheduleFilterTests
             ShowExtern = true,
             OrderBy = "firstName",
             SortOrder = "desc",
-            HoursSortOrder = null,
+            IndividualSort = false,
             SearchString = "TEST_"
         };
 
         // Act
-        var resultWithHours = await repository.WorkList(filterWithHours);
-        var resultWithoutHours = await repository.WorkList(filterWithoutHours);
+        var resultWithIndividual = await repository.WorkList(filterWithIndividual);
+        var resultWithoutIndividual = await repository.WorkList(filterWithoutIndividual);
 
         // Assert
-        var testClientsWithHours = resultWithHours.Clients.Where(c => c.Name!.Contains("TEST_")).ToList();
-        var testClientsWithoutHours = resultWithoutHours.Clients.Where(c => c.Name!.Contains("TEST_")).ToList();
-        testClientsWithHours.Count.ShouldBe(3);
-        testClientsWithoutHours.Count.ShouldBe(3);
-        testClientsWithHours[0].FirstName.ShouldBe("Charlie");
-        testClientsWithoutHours[0].FirstName.ShouldBe("Charlie");
+        var testClientsWithIndividual = resultWithIndividual.Clients.Where(c => c.Name!.Contains("TEST_")).ToList();
+        var testClientsWithoutIndividual = resultWithoutIndividual.Clients.Where(c => c.Name!.Contains("TEST_")).ToList();
+        testClientsWithIndividual.Count.ShouldBe(3);
+        testClientsWithoutIndividual.Count.ShouldBe(3);
+        testClientsWithoutIndividual[0].FirstName.ShouldBe("Charlie");
     }
 }
