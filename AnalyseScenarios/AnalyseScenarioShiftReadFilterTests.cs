@@ -10,6 +10,7 @@ using Klacks.Api.Application.DTOs.Filter;
 using Klacks.Api.Application.Handlers.Shifts;
 using Klacks.Api.Application.Mappers;
 using Klacks.Api.Application.Queries;
+using Klacks.Api.Domain.Exceptions;
 using Klacks.Api.Application.Queries.Shifts;
 using Klacks.Api.Domain.DTOs.Filter;
 using Klacks.Api.Domain.Enums;
@@ -218,7 +219,7 @@ public class AnalyseScenarioShiftReadFilterTests
     }
 
     [Test]
-    public async Task GetQueryHandler_Returns_NotFound_For_Scenario_Clone_Id()
+    public async Task GetQueryHandler_Throws_InvalidRequest_For_Scenario_Clone_Id()
     {
         var realShift = await CreateRealShiftAsync("ByIdReal");
         var token = Guid.NewGuid();
@@ -241,7 +242,7 @@ public class AnalyseScenarioShiftReadFilterTests
         var act = async () => await handler.Handle(
             new GetQuery<Klacks.Api.Application.DTOs.Schedules.ShiftResource>(cloneId),
             CancellationToken.None);
-        await act.ShouldThrowAsync<KeyNotFoundException>();
+        await act.ShouldThrowAsync<InvalidRequestException>();
     }
 
     [Test]
