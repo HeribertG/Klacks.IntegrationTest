@@ -225,7 +225,7 @@ public class AnalyseScenarioPhantomShiftTests
         await _context.Work.AddAsync(scenarioWork);
         await _context.SaveChangesAsync();
 
-        await _service.PromoteScenarioWorksAsync(token, CancellationToken.None);
+        await _service.PromoteScenarioWorksAsync(token, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31), CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var promotedWork = await _context.Work.IgnoreQueryFilters()
@@ -332,7 +332,7 @@ public class AnalyseScenarioPhantomShiftTests
 
         await _service.SoftDeleteRealScheduleDataAsync(null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31),
             CancellationToken.None);
-        await _service.PromoteScenarioWorksAsync(token, CancellationToken.None);
+        await _service.PromoteScenarioWorksAsync(token, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31), CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var preserved = await _context.Work.IgnoreQueryFilters()
