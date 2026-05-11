@@ -1,20 +1,128 @@
 [
   { "query": "neuen Mitarbeiter anlegen", "expectedSourceId": "create_employee" },
   { "query": "create a new employee", "expectedSourceId": "create_employee" },
+  { "query": "ajouter un nouvel employé", "expectedSourceId": "create_employee" },
+  { "query": "aggiungi un nuovo dipendente", "expectedSourceId": "create_employee" },
+
+  { "query": "Mitarbeiter suchen", "expectedSourceId": "search_employees" },
+  { "query": "search employees by name", "expectedSourceId": "search_employees" },
+  { "query": "rechercher des employés", "expectedSourceId": "search_employees" },
+  { "query": "cerca dipendenti", "expectedSourceId": "search_employees" },
+
   { "query": "Schicht erstellen", "expectedSourceId": "create_shift" },
   { "query": "create a shift", "expectedSourceId": "create_shift" },
+  { "query": "créer un nouveau quart", "expectedSourceId": "create_shift" },
+  { "query": "crea un nuovo turno", "expectedSourceId": "create_shift" },
+
+  { "query": "Vertrag erstellen", "expectedSourceId": "create_contract" },
+  { "query": "create a contract", "expectedSourceId": "create_contract" },
+  { "query": "créer un contrat", "expectedSourceId": "create_contract" },
+
+  { "query": "Vertrag einem Kunden zuweisen", "expectedSourceId": "assign_contract_to_client" },
+  { "query": "assign contract to client", "expectedSourceId": "assign_contract_to_client" },
+
+  { "query": "Verträge auflisten", "expectedSourceId": "list_contracts" },
+  { "query": "list all contracts", "expectedSourceId": "list_contracts" },
+  { "query": "elenco contratti", "expectedSourceId": "list_contracts" },
+
+  { "query": "Kunden zur Gruppe hinzufügen", "expectedSourceId": "add_client_to_group" },
+  { "query": "add client to group", "expectedSourceId": "add_client_to_group" },
+
+  { "query": "Gruppen auflisten", "expectedSourceId": "list_groups" },
+  { "query": "list groups", "expectedSourceId": "list_groups" },
+
+  { "query": "Filiale erstellen", "expectedSourceId": "create_branch" },
+  { "query": "create a branch", "expectedSourceId": "create_branch" },
+  { "query": "Filialen anzeigen", "expectedSourceId": "list_branches" },
+  { "query": "show branches", "expectedSourceId": "list_branches" },
+
   { "query": "Benutzer anlegen", "expectedSourceId": "create_user" },
   { "query": "create user account", "expectedSourceId": "create_user" },
+  { "query": "Benutzerrechte anzeigen", "expectedSourceId": "get_user_permissions" },
+  { "query": "show user permissions", "expectedSourceId": "get_user_permissions" },
+
+  { "query": "Systembenutzer auflisten", "expectedSourceId": "list_system_users" },
+  { "query": "list system users", "expectedSourceId": "list_system_users" },
+
   { "query": "aktuelle Uhrzeit", "expectedSourceId": "get_current_time" },
   { "query": "what time is it", "expectedSourceId": "get_current_time" },
+  { "query": "quelle heure est-il", "expectedSourceId": "get_current_time" },
+  { "query": "che ore sono", "expectedSourceId": "get_current_time" },
+
   { "query": "Systeminformationen anzeigen", "expectedSourceId": "get_system_info" },
   { "query": "show system information", "expectedSourceId": "get_system_info" },
-  { "query": "Benutzerberechtigungen anzeigen", "expectedSourceId": "get_user_permissions" },
-  { "query": "show user permissions", "expectedSourceId": "get_user_permissions" },
-  { "query": "Planungsregel erstellen", "expectedSourceId": "create_scheduling_rule" },
-  { "query": "create scheduling rule", "expectedSourceId": "create_scheduling_rule" },
+  { "query": "informations système", "expectedSourceId": "get_system_info" },
+
+  { "query": "Benutzerkontext anzeigen", "expectedSourceId": "get_user_context" },
+  { "query": "show my user context", "expectedSourceId": "get_user_context" },
+
   { "query": "Erinnerung hinzufügen", "expectedSourceId": "add_ai_memory" },
   { "query": "add memory note", "expectedSourceId": "add_ai_memory" },
-  { "query": "Vertrag erstellen", "expectedSourceId": "create_contract" },
-  { "query": "create a contract", "expectedSourceId": "create_contract" }
+  { "query": "merke dir das", "expectedSourceId": "add_ai_memory" },
+  { "query": "remember this for me", "expectedSourceId": "add_ai_memory" },
+
+  { "query": "Erinnerungen anzeigen", "expectedSourceId": "get_ai_memories" },
+  { "query": "show my memories", "expectedSourceId": "get_ai_memories" },
+
+  { "query": "Klacksy Persönlichkeit anzeigen", "expectedSourceId": "get_ai_soul" },
+  { "query": "show assistant personality", "expectedSourceId": "get_ai_soul" },
+
+  { "query": "Klacksy Richtlinien anzeigen", "expectedSourceId": "get_ai_guidelines" },
+  { "query": "show assistant guidelines", "expectedSourceId": "get_ai_guidelines" },
+
+  { "query": "Planungsregel erstellen", "expectedSourceId": "create_scheduling_rule" },
+  { "query": "create scheduling rule", "expectedSourceId": "create_scheduling_rule" },
+
+  { "query": "Planungsregeln auflisten", "expectedSourceId": "list_scheduling_rules" },
+  { "query": "list scheduling rules", "expectedSourceId": "list_scheduling_rules" },
+
+  { "query": "navigiere zu Einstellungen", "expectedSourceId": "navigate_to" },
+  { "query": "open the settings page", "expectedSourceId": "navigate_to" },
+  { "query": "ouvre les paramètres", "expectedSourceId": "navigate_to" },
+
+  { "query": "im Web suchen", "expectedSourceId": "web_search" },
+  { "query": "search the web", "expectedSourceId": "web_search" },
+
+  { "query": "Kalenderregel validieren", "expectedSourceId": "validate_calendar_rule" },
+  { "query": "validate calendar rule", "expectedSourceId": "validate_calendar_rule" },
+  { "query": "Ostern berechnen", "expectedSourceId": "validate_calendar_rule" },
+
+  { "query": "Adresse validieren", "expectedSourceId": "validate_address" },
+  { "query": "validate this address", "expectedSourceId": "validate_address" },
+
+  { "query": "E-Mail-Einstellungen anzeigen", "expectedSourceId": "get_email_settings" },
+  { "query": "show email settings", "expectedSourceId": "get_email_settings" },
+
+  { "query": "IMAP-Einstellungen anzeigen", "expectedSourceId": "get_imap_settings" },
+  { "query": "show imap settings", "expectedSourceId": "get_imap_settings" },
+
+  { "query": "SMTP testen", "expectedSourceId": "test_smtp_connection" },
+  { "query": "test smtp connection", "expectedSourceId": "test_smtp_connection" },
+
+  { "query": "IMAP testen", "expectedSourceId": "test_imap_connection" },
+  { "query": "test imap connection", "expectedSourceId": "test_imap_connection" },
+
+  { "query": "Heartbeat konfigurieren", "expectedSourceId": "configure_heartbeat" },
+  { "query": "configure heartbeat", "expectedSourceId": "configure_heartbeat" },
+
+  { "query": "Skills auflisten", "expectedSourceId": "list_agent_skills" },
+  { "query": "list available skills", "expectedSourceId": "list_agent_skills" },
+
+  { "query": "LLM-Provider auflisten", "expectedSourceId": "list_llm_providers" },
+  { "query": "list llm providers", "expectedSourceId": "list_llm_providers" },
+
+  { "query": "Modelle anzeigen", "expectedSourceId": "list_llm_models" },
+  { "query": "list llm models", "expectedSourceId": "list_llm_models" },
+
+  { "query": "Eigentümer-Adresse anzeigen", "expectedSourceId": "get_owner_address" },
+  { "query": "show owner address", "expectedSourceId": "get_owner_address" },
+
+  { "query": "Postleitzahl nachschlagen", "expectedSourceId": "lookup_location" },
+  { "query": "lookup zip code", "expectedSourceId": "lookup_location" },
+
+  { "query": "Abwesenheitsarten anzeigen", "expectedSourceId": "list_absence_types" },
+  { "query": "list absence types", "expectedSourceId": "list_absence_types" },
+
+  { "query": "Kundenabwesenheiten suchen", "expectedSourceId": "search_client_absences" },
+  { "query": "search client absences", "expectedSourceId": "search_client_absences" }
 ]
