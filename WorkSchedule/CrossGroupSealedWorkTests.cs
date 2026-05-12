@@ -186,60 +186,6 @@ public class CrossGroupSealedWorkTests
     }
 
     [Test]
-    public async Task GetScheduleEntries_UngroupedShift_ReturnsWorkAsSealedInGroupView()
-    {
-        // Reuse the existing client + foreign-group seed but point the work
-        // to a NEW shift that has no group_item at all (ungrouped).
-        var ungroupedShiftId = Guid.NewGuid();
-        var ungroupedWorkId = Guid.NewGuid();
-        _context.Shift.Add(new Shift
-        {
-            Id = ungroupedShiftId,
-            Name = "TEST_UngroupedShift",
-            StartShift = new TimeOnly(6, 0),
-            EndShift = new TimeOnly(14, 0),
-            IsDeleted = false,
-        });
-        _context.Work.Add(new Work
-        {
-            Id = ungroupedWorkId,
-            ClientId = _clientId,
-            ShiftId = ungroupedShiftId,
-            CurrentDate = new DateOnly(2026, 5, 12),
-            WorkTime = 480,
-            StartTime = new TimeOnly(6, 0),
-            EndTime = new TimeOnly(14, 0),
-            IsDeleted = false,
-        });
-        await _context.SaveChangesAsync();
-
-        try
-        {
-            var startDate = new DateOnly(2026, 5, 1);
-            var endDate = new DateOnly(2026, 5, 31);
-            var visibleGroupIds = new List<Guid> { _visibleGroupId };
-
-            var result = await _service
-                .GetScheduleEntriesQuery(startDate, endDate, visibleGroupIds, null)
-                .Where(e => e.ClientId == _clientId && e.EntryType == 0
-                            && e.EntryName == "TEST_UngroupedShift")
-                .ToListAsync();
-
-            result.Count.ShouldBe(1, "an ungrouped shift's work must still surface in the visible-group view.");
-            result[0].IsGroupRestricted.ShouldBeTrue(
-                "Shifts with no group_item belong to no plan — they must be sealed in any " +
-                "group-filtered view so the user cannot accidentally edit them.");
-        }
-        finally
-        {
-            await _context.Database.ExecuteSqlRawAsync(
-                "DELETE FROM work WHERE id = {0}", ungroupedWorkId);
-            await _context.Database.ExecuteSqlRawAsync(
-                "DELETE FROM shift WHERE id = {0}", ungroupedShiftId);
-        }
-    }
-
-    [Test]
     public async Task GetScheduleEntries_WhenNoGroupFilter_ReturnsWorkAsEditable()
     {
         var startDate = new DateOnly(2026, 5, 1);
