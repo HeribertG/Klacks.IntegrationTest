@@ -92,7 +92,8 @@ public class BulkAddWorksIntegrationTests
         var macroDataProvider = new MacroDataProvider(
             _context,
             Substitute.For<IHolidayCalculatorCache>(),
-            contractDataProvider);
+            contractDataProvider,
+            Substitute.For<IWorkChangeEffectiveTimeService>());
 
         var macroEngine = new MacroEngine();
 
