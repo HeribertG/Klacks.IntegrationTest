@@ -37,6 +37,7 @@ public class GetWorkScheduleTests
     {
         var options = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(_connectionString)
+            .UseSnakeCaseNamingConvention()
             .Options;
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();

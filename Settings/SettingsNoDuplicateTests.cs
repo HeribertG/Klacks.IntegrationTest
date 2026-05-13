@@ -32,6 +32,7 @@ public class SettingsNoDuplicateTests
 
         var options = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(_connectionString)
+            .UseSnakeCaseNamingConvention()
             .Options;
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
@@ -45,6 +46,7 @@ public class SettingsNoDuplicateTests
     {
         var options = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(_connectionString)
+            .UseSnakeCaseNamingConvention()
             .Options;
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();

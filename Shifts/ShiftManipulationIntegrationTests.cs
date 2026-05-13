@@ -53,6 +53,7 @@ public class ShiftManipulationIntegrationTests
 
         var options = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(_connectionString)
+            .UseSnakeCaseNamingConvention()
             .Options;
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
@@ -75,6 +76,7 @@ public class ShiftManipulationIntegrationTests
     {
         var options = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(_connectionString)
+            .UseSnakeCaseNamingConvention()
             .Options;
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();

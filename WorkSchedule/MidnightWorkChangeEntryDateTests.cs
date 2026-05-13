@@ -36,6 +36,7 @@ public class MidnightWorkChangeEntryDateTests
     {
         var options = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(_connectionString)
+            .UseSnakeCaseNamingConvention()
             .Options;
 
         var httpContextAccessor = Substitute.For<IHttpContextAccessor>();

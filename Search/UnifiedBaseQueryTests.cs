@@ -35,6 +35,7 @@ public class UnifiedBaseQueryTests
 
         var options = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(connectionString)
+            .UseSnakeCaseNamingConvention()
             .Options;
         var httpContextAccessor = Substitute.For<IHttpContextAccessor>();
         _context = new DataBaseContext(options, httpContextAccessor);

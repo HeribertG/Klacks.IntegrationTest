@@ -44,6 +44,7 @@ public class WorkRepositoryGroupSealTests
 
         var options = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(connectionString)
+            .UseSnakeCaseNamingConvention()
             .Options;
 
         _context = new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
