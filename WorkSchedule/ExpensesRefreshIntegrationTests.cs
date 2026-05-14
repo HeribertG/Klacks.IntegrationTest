@@ -196,6 +196,8 @@ public class ExpensesRefreshIntegrationTests
             httpContextAccessor,
             changeTracker,
             groupResolver,
+            Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>(),
+            Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IDayLockService>(),
             Substitute.For<ILogger<Klacks.Api.Application.Handlers.Expenses.PostCommandHandler>>());
     }
 
@@ -225,6 +227,7 @@ public class ExpensesRefreshIntegrationTests
             httpContextAccessor,
             changeTracker,
             groupResolver,
+            Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IDayLockService>(),
             Substitute.For<ILogger<Klacks.Api.Application.Handlers.Expenses.DeleteCommandHandler>>());
     }
 
