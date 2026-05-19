@@ -145,11 +145,11 @@ public class ExportLogRepositoryTests
         var entry = new ExportLog
         {
             Format = "CSV",
-            StartDate = new DateOnly(2026, 4, 1),
-            EndDate = new DateOnly(2026, 4, 30),
+            StartDate = new DateOnly(2099, 4, 1),
+            EndDate = new DateOnly(2099, 4, 30),
             Language = "de",
             CurrencyCode = "EUR",
-            FileName = "export_apr.csv",
+            FileName = "export_apr_2099.csv",
             FileSize = 256,
             RecordCount = 10,
             ExportedAt = DateTime.UtcNow,
@@ -162,8 +162,8 @@ public class ExportLogRepositoryTests
 
         _context.ChangeTracker.Clear();
         var result = await _repo.HasExportForPeriodAsync(
-            new DateOnly(2026, 5, 1),
-            new DateOnly(2026, 5, 31),
+            new DateOnly(2099, 5, 1),
+            new DateOnly(2099, 5, 31),
             null);
 
         result.ShouldBeFalse();
