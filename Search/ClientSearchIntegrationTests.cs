@@ -472,4 +472,93 @@ public class ClientSearchIntegrationTests
 
         await context.Database.ExecuteSqlRawAsync(sql);
     }
+
+    [Test]
+    public async Task BackendSearch_MultipleIdNumbers_TwoIds_FindsBothClients()
+    {
+        var searchString = "90001;90003";
+        var query = GetTestClientQuery();
+
+        var idNumbers = searchString
+            .Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => int.Parse(s.Trim()))
+            .ToArray();
+
+        var result = _searchService.ApplyMultipleIdNumberSearch(query, idNumbers);
+        var clients = await result.ToListAsync();
+
+        clients.Count.ShouldBe(2);
+        clients.ShouldContain(c => c.IdNumber == 90001);
+        clients.ShouldContain(c => c.IdNumber == 90003);
+    }
+
+    [Test]
+    public async Task BackendSearch_MultipleIdNumbers_ThreeIds_FindsAllThree()
+    {
+        var searchString = "90001;90003;90005";
+        var query = GetTestClientQuery();
+
+        var idNumbers = searchString
+            .Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => int.Parse(s.Trim()))
+            .ToArray();
+
+        var result = _searchService.ApplyMultipleIdNumberSearch(query, idNumbers);
+        var clients = await result.ToListAsync();
+
+        clients.Count.ShouldBe(3);
+        clients.ShouldContain(c => c.IdNumber == 90001);
+        clients.ShouldContain(c => c.IdNumber == 90003);
+        clients.ShouldContain(c => c.IdNumber == 90005);
+    }
+
+    [Test]
+    public async Task BackendSearch_MultipleIdNumbers_WithNonExistentId_ReturnsOnlyExisting()
+    {
+        var query = GetTestClientQuery();
+
+        var result = _searchService.ApplyMultipleIdNumberSearch(query, new[] { 90001, 99999 });
+        var clients = await result.ToListAsync();
+
+        clients.Count.ShouldBe(1);
+        clients.ShouldContain(c => c.IdNumber == 90001);
+        clients.ShouldNotContain(c => c.IdNumber == 99999);
+    }
+
+    [Test]
+    public async Task BackendSearch_MultipleIdNumbers_WithWhitespace_FindsCorrectClients()
+    {
+        var searchString = " 90002 ; 90004 ";
+        var query = GetTestClientQuery();
+
+        var idNumbers = searchString
+            .Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => int.Parse(s.Trim()))
+            .ToArray();
+
+        var result = _searchService.ApplyMultipleIdNumberSearch(query, idNumbers);
+        var clients = await result.ToListAsync();
+
+        clients.Count.ShouldBe(2);
+        clients.ShouldContain(c => c.IdNumber == 90002);
+        clients.ShouldContain(c => c.IdNumber == 90004);
+    }
+
+    [Test]
+    public void IsMultipleNumericSearch_WithSemicolonSeparatedIds_ReturnsTrue()
+    {
+        _searchService.IsMultipleNumericSearch("90001;90003").ShouldBeTrue();
+    }
+
+    [Test]
+    public void IsMultipleNumericSearch_WithSingleId_ReturnsFalse()
+    {
+        _searchService.IsMultipleNumericSearch("90001").ShouldBeFalse();
+    }
+
+    [Test]
+    public void IsMultipleNumericSearch_WithMixedContent_ReturnsFalse()
+    {
+        _searchService.IsMultipleNumericSearch("90001;abc").ShouldBeFalse();
+    }
 }

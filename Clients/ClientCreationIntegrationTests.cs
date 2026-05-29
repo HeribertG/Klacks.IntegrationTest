@@ -420,4 +420,74 @@ public class ClientCreationIntegrationTests
 
         Console.WriteLine("\n=== ALL DATABASE TABLES VERIFIED ===");
     }
+
+    [Test]
+    public async Task UpdateClient_With_SetValues_From_DefaultedEntity_Should_Preserve_IdNumber_And_CreateTime()
+    {
+        // Reproduces the bug where editing client dates via the UI wiped id_number to 0 and
+        // create_time / current_user_created to null. The update path rebuilds a fresh Client
+        // from the resource (ClientMapper.ToEntity ignores IdNumber + creation audit fields)
+        // and then copies all values onto the tracked entity via CurrentValues.SetValues.
+        // Without AfterSaveBehavior.Ignore on those columns the UPDATE statement persisted the
+        // CLR defaults (0 / null) over the original sequence-assigned and audit values.
+        _testClientId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        var client = new Client
+        {
+            Id = _testClientId,
+            FirstName = $"{TestClientPrefix}PreserveAudit",
+            Name = "OriginalName",
+            Gender = GenderEnum.Female,
+            Type = EntityTypeEnum.Employee,
+            LegalEntity = false
+        };
+        client.Membership = new Membership
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _testClientId,
+            ValidFrom = now
+        };
+
+        await _context.Client.AddAsync(client);
+        await _context.SaveChangesAsync();
+
+        var afterInsert = await _context.Client
+            .AsNoTracking()
+            .FirstAsync(c => c.Id == _testClientId);
+        afterInsert.IdNumber.ShouldBeGreaterThan(0, "DB sequence must assign id_number on insert");
+        afterInsert.CreateTime.ShouldNotBeNull("OnBeforeSaving must set CreateTime on insert");
+        var originalIdNumber = afterInsert.IdNumber;
+        var originalCreateTime = afterInsert.CreateTime;
+        var originalUserCreated = afterInsert.CurrentUserCreated;
+
+        var tracked = await _context.Client
+            .Include(c => c.Membership)
+            .FirstAsync(c => c.Id == _testClientId);
+
+        var rebuiltFromResource = new Client
+        {
+            Id = _testClientId,
+            FirstName = $"{TestClientPrefix}PreserveAudit",
+            Name = "UpdatedName",
+            Gender = GenderEnum.Female,
+            Type = EntityTypeEnum.Employee,
+            LegalEntity = false
+        };
+
+        var entry = _context.Entry(tracked);
+        entry.CurrentValues.SetValues(rebuiltFromResource);
+        entry.State = EntityState.Modified;
+
+        await _context.SaveChangesAsync();
+
+        var afterUpdate = await _context.Client
+            .AsNoTracking()
+            .FirstAsync(c => c.Id == _testClientId);
+
+        afterUpdate.Name.ShouldBe("UpdatedName", "Name must be updated");
+        afterUpdate.IdNumber.ShouldBe(originalIdNumber, "id_number must survive the update");
+        afterUpdate.CreateTime.ShouldBe(originalCreateTime, "create_time must survive the update");
+        afterUpdate.CurrentUserCreated.ShouldBe(originalUserCreated, "current_user_created must survive the update");
+    }
 }
