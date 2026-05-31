@@ -191,6 +191,23 @@ public class EvaluateScenarioReaderSeamTests
         await _context.SaveChangesAsync();
     }
 
+    private async Task InjectScenarioPlacementAsync(Guid clientId, Guid cloneShiftId, Guid token)
+    {
+        var work = new Work
+        {
+            Id = Guid.NewGuid(),
+            ClientId = clientId,
+            ShiftId = cloneShiftId,
+            CurrentDate = WorkDate,
+            StartTime = new TimeOnly(8, 0),
+            EndTime = new TimeOnly(16, 0),
+            WorkTime = 8m,
+            AnalyseToken = token
+        };
+        await _context.Work.AddAsync(work);
+        await _context.SaveChangesAsync();
+    }
+
     private EvaluateScenarioQueryHandler Handler()
     {
         var scenarioRepo = new AnalyseScenarioRepository(
@@ -226,5 +243,28 @@ public class EvaluateScenarioReaderSeamTests
         result.RemovedEntryCount.ShouldBe(0);
         // The scenario-only absence surfaces as an added break.
         result.AddedBreakEntries.ShouldBe(1);
+    }
+
+    [Test]
+    public async Task ScenarioOnlyPlacement_SurfacesAsAddedWork()
+    {
+        var bob = await CreateClientAsync("BOB");
+        var shift = await CreateShiftAsync();
+
+        var token = Guid.NewGuid();
+        await CreateScenarioRowAsync(token);
+        var shiftIdMap = await _cloneService.CloneScenarioDataAsync(
+            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _context.SaveChangesAsync();
+
+        // Bob has no real work; a propose_plan placement adds a scenario-only work on the clone shift.
+        await InjectScenarioPlacementAsync(bob.Id, shiftIdMap[shift.Id], token);
+
+        var result = await Handler().Handle(new EvaluateScenarioQuery(null, token), CancellationToken.None);
+
+        result.Found.ShouldBeTrue();
+        result.AddedWorkEntries.ShouldBe(1);
+        result.AddedEntries.ShouldContain(e => e.EntryType == "Work");
+        result.RemovedEntryCount.ShouldBe(0);
     }
 }
