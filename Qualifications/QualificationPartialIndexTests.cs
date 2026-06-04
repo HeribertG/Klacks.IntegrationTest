@@ -7,6 +7,7 @@
 /// "WHERE is_deleted = false" filter and cannot be proven on the in-memory provider.
 /// </summary>
 
+using Klacks.Api.Domain.Common;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Staffs;
@@ -60,9 +61,9 @@ public class QualificationPartialIndexTests
     private static async Task CleanupAsync(DataBaseContext context)
     {
         var sql = $@"
-            DELETE FROM client_qualification WHERE qualification_id IN (SELECT id FROM qualification WHERE name LIKE '{TestPrefix}%');
-            DELETE FROM shift_required_qualification WHERE qualification_id IN (SELECT id FROM qualification WHERE name LIKE '{TestPrefix}%');
-            DELETE FROM qualification WHERE name LIKE '{TestPrefix}%';
+            DELETE FROM client_qualification WHERE qualification_id IN (SELECT id FROM qualification WHERE name->>'de' LIKE '{TestPrefix}%');
+            DELETE FROM shift_required_qualification WHERE qualification_id IN (SELECT id FROM qualification WHERE name->>'de' LIKE '{TestPrefix}%');
+            DELETE FROM qualification WHERE name->>'de' LIKE '{TestPrefix}%';
             DELETE FROM client WHERE name LIKE '{TestPrefix}%';
             DELETE FROM shift WHERE name LIKE '{TestPrefix}%';
         ";
@@ -71,7 +72,7 @@ public class QualificationPartialIndexTests
 
     private async Task<Qualification> CreateQualificationAsync()
     {
-        var q = new Qualification { Id = Guid.NewGuid(), Name = TestPrefix + "FORKLIFT" };
+        var q = new Qualification { Id = Guid.NewGuid(), Name = new MultiLanguage { De = TestPrefix + "FORKLIFT" } };
         await _context.Set<Qualification>().AddAsync(q);
         await _context.SaveChangesAsync();
         return q;

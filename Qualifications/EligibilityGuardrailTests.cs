@@ -10,6 +10,7 @@
 
 using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.Interfaces.Schedules;
+using Klacks.Api.Domain.Common;
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
@@ -84,7 +85,7 @@ public class EligibilityGuardrailTests
         var sql = $@"
             DELETE FROM client_qualification WHERE client_id IN (SELECT id FROM client WHERE name LIKE '{TestPrefix}%');
             DELETE FROM shift_required_qualification WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestPrefix}%');
-            DELETE FROM qualification WHERE name LIKE '{TestPrefix}%';
+            DELETE FROM qualification WHERE name->>'de' LIKE '{TestPrefix}%';
             DELETE FROM client WHERE name LIKE '{TestPrefix}%';
             DELETE FROM shift WHERE name LIKE '{TestPrefix}%';
         ";
@@ -115,7 +116,7 @@ public class EligibilityGuardrailTests
 
     private async Task<Qualification> CreateQualificationAsync()
     {
-        var q = new Qualification { Id = Guid.NewGuid(), Name = TestPrefix + "FIRSTAID" };
+        var q = new Qualification { Id = Guid.NewGuid(), Name = new MultiLanguage { De = TestPrefix + "FIRSTAID" } };
         await _context.Set<Qualification>().AddAsync(q);
         await _context.SaveChangesAsync();
         return q;
