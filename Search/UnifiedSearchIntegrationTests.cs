@@ -97,8 +97,23 @@ public class UnifiedSearchIntegrationTests
             };
         }
 
+        var desiredIdNumbers = clients.ToDictionary(c => c.Id, c => c.IdNumber);
+
         await _context.Client.AddRangeAsync(clients);
         await _context.SaveChangesAsync();
+
+        await ForceIdNumbers(desiredIdNumbers);
+    }
+
+    private async Task ForceIdNumbers(IReadOnlyDictionary<Guid, int> desiredIdNumbers)
+    {
+        foreach (var (clientId, idNumber) in desiredIdNumbers)
+        {
+            await _context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE client SET id_number = {idNumber} WHERE id = {clientId}");
+        }
+
+        _context.ChangeTracker.Clear();
     }
 
     private static Client CreateClient(string firstName, string name, EntityTypeEnum type, bool legalEntity, int idNumber)
