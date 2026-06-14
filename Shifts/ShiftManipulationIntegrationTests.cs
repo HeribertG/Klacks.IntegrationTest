@@ -410,7 +410,7 @@ public class ShiftManipulationIntegrationTests
     }
 
     [Test]
-    public async Task SubCut_Of_An_OrderRoot_Split_Should_Crash_The_NestedSet_Recalc()
+    public async Task SubCut_Of_An_OrderRoot_Split_Should_Not_Crash_The_NestedSet_Recalc()
     {
         // Arrange - build a SEED-style ORDER-ROOT tree by hand (the convention all 80 seeded splits
         // use): a SealedOrder with root_id = NULL, plus one SplitShift child whose root_id points at
@@ -450,26 +450,22 @@ public class ShiftManipulationIntegrationTests
         // root_id = parentSplit.RootId = orderId, then RecalculateAllAffectedTreesAsync runs the
         // nested-set recalc on root_id = orderId.
         var subSplit = CreateTestShiftResource("OrderRoot_SubCut", ShiftStatus.SplitShift, originalId: orderId);
+        var subSplitId = subSplit.Id;
         var cutOperations = new List<CutOperation>
         {
             new() { Type = "CREATE", ParentId = splitId.ToString(), Data = subSplit }
         };
 
-        // Assert - the recalc loads WHERE root_id = orderId but the order node itself has
-        // root_id = NULL, so it is never in the loaded set; First(s => s.Id == rootId) is null and the
-        // recalc throws. This proves seed (order-root) and the live recalc (self-root) are incompatible.
-        InvalidOperationException? thrown = null;
-        try
-        {
-            await _batchCutsHandler.Handle(new PostBatchCutsCommand(cutOperations), CancellationToken.None);
-        }
-        catch (InvalidOperationException ex)
-        {
-            thrown = ex;
-        }
+        // Assert - with the order-root recalc fix the recalc treats every top-level (ParentId == null)
+        // node as a forest root instead of requiring a node whose Id == rootId, so it no longer throws
+        // on order-root data. The sub-cut succeeds and the new sub-split stays rooted at the order.
+        var results = await _batchCutsHandler.Handle(new PostBatchCutsCommand(cutOperations), CancellationToken.None);
 
-        thrown.ShouldNotBeNull("sub-cutting an order-root split must crash the nested-set recalc");
-        thrown!.Message.ShouldContain("not found in tree");
+        results.Count.ShouldBe(1, "the sub-cut must create exactly one sub-split");
+        var persisted = await _context.Shift.AsNoTracking().FirstOrDefaultAsync(s => s.Id == subSplitId);
+        persisted.ShouldNotBeNull();
+        persisted!.RootId.ShouldBe(orderId, "the sub-split stays rooted at the order (order-root)");
+        persisted.ParentId.ShouldBe(splitId, "the sub-split's parent is the split it was cut from");
     }
 
     [Test]
