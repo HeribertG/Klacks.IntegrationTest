@@ -16,6 +16,7 @@ using Klacks.Api.Infrastructure.Services;
 using Klacks.Api.Infrastructure.Services.Schedules;
 using Klacks.Api.Infrastructure.Services.Shifts;
 using Klacks.Api.Application.DTOs.Schedules;
+using Klacks.Api.Application.DTOs.Associations;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -406,6 +407,100 @@ public class ShiftManipulationIntegrationTests
         after.Lft.ShouldBe(originalLft, "lft must be preserved on a form save");
         after.Rgt.ShouldBe(originalRgt, "rgt must be preserved on a form save");
         after.Name.ShouldContain("Renamed");
+    }
+
+    [Test]
+    public async Task SubCut_Of_An_OrderRoot_Split_Should_Crash_The_NestedSet_Recalc()
+    {
+        // Arrange - build a SEED-style ORDER-ROOT tree by hand (the convention all 80 seeded splits
+        // use): a SealedOrder with root_id = NULL, plus one SplitShift child whose root_id points at
+        // the order (NOT at itself).
+        var orderId = Guid.NewGuid();
+        var splitId = Guid.NewGuid();
+
+        _context.Shift.Add(new Shift
+        {
+            Id = orderId,
+            Name = $"{TestShiftPrefix}OrderRoot_Order",
+            Abbreviation = "TEST",
+            Status = ShiftStatus.SealedOrder,
+            ShiftType = ShiftType.IsTask,
+            FromDate = new DateOnly(2025, 1, 1),
+            ParentId = null,
+            RootId = null,
+            OriginalId = null
+        });
+        _context.Shift.Add(new Shift
+        {
+            Id = splitId,
+            Name = $"{TestShiftPrefix}OrderRoot_Split",
+            Abbreviation = "TEST",
+            Status = ShiftStatus.SplitShift,
+            ShiftType = ShiftType.IsTask,
+            FromDate = new DateOnly(2025, 1, 1),
+            ParentId = null,
+            RootId = orderId,       // order-root, like the seed
+            OriginalId = orderId,
+            Lft = 1,
+            Rgt = 2
+        });
+        await _context.SaveChangesAsync();
+
+        // Act - sub-cut the order-root split. ProcessCreate's "child" branch sets
+        // root_id = parentSplit.RootId = orderId, then RecalculateAllAffectedTreesAsync runs the
+        // nested-set recalc on root_id = orderId.
+        var subSplit = CreateTestShiftResource("OrderRoot_SubCut", ShiftStatus.SplitShift, originalId: orderId);
+        var cutOperations = new List<CutOperation>
+        {
+            new() { Type = "CREATE", ParentId = splitId.ToString(), Data = subSplit }
+        };
+
+        // Assert - the recalc loads WHERE root_id = orderId but the order node itself has
+        // root_id = NULL, so it is never in the loaded set; First(s => s.Id == rootId) is null and the
+        // recalc throws. This proves seed (order-root) and the live recalc (self-root) are incompatible.
+        InvalidOperationException? thrown = null;
+        try
+        {
+            await _batchCutsHandler.Handle(new PostBatchCutsCommand(cutOperations), CancellationToken.None);
+        }
+        catch (InvalidOperationException ex)
+        {
+            thrown = ex;
+        }
+
+        thrown.ShouldNotBeNull("sub-cutting an order-root split must crash the nested-set recalc");
+        thrown!.Message.ShouldContain("not found in tree");
+    }
+
+    [Test]
+    public async Task FormPut_With_Unchanged_Groups_Should_Preserve_Them()
+    {
+        // Two real groups from the dev DB (Westschweiz, Deutschschweiz Ost).
+        var groupA = Guid.Parse("706e2414-9aa4-46e3-8143-a49eca1f0a44");
+        var groupB = Guid.Parse("39ac4862-ad34-477e-aa57-3bfa5ec1a476");
+
+        // Arrange - create an OriginalOrder shift carrying 2 groups.
+        var createResource = CreateTestShiftResource("GroupPreserve", ShiftStatus.OriginalOrder);
+        createResource.Groups = new List<SimpleGroupResource>
+        {
+            new() { Id = groupA },
+            new() { Id = groupB }
+        };
+        var created = await _postHandler.Handle(new PostCommand<ShiftResource>(createResource), CancellationToken.None);
+        created.ShouldNotBeNull();
+        var shiftId = created!.Id;
+        created.Groups.Count.ShouldBe(2, "precondition: the created shift must carry 2 groups");
+
+        // Act - PUT the resource back UNCHANGED (what any savebar save does, e.g. after editing a
+        // qualification). The 2 groups are sent again with their ids; matched children must keep
+        // their ShiftId instead of being detached (FK -> null) by SetValues.
+        await _putHandler.Handle(new PutCommand<ShiftResource>(created), CancellationToken.None);
+
+        // Assert - both groups must survive (the bug detached them, leaving 0 linked to the shift).
+        var after = await _context.Shift.AsNoTracking()
+            .Include(s => s.GroupItems)
+            .FirstAsync(s => s.Id == shiftId);
+        after.GroupItems.Count.ShouldBe(2, "a PUT with unchanged groups must not drop any group");
     }
 
     #endregion
