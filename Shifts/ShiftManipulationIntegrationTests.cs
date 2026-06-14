@@ -357,6 +357,59 @@ public class ShiftManipulationIntegrationTests
 
     #endregion
 
+    #region Tree integrity: form PUT must not change the cut hierarchy
+
+    [Test]
+    public async Task FormPut_Should_Preserve_Tree_Fields_On_SplitShift()
+    {
+        // Arrange - SealedOrder -> OriginalShift, then cut into a SplitShift (which gets a root)
+        var sealedResource = CreateTestShiftResource("TreePreserve", ShiftStatus.SealedOrder,
+            fromDate: new DateOnly(2025, 1, 1));
+        var created = await _postHandler.Handle(new PostCommand<ShiftResource>(sealedResource), CancellationToken.None);
+        created.ShouldNotBeNull();
+        var originalShiftId = created!.Id;
+        var sealedOrderId = created.OriginalId!.Value;
+
+        var splitResource = CreateTestShiftResource("TreePreserve_Part1", ShiftStatus.SplitShift,
+            fromDate: new DateOnly(2025, 1, 1), untilDate: new DateOnly(2025, 6, 30),
+            originalId: sealedOrderId);
+        var cutOperations = new List<CutOperation>
+        {
+            new() { Type = "CREATE", ParentId = originalShiftId.ToString(), Data = splitResource }
+        };
+        var cutResults = await _batchCutsHandler.Handle(new PostBatchCutsCommand(cutOperations), CancellationToken.None);
+        var splitId = cutResults.Single().Id;
+
+        var before = await _context.Shift.AsNoTracking().FirstAsync(s => s.Id == splitId);
+        before.RootId.ShouldNotBeNull("precondition: a cut split shift must have a root");
+        var originalRootId = before.RootId;
+        var originalParentId = before.ParentId;
+        var originalLft = before.Lft;
+        var originalRgt = before.Rgt;
+        var originalOriginalId = before.OriginalId;
+
+        // Act - a form save that, like a buggy frontend, sends NULL tree fields and a changed name
+        var putResource = CreateTestShiftResource("TreePreserve_Renamed", ShiftStatus.SplitShift);
+        putResource.Id = splitId;
+        putResource.RootId = null;
+        putResource.ParentId = null;
+        putResource.OriginalId = null;
+        putResource.Lft = null;
+        putResource.Rgt = null;
+        await _putHandler.Handle(new PutCommand<ShiftResource>(putResource), CancellationToken.None);
+
+        // Assert - the cut hierarchy is preserved, the editable field still changed
+        var after = await _context.Shift.AsNoTracking().FirstAsync(s => s.Id == splitId);
+        after.RootId.ShouldBe(originalRootId, "root_id must be preserved on a form save (no orphaning)");
+        after.ParentId.ShouldBe(originalParentId, "parent_id must be preserved on a form save");
+        after.OriginalId.ShouldBe(originalOriginalId, "original_id must be preserved on a form save");
+        after.Lft.ShouldBe(originalLft, "lft must be preserved on a form save");
+        after.Rgt.ShouldBe(originalRgt, "rgt must be preserved on a form save");
+        after.Name.ShouldContain("Renamed");
+    }
+
+    #endregion
+
     #region Test 3: Nested splits (SplitShift from SplitShift)
 
     [Test]
