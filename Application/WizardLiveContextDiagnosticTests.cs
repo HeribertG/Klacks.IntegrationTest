@@ -90,7 +90,11 @@ public class WizardLiveContextDiagnosticTests
             .GetPeriodHoursAsync(Arg.Any<List<Guid>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>())
             .Returns(new Dictionary<Guid, Klacks.Api.Domain.DTOs.Schedules.PeriodHoursResource>());
 
-        var builder = new WizardContextBuilder(agentBuilder, shiftBuilder, hardBuilder, periodHours, provider);
+        var eligibilityBuilder = Substitute.For<IEligibilityMatrixBuilder>();
+        eligibilityBuilder
+            .BuildAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<IReadOnlyCollection<EligibilitySlot>>(), Arg.Any<CancellationToken>())
+            .Returns(EligibilityMatrix.Empty);
+        var builder = new WizardContextBuilder(agentBuilder, shiftBuilder, hardBuilder, periodHours, provider, eligibilityBuilder);
         var ctx = await builder.BuildContextAsync(
             new WizardContextRequest(from, until, agentIds, shiftIds, null),
             CancellationToken.None);
