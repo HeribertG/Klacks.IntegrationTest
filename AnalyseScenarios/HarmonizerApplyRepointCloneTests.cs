@@ -1,23 +1,33 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 /// <summary>
-/// Integration test for the C4 apply re-point (2026-06-19): CloneScenarioDataWithMapsAsync must return
-/// a work id map (original → clone) that covers the real works, and re-pointing a cloned work's ClientId
-/// in place must persist on real Postgres. These are the load-bearing assumptions of
-/// HarmonizerApplyService's re-point path, which updates cloned works in place (so their
-/// WorkChange/Expense/sub-Break children survive on accept) instead of delete+recreate. Far-future dates
-/// (2099) isolate the group-less clone to the seeded rows.
+/// Integration tests for the C4 apply re-point (2026-06-19). The real-plan accept path of the
+/// harmonizer/W4 (and standalone W2/W3 on a real plan) re-points cloned works in place instead of
+/// delete+recreate, so a work's WorkChange/Expense/sub-Break children survive accept. These tests drive
+/// the real CloneScenarioDataWithMapsAsync and RepointClonedWorksAsync against the test DB (5434):
+/// the work id map must cover the real works, the work must move to the bitmap's agent, and a sub-break
+/// (which carries its OWN ClientId) must follow the work — no stale per-child agent. Far-future dates
+/// (2099) isolate the group-less clone to the seeded rows. Each test cleans up after itself.
 /// </summary>
 
+using Klacks.Api.Application.Interfaces;
+using Klacks.Api.Application.Services.Schedules;
 using Klacks.Api.Domain.Enums;
+using Klacks.Api.Domain.Interfaces;
+using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
+using Klacks.Api.Infrastructure.Mediator;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
+using Klacks.Api.Infrastructure.Services.Schedules;
+using Klacks.ScheduleOptimizer.Harmonizer.Bitmap;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
+using Break = Klacks.Api.Domain.Models.Schedules.Break;
 using Shift = Klacks.Api.Domain.Models.Schedules.Shift;
 using Work = Klacks.Api.Domain.Models.Schedules.Work;
 
@@ -71,6 +81,7 @@ public class HarmonizerApplyRepointCloneTests
     private static async Task CleanupAsync(DataBaseContext context)
     {
         var sql = $@"
+            DELETE FROM break WHERE client_id IN (SELECT id FROM client WHERE name LIKE '{TestPrefix}%');
             DELETE FROM expenses WHERE work_id IN (SELECT id FROM work WHERE client_id IN (SELECT id FROM client WHERE name LIKE '{TestPrefix}%'));
             DELETE FROM work_change WHERE work_id IN (SELECT id FROM work WHERE client_id IN (SELECT id FROM client WHERE name LIKE '{TestPrefix}%'));
             DELETE FROM work WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestPrefix}%')
@@ -132,8 +143,6 @@ public class HarmonizerApplyRepointCloneTests
             null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
         await _context.SaveChangesAsync();
 
-        // The new return must map the real work id to a freshly cloned work — without it the apply
-        // re-point would have no targets and soft-delete every movable work.
         workIdMap.ShouldContainKey(work.Id);
         var cloneId = workIdMap[work.Id];
         cloneId.ShouldNotBe(work.Id);
@@ -142,14 +151,74 @@ public class HarmonizerApplyRepointCloneTests
         clone.AnalyseToken.ShouldBe(token);
         clone.ClientId.ShouldBe(clientA.Id);
         clone.IsDeleted.ShouldBeFalse();
+    }
 
-        // The re-point changes only the ClientId in place (no delete+recreate), so children survive.
-        clone.ClientId = clientB.Id;
+    [Test, Explicit("Read/write C4 re-point (A->B) + sub-break cascade against the real test DB (5434); cleans up.")]
+    public async Task Repoint_MovesWorkAndItsSubBreak_ToTheNewAgent()
+    {
+        var clientA = await CreateClientAsync("RA");
+        var clientB = await CreateClientAsync("RB");
+        var shift = await CreateShiftAsync("RS");
+        var work = await CreateWorkAsync(clientA.Id, shift.Id, InPeriodDate);
+
+        // A sub-break (work pause) carries its OWN ClientId (ScheduleEntryBase) — the re-point must move
+        // it with the work. Anchor it on any existing absence to satisfy the FK.
+        var absenceId = await _context.Set<Absence>().IgnoreQueryFilters().Select(a => a.Id).FirstOrDefaultAsync();
+        if (absenceId == default)
+        {
+            Assert.Ignore("No absence rows in the test DB to anchor a sub-break.");
+        }
+        await _context.Break.AddAsync(new Break
+        {
+            Id = Guid.NewGuid(), ClientId = clientA.Id, CurrentDate = InPeriodDate,
+            ParentWorkId = work.Id, AbsenceId = absenceId, AnalyseToken = null
+        });
         await _context.SaveChangesAsync();
 
-        var reloaded = await _context.Work.IgnoreQueryFilters().AsNoTracking().FirstAsync(w => w.Id == cloneId);
-        reloaded.ClientId.ShouldBe(clientB.Id);
-        reloaded.IsDeleted.ShouldBeFalse();
-        reloaded.AnalyseToken.ShouldBe(token);
+        var token = Guid.NewGuid();
+        var (_, workIdMap) = await _service.CloneScenarioDataWithMapsAsync(
+            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _context.SaveChangesAsync();
+        var cloneId = workIdMap[work.Id];
+
+        var clonedBreakBefore = await _context.Break.IgnoreQueryFilters().AsNoTracking()
+            .FirstAsync(b => b.AnalyseToken == token && b.ParentWorkId == cloneId);
+        clonedBreakBefore.ClientId.ShouldBe(clientA.Id, "the cloned sub-break starts on agent A");
+
+        // Bitmap re-assigns the work from A to B (B's row holds the work, A's cell is free).
+        var rows = new List<BitmapAgent>
+        {
+            new(clientA.Id.ToString(), "A", 0m, new HashSet<CellSymbol>()),
+            new(clientB.Id.ToString(), "B", 0m, new HashSet<CellSymbol>())
+        };
+        var days = new List<DateOnly> { InPeriodDate };
+        var cells = new Cell[2, 1];
+        cells[0, 0] = Cell.Free();
+        cells[1, 0] = new Cell(CellSymbol.Early, shift.Id, new List<Guid> { work.Id }, false);
+        var bitmap = new HarmonyBitmap(rows, days, cells);
+
+        var apply = new HarmonizerApplyService(
+            new HarmonizerResultCache(),
+            Substitute.For<IMediator>(),
+            Substitute.For<IAnalyseScenarioRepository>(),
+            _service,
+            Substitute.For<IUnitOfWork>(),
+            _context,
+            Substitute.For<ILogger<HarmonizerApplyService>>());
+
+        var repointed = await apply.RepointClonedWorksAsync(
+            token, PeriodFrom, PeriodUntil, bitmap, workIdMap, CancellationToken.None);
+        await _context.SaveChangesAsync();
+
+        repointed.ShouldContain(cloneId);
+
+        var reloadedWork = await _context.Work.IgnoreQueryFilters().AsNoTracking().FirstAsync(w => w.Id == cloneId);
+        reloadedWork.ClientId.ShouldBe(clientB.Id, "the cloned work must be re-pointed to agent B");
+        reloadedWork.IsDeleted.ShouldBeFalse();
+
+        var reloadedBreak = await _context.Break.IgnoreQueryFilters().AsNoTracking()
+            .FirstAsync(b => b.AnalyseToken == token && b.ParentWorkId == cloneId);
+        reloadedBreak.IsDeleted.ShouldBeFalse("the sub-break must survive the re-point, not be dropped");
+        reloadedBreak.ClientId.ShouldBe(clientB.Id, "the sub-break must follow its work to agent B (no stale client_id)");
     }
 }
