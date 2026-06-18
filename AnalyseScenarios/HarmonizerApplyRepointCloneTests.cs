@@ -221,4 +221,77 @@ public class HarmonizerApplyRepointCloneTests
         reloadedBreak.IsDeleted.ShouldBeFalse("the sub-break must survive the re-point, not be dropped");
         reloadedBreak.ClientId.ShouldBe(clientB.Id, "the sub-break must follow its work to agent B (no stale client_id)");
     }
+
+    [Test, Explicit("Read/write C4 re-point soft-delete branch against the real test DB (5434); cleans up.")]
+    public async Task Repoint_SoftDeletes_AWorkTheBitmapNoLongerAssigns_WithItsSubBreak()
+    {
+        var clientA = await CreateClientAsync("DA");
+        var clientB = await CreateClientAsync("DB");
+        var shift = await CreateShiftAsync("DS");
+        var keepDay = InPeriodDate;
+        var dropDay = InPeriodDate.AddDays(1);
+        var keep = await CreateWorkAsync(clientA.Id, shift.Id, keepDay);
+        var drop = await CreateWorkAsync(clientA.Id, shift.Id, dropDay);
+
+        var absenceId = await _context.Set<Absence>().IgnoreQueryFilters().Select(a => a.Id).FirstOrDefaultAsync();
+        if (absenceId == default)
+        {
+            Assert.Ignore("No absence rows in the test DB to anchor a sub-break.");
+        }
+        await _context.Break.AddAsync(new Break
+        {
+            Id = Guid.NewGuid(), ClientId = clientA.Id, CurrentDate = dropDay,
+            ParentWorkId = drop.Id, AbsenceId = absenceId, AnalyseToken = null
+        });
+        await _context.SaveChangesAsync();
+
+        var token = Guid.NewGuid();
+        var (_, workIdMap) = await _service.CloneScenarioDataWithMapsAsync(
+            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _context.SaveChangesAsync();
+        var keepClone = workIdMap[keep.Id];
+        var dropClone = workIdMap[drop.Id];
+
+        // Bitmap keeps `keep` (re-pointed to B on its day) and assigns nothing on the drop day, so the
+        // `drop` clone is unreferenced and must be soft-deleted with its sub-break.
+        var rows = new List<BitmapAgent>
+        {
+            new(clientA.Id.ToString(), "A", 0m, new HashSet<CellSymbol>()),
+            new(clientB.Id.ToString(), "B", 0m, new HashSet<CellSymbol>())
+        };
+        var days = new List<DateOnly> { keepDay, dropDay };
+        var cells = new Cell[2, 2];
+        cells[0, 0] = Cell.Free();
+        cells[1, 0] = new Cell(CellSymbol.Early, shift.Id, new List<Guid> { keep.Id }, false);
+        cells[0, 1] = Cell.Free();
+        cells[1, 1] = Cell.Free();
+        var bitmap = new HarmonyBitmap(rows, days, cells);
+
+        var apply = new HarmonizerApplyService(
+            new HarmonizerResultCache(),
+            Substitute.For<IMediator>(),
+            Substitute.For<IAnalyseScenarioRepository>(),
+            _service,
+            Substitute.For<IUnitOfWork>(),
+            _context,
+            Substitute.For<ILogger<HarmonizerApplyService>>());
+
+        var repointed = await apply.RepointClonedWorksAsync(
+            token, PeriodFrom, PeriodUntil, bitmap, workIdMap, CancellationToken.None);
+        await _context.SaveChangesAsync();
+
+        repointed.ShouldContain(keepClone);
+        repointed.ShouldNotContain(dropClone);
+
+        var keptWork = await _context.Work.IgnoreQueryFilters().AsNoTracking().FirstAsync(w => w.Id == keepClone);
+        keptWork.IsDeleted.ShouldBeFalse("the assigned work survives");
+        keptWork.ClientId.ShouldBe(clientB.Id);
+
+        var droppedWork = await _context.Work.IgnoreQueryFilters().AsNoTracking().FirstAsync(w => w.Id == dropClone);
+        droppedWork.IsDeleted.ShouldBeTrue("the unassigned work must be soft-deleted");
+
+        var droppedBreak = await _context.Break.IgnoreQueryFilters().AsNoTracking()
+            .FirstAsync(b => b.AnalyseToken == token && b.ParentWorkId == dropClone);
+        droppedBreak.IsDeleted.ShouldBeTrue("the dropped work's sub-break must be soft-deleted with it");
+    }
 }
