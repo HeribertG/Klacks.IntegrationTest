@@ -85,13 +85,18 @@ public class Wizard4OptimizationCoreLiveTests
             .BuildAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<IReadOnlyCollection<EligibilitySlot>>(), Arg.Any<CancellationToken>())
             .Returns(EligibilityMatrix.Empty);
 
+        var availabilityService = Substitute.For<IAvailabilityIneligibilityService>();
+        availabilityService
+            .GetAsync(Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<IReadOnlyList<AvailabilityShiftSlot>>(), Arg.Any<CancellationToken>())
+            .Returns((IReadOnlySet<(string, Guid, DateOnly)>)new HashSet<(string, Guid, DateOnly)>());
         var wizardBuilder = new WizardContextBuilder(
             new WizardAgentSnapshotBuilder(provider),
             new WizardShiftBuilder(_context),
             new WizardHardConstraintBuilder(_context),
             periodHours,
             provider,
-            eligibilityBuilder);
+            eligibilityBuilder,
+            availabilityService);
         var objectiveContext = await wizardBuilder.BuildContextAsync(
             new WizardContextRequest(from, until, agentIds, null, null), CancellationToken.None);
 

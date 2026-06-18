@@ -94,7 +94,11 @@ public class WizardLiveContextDiagnosticTests
         eligibilityBuilder
             .BuildAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<IReadOnlyCollection<EligibilitySlot>>(), Arg.Any<CancellationToken>())
             .Returns(EligibilityMatrix.Empty);
-        var builder = new WizardContextBuilder(agentBuilder, shiftBuilder, hardBuilder, periodHours, provider, eligibilityBuilder);
+        var availabilityService = Substitute.For<IAvailabilityIneligibilityService>();
+        availabilityService
+            .GetAsync(Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<IReadOnlyList<AvailabilityShiftSlot>>(), Arg.Any<CancellationToken>())
+            .Returns((IReadOnlySet<(string, Guid, DateOnly)>)new HashSet<(string, Guid, DateOnly)>());
+        var builder = new WizardContextBuilder(agentBuilder, shiftBuilder, hardBuilder, periodHours, provider, eligibilityBuilder, availabilityService);
         var ctx = await builder.BuildContextAsync(
             new WizardContextRequest(from, until, agentIds, shiftIds, null),
             CancellationToken.None);
