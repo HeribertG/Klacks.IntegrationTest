@@ -104,7 +104,8 @@ public class Wizard4OptimizationCoreLiveTests
             _context,
             provider,
             new WorkSofteningRepository(_context),
-            eligibilityBuilder);
+            eligibilityBuilder,
+            availabilityService);
         var bitmapInput = await harmonizerBuilder.BuildContextAsync(
             new HarmonizerContextRequest(from, until, agentIds, null), CancellationToken.None);
 
