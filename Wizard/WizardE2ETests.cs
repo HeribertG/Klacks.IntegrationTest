@@ -170,7 +170,7 @@ public class WizardE2ETests
         var builder = scope.ServiceProvider
             .GetRequiredService<Klacks.Api.Application.Interfaces.Schedules.IWizardContextBuilder>();
 
-        var request = new Klacks.Api.Application.Services.Schedules.WizardContextRequest(
+        var request = new Klacks.Api.Application.Interfaces.Schedules.WizardContextRequest(
             PeriodFrom: new DateOnly(2099, 1, 5),
             PeriodUntil: new DateOnly(2099, 1, 7),
             AgentIds: new[] { _testClientId },
