@@ -12,6 +12,7 @@
 
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Services.Schedules;
+using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Models.Schedules;

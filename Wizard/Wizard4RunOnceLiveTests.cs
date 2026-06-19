@@ -10,6 +10,7 @@
 /// </summary>
 
 using Klacks.Api.Application.Services.Schedules;
+using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.IntegrationTest.SignalR;
 using Microsoft.AspNetCore.Http;

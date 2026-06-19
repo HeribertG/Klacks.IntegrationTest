@@ -18,6 +18,7 @@ using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Infrastructure.Services.PeriodHours;
 using Klacks.Api.Infrastructure.Services.ScheduleEntries;
 using Klacks.Api.Application.Services.Schedules;
+using Klacks.Api.Application.Interfaces.Schedules;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;

@@ -12,6 +12,7 @@ using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories;
 using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Application.Services.Schedules;
+using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Infrastructure.Services;
 using Klacks.Api.Infrastructure.Services.Schedules;
 using Klacks.Api.Infrastructure.Services.Shifts;
