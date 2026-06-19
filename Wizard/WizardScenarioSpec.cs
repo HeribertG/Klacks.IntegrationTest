@@ -18,6 +18,7 @@ namespace Klacks.IntegrationTest.Wizard;
 /// <param name="ShiftDefs">The shift pool (FD/SD/ND etc.).</param>
 /// <param name="ContractWorkDays">Contract.WorkOnMonday..Sunday flags (index 0=Mon..6=Sun).</param>
 /// <param name="PerformsShiftWork">Contract.PerformsShiftWork (true = full FD/SD/ND rotation).</param>
+/// <param name="PerformsShiftWorkPerClient">Optional per-client override (index -> bool) for Contract.PerformsShiftWork; null falls back to the flat <see cref="PerformsShiftWork"/>. Lets a scenario mix full shift-workers with day-only (FD-only) part-timers.</param>
 /// <param name="SchedulingRule">Optional shared scheduling rule linked via Contract.SchedulingRuleId.</param>
 /// <param name="Qualifications">Optional qualification axis (empty for the first test).</param>
 /// <param name="ScheduleCommands">Optional per-(client,date) command axis (empty for the first test).</param>
@@ -34,6 +35,7 @@ public sealed record WizardScenarioSpec(
     Func<int, decimal>? MaximumHoursPerClient = null,
     decimal FullTimeHours = 40m,
     bool PerformsShiftWork = true,
+    Func<int, bool>? PerformsShiftWorkPerClient = null,
     SchedulingRuleSpec? SchedulingRule = null,
     IReadOnlyList<QualificationSpec>? Qualifications = null,
     IReadOnlyList<ScheduleCommandSpec>? ScheduleCommands = null,

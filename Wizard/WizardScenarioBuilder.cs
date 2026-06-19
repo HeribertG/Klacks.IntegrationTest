@@ -97,7 +97,7 @@ public sealed class WizardScenarioBuilder(DataBaseContext context)
                 GuaranteedHours = spec.GuaranteedHoursPerClient(i),
                 MaximumHours = spec.MaximumHoursOrZero(i),
                 FullTime = spec.FullTimeHours,
-                PerformsShiftWork = spec.PerformsShiftWork,
+                PerformsShiftWork = spec.PerformsShiftWorkPerClient?.Invoke(i) ?? spec.PerformsShiftWork,
                 WorkOnMonday = spec.ContractWorkDays[0],
                 WorkOnTuesday = spec.ContractWorkDays[1],
                 WorkOnWednesday = spec.ContractWorkDays[2],
