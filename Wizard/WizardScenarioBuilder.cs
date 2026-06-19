@@ -32,6 +32,7 @@ public sealed class WizardScenarioBuilder(DataBaseContext context)
     private const string LockedWorkGuidPrefix = "00000000-0000-0000-000a-";
     private const string BreakGuidPrefix = "00000000-0000-0000-000b-";
     private const string AbsenceGuid = "00000000-0000-0000-000c-000000000001";
+    private const string ClientAvailabilityGuidPrefix = "00000000-0000-0000-000d-";
 
     private static readonly DateOnly ContractStart = new(2090, 1, 1);
     private static readonly DateTime ContractValidFrom = new(2090, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -304,6 +305,31 @@ public sealed class WizardScenarioBuilder(DataBaseContext context)
             }
         }
 
+        var unavailabilities = spec.UnavailabilitiesOrEmpty;
+        for (var u = 0; u < unavailabilities.Count; u++)
+        {
+            var unavailabilitySpec = unavailabilities[u];
+            if (unavailabilitySpec.ClientIndex < 0 || unavailabilitySpec.ClientIndex >= _clientIds.Count)
+            {
+                continue;
+            }
+
+            if (!shiftDefByAbbrev.TryGetValue(unavailabilitySpec.ShiftAbbrev, out var unavailabilityShiftDef))
+            {
+                continue;
+            }
+
+            _context.ClientAvailability.Add(new ClientAvailability
+            {
+                Id = IndexedGuid(ClientAvailabilityGuidPrefix, u),
+                ClientId = _clientIds[unavailabilitySpec.ClientIndex],
+                Date = unavailabilitySpec.Date,
+                Hour = unavailabilityShiftDef.StartShift.Hour,
+                IsAvailable = false,
+                IsDeleted = false,
+            });
+        }
+
         await _context.SaveChangesAsync();
 
         var request = new WizardContextRequest(
@@ -328,14 +354,15 @@ public sealed class WizardScenarioBuilder(DataBaseContext context)
 
     /// <summary>
     /// Hard-DELETEs all rows whose primary key (or, for junctions, foreign key) carries one of the
-    /// builder's deterministic GUID prefixes, in FK-child-first order: break, work,
-    /// schedule_commands, client_qualification, shift_required_qualification, shift, qualification,
-    /// absence, client_contract, contract, scheduling_rules, client. Prefix-based (not list-based)
+    /// builder's deterministic GUID prefixes, in FK-child-first order: client_availability, break,
+    /// work, schedule_commands, client_qualification, shift_required_qualification, shift,
+    /// qualification, absence, client_contract, contract, scheduling_rules, client. Prefix-based (not list-based)
     /// so a crashed prior run with skipped teardown cannot cause a primary-key violation on re-seed,
     /// even though a fresh builder's id lists are empty.
     /// </summary>
     private async Task PurgeDeterministicAsync()
     {
+        await DeleteByPrefixAsync("client_availability", "id", ClientAvailabilityGuidPrefix);
         await DeleteByPrefixAsync("break", "id", BreakGuidPrefix);
         await DeleteByPrefixAsync("work", "id", LockedWorkGuidPrefix);
         await DeleteByPrefixAsync("schedule_commands", "id", ScheduleCommandGuidPrefix);

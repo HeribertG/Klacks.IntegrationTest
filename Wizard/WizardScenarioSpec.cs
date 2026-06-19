@@ -24,6 +24,7 @@ namespace Klacks.IntegrationTest.Wizard;
 /// <param name="ScheduleCommands">Optional per-(client,date) command axis (empty for the first test).</param>
 /// <param name="LockedWorks">Optional locked-work axis (empty for the first test).</param>
 /// <param name="Breaks">Optional break/absence axis (empty for the first test).</param>
+/// <param name="Unavailabilities">Optional availability axis: each entry seeds an IsAvailable=false client_availability row at the shift's start hour, making that (client, shift, date) cell ineligible (empty/null for the first test).</param>
 public sealed record WizardScenarioSpec(
     string ScenarioName,
     int ClientCount,
@@ -40,7 +41,8 @@ public sealed record WizardScenarioSpec(
     IReadOnlyList<QualificationSpec>? Qualifications = null,
     IReadOnlyList<ScheduleCommandSpec>? ScheduleCommands = null,
     IReadOnlyList<LockedWorkSpec>? LockedWorks = null,
-    IReadOnlyList<BreakSpec>? Breaks = null)
+    IReadOnlyList<BreakSpec>? Breaks = null,
+    IReadOnlyList<UnavailabilitySpec>? Unavailabilities = null)
 {
     public Func<int, decimal> MaximumHoursOrZero => MaximumHoursPerClient ?? (_ => 0m);
 
@@ -51,6 +53,8 @@ public sealed record WizardScenarioSpec(
     public IReadOnlyList<LockedWorkSpec> LockedWorksOrEmpty => LockedWorks ?? [];
 
     public IReadOnlyList<BreakSpec> BreaksOrEmpty => Breaks ?? [];
+
+    public IReadOnlyList<UnavailabilitySpec> UnavailabilitiesOrEmpty => Unavailabilities ?? [];
 
     /// <summary>
     /// Builds the FIRST coverage test spec: 5 clients, FD/SD/ND tiling 24h on ALL seven weekdays
