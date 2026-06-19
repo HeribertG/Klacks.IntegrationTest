@@ -120,7 +120,7 @@ public class ShiftManipulationIntegrationTests
 
         // Create ShiftResetService
         var shiftResetServiceLogger = Substitute.For<ILogger<ShiftResetService>>();
-        var shiftResetService = new ShiftResetService(_shiftRepository, _scheduleMapper, shiftResetServiceLogger);
+        var shiftResetService = new ShiftResetService(_shiftRepository, shiftResetServiceLogger);
 
         // Create facade
         var facadeLogger = Substitute.For<ILogger<ShiftCutFacade>>();
