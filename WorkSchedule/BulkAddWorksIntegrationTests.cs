@@ -155,7 +155,9 @@ public class BulkAddWorksIntegrationTests
     {
         _testClientId = Guid.NewGuid();
         _testShiftId = Guid.NewGuid();
-        _testMacroId = Guid.NewGuid();
+        // Reuse the seeded AllShift macro instead of creating a disposable one each run (which used to
+        // accumulate as soft-deleted rows because TearDown soft-deletes via the interceptor).
+        _testMacroId = Guid.Parse("a3edd3f5-c31c-4746-a9a0-c613d14ffd23");
         _testContractId = Guid.NewGuid();
 
         var macro = new Macro
@@ -225,7 +227,11 @@ OUTPUT 1, Round(TotalBonus, 2)",
             },
             IsDeleted = false
         };
-        _context.Set<Macro>().Add(macro);
+        // Only insert if the seeded macro is somehow missing (e.g. a fresh DB); normally it exists.
+        if (!await _context.Set<Macro>().AnyAsync(m => m.Id == _testMacroId))
+        {
+            _context.Set<Macro>().Add(macro);
+        }
 
         var contract = new Contract
         {
@@ -306,11 +312,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
             _context.Shift.Remove(shift);
         }
 
-        var macro = await _context.Set<Macro>().FindAsync(_testMacroId);
-        if (macro != null)
-        {
-            _context.Set<Macro>().Remove(macro);
-        }
+        // Do NOT delete the macro: the test reuses the seeded AllShift macro and must not remove it.
 
         var periodHours = await _context.ClientPeriodHours
             .Where(p => p.ClientId == _testClientId)

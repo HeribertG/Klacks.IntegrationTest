@@ -10,7 +10,11 @@ using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Services.Shifts;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories;
+using Klacks.Api.Infrastructure.Repositories.Associations;
 using Klacks.Api.Infrastructure.Repositories.Schedules;
+using Klacks.Api.Infrastructure.Repositories.Staffs;
+using Klacks.Api.Infrastructure.Interfaces;
+using Klacks.Api.Domain.Interfaces.Staffs;
 using Klacks.Api.Application.Services.Schedules;
 using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Infrastructure.Services;
@@ -18,6 +22,11 @@ using Klacks.Api.Infrastructure.Services.Schedules;
 using Klacks.Api.Infrastructure.Services.Shifts;
 using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.DTOs.Associations;
+using Klacks.Api.Application.Skills;
+using Klacks.Api.Application.Queries.Settings.Macros;
+using Klacks.Api.Application.DTOs.Settings;
+using Klacks.Api.Domain.Models.Assistant;
+using Klacks.Api.Infrastructure.Mediator;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -896,6 +905,431 @@ public class ShiftManipulationIntegrationTests
         finalShifts.Count(s => s.Status == ShiftStatus.SplitShift).ShouldBe(4);
 
         Console.WriteLine("\n=== FULL WORKFLOW TEST PASSED ===");
+    }
+
+    #endregion
+
+    #region Test 8: CutShiftSkill (Klacksy) - one 24h order cut into 3 linked parts
+
+    private CutShiftSkill CreateCutSkill() => new(_shiftRepository, _shiftCutFacade);
+
+    private static SkillExecutionContext TestSkillContext() => new()
+    {
+        UserId = Guid.Empty,
+        TenantId = Guid.Empty,
+        UserName = "integration-test",
+        UserPermissions = new List<string>()
+    };
+
+    [Test]
+    public async Task CutShiftSkill_Should_Split_24h_Order_Into_Three_Linked_Parts()
+    {
+        // Arrange - a 24h order (07:00-07:00) carrying a real dev-DB group, sealed -> OriginalShift.
+        var groupA = Guid.Parse("706e2414-9aa4-46e3-8143-a49eca1f0a44");
+        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae"); // Tech Systems GmbH (Customer)
+        var macroId = Guid.Parse("a3edd3f5-c31c-4746-a9a0-c613d14ffd23");     // AllShift (category Shift)
+        var orderResource = CreateTestShiftResource("CutSkill_24h", ShiftStatus.SealedOrder,
+            fromDate: new DateOnly(2026, 6, 1),
+            startShift: new TimeOnly(7, 0),
+            endShift: new TimeOnly(7, 0));
+        orderResource.Groups = new List<SimpleGroupResource> { new() { Id = groupA } };
+        orderResource.ClientId = customerId;
+        orderResource.MacroId = macroId;
+
+        var created = await _postHandler.Handle(new PostCommand<ShiftResource>(orderResource), CancellationToken.None);
+        created.ShouldNotBeNull();
+        var originalShiftId = created!.Id;
+        var sealedOrderId = created.OriginalId!.Value;
+
+        var parameters = new Dictionary<string, object>
+        {
+            ["shiftId"] = originalShiftId.ToString(),
+            ["parts"] = "07:00-15:00,15:00-23:00,23:00-07:00",
+            ["partNames"] = $"{TestShiftPrefix}Frueh,{TestShiftPrefix}Spaet,{TestShiftPrefix}Nacht"
+        };
+
+        // Act
+        var result = await CreateCutSkill().ExecuteAsync(TestSkillContext(), parameters, CancellationToken.None);
+
+        // Assert - skill succeeded and produced exactly ONE order with 3 linked parts.
+        result.Success.ShouldBeTrue(result.Message);
+
+        var allForOrder = await GetAllShiftsWithOriginalId(sealedOrderId);
+        allForOrder.Count(s => s.Status == ShiftStatus.SealedOrder).ShouldBe(1, "the single sealed order must survive");
+        allForOrder.Count(s => s.Status == ShiftStatus.OriginalShift)
+            .ShouldBe(0, "the plannable 24h shift must be CONVERTED, not left over as a duplicate");
+
+        var splits = allForOrder.Where(s => s.Status == ShiftStatus.SplitShift).OrderBy(s => s.StartShift).ToList();
+        splits.Count.ShouldBe(3, "the order must be cut into exactly 3 linked parts");
+        splits.Any(s => s.Id == originalShiftId)
+            .ShouldBeTrue("the order's plannable shift was converted into the first part (id reused)");
+
+        foreach (var s in splits)
+        {
+            s.OriginalId.ShouldBe(sealedOrderId, "every part stays linked to the one order");
+            s.ClientId.ShouldBe(customerId, "every part must inherit the order's customer (for billing/address)");
+            s.MacroId.ShouldBe(macroId, "every part must inherit the order's calculation macro");
+            s.RootId.ShouldBe(s.Id, "a parallel time-slice part is its own nested-set root");
+            s.ParentId.ShouldBeNull("a top-level time-slice has no parent");
+            s.Lft.ShouldNotBeNull("nested-set lft must be assigned");
+            s.Rgt.ShouldNotBeNull("nested-set rgt must be assigned");
+            s.Lft!.Value.ShouldBeLessThan(s.Rgt!.Value);
+        }
+
+        splits[0].StartShift.ShouldBe(new TimeOnly(7, 0));
+        splits[0].EndShift.ShouldBe(new TimeOnly(15, 0));
+        splits[1].StartShift.ShouldBe(new TimeOnly(15, 0));
+        splits[1].EndShift.ShouldBe(new TimeOnly(23, 0));
+        splits[2].StartShift.ShouldBe(new TimeOnly(23, 0));
+        splits[2].EndShift.ShouldBe(new TimeOnly(7, 0));
+        splits[2].CuttingAfterMidnight.ShouldBeTrue("the 23:00-07:00 part crosses midnight");
+
+        foreach (var s in splits)
+        {
+            var groups = await _shiftRepository.GetGroupsForShift(s.Id);
+            groups.Select(g => g.Id).ShouldContain(groupA, "each part must inherit the order's group");
+        }
+    }
+
+    [Test]
+    public async Task CutShiftSkill_Should_Refuse_To_Cut_An_Already_Split_Order()
+    {
+        var orderResource = CreateTestShiftResource("CutSkill_Twice", ShiftStatus.SealedOrder,
+            fromDate: new DateOnly(2026, 6, 1), startShift: new TimeOnly(7, 0), endShift: new TimeOnly(7, 0));
+        var created = await _postHandler.Handle(new PostCommand<ShiftResource>(orderResource), CancellationToken.None);
+        var originalShiftId = created!.Id;
+
+        var firstParams = new Dictionary<string, object>
+        {
+            ["shiftId"] = originalShiftId.ToString(),
+            ["parts"] = "07:00-19:00,19:00-07:00",
+            ["partNames"] = $"{TestShiftPrefix}A,{TestShiftPrefix}B"
+        };
+
+        var skill = CreateCutSkill();
+        (await skill.ExecuteAsync(TestSkillContext(), firstParams, CancellationToken.None)).Success.ShouldBeTrue();
+
+        // Act - cut the same order again
+        var secondResult = await skill.ExecuteAsync(TestSkillContext(), firstParams, CancellationToken.None);
+
+        // Assert - refused, so no double-cut wreckage
+        secondResult.Success.ShouldBeFalse("cutting an already-split order must be refused");
+
+        var splitCount = (await GetAllShiftsWithOriginalId(created.OriginalId!.Value))
+            .Count(s => s.Status == ShiftStatus.SplitShift);
+        splitCount.ShouldBe(2, "the second cut must not add more parts");
+    }
+
+    [Test]
+    public async Task FindSplitShiftCandidates_Should_List_An_Existing_Split_Order_In_The_Group()
+    {
+        // Biel/Bienne group from the dev DB (canton BE); the location of a split service comes
+        // from its group, so listing the group's orders is what the disambiguation step needs.
+        var bielGroupId = Guid.Parse("4e2e0e67-d744-40a6-b9fc-6fc66b8a7edf");
+
+        // Arrange - a 24h order in the Biel group, already cut into 2 parts.
+        var orderResource = CreateTestShiftResource("FindCand_24h", ShiftStatus.SealedOrder,
+            fromDate: new DateOnly(2026, 6, 1), startShift: new TimeOnly(7, 0), endShift: new TimeOnly(7, 0));
+        orderResource.Groups = new List<SimpleGroupResource> { new() { Id = bielGroupId } };
+        var created = await _postHandler.Handle(new PostCommand<ShiftResource>(orderResource), CancellationToken.None);
+        var originalShiftId = created!.Id;
+        var sealedOrderId = created.OriginalId!.Value;
+
+        var cutParams = new Dictionary<string, object>
+        {
+            ["shiftId"] = originalShiftId.ToString(),
+            ["parts"] = "07:00-19:00,19:00-07:00",
+            ["partNames"] = $"{TestShiftPrefix}Day,{TestShiftPrefix}Night"
+        };
+        (await CreateCutSkill().ExecuteAsync(TestSkillContext(), cutParams, CancellationToken.None)).Success.ShouldBeTrue();
+
+        // Act - the disambiguation skill (exercises group resolution + GroupItems.Any + ILike + GetQuery).
+        var skill = new FindSplitShiftCandidatesSkill(_shiftRepository, new GroupSearchRepository(_context));
+        var result = await skill.ExecuteAsync(
+            TestSkillContext(),
+            new Dictionary<string, object> { ["groupName"] = "Biel/Bienne" },
+            CancellationToken.None);
+
+        // Assert - the skill returns the seeded order, flagged as already split with its 2 parts.
+        result.Success.ShouldBeTrue(result.Message);
+        result.Message.ShouldContain("already split");
+
+        var json = System.Text.Json.JsonSerializer.Serialize(result.Data);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var orders = doc.RootElement.GetProperty("Orders").EnumerateArray()
+            .Where(o => o.TryGetProperty("SealedOrderId", out var p)
+                        && p.ValueKind != System.Text.Json.JsonValueKind.Null
+                        && p.GetGuid() == sealedOrderId)
+            .ToList();
+
+        orders.Count.ShouldBe(1, "the seeded split order must be listed exactly once");
+        orders[0].GetProperty("AlreadySplit").GetBoolean().ShouldBeTrue("the order is already cut");
+        orders[0].GetProperty("PartCount").GetInt32().ShouldBe(2, "it has 2 parts");
+    }
+
+    private ClientRepository CreateClientRepository() => new(
+        _context,
+        Substitute.For<IMacroEngine>(),
+        Substitute.For<IClientChangeTrackingService>(),
+        Substitute.For<IClientEntityManagementService>(),
+        new EntityCollectionUpdateService(_context),
+        Substitute.For<IClientValidator>(),
+        Substitute.For<ILogger<ClientRepository>>());
+
+    [Test]
+    public async Task CreateShiftSkill_Requires_A_Customer_And_Persists_ClientId()
+    {
+        // A real customer (type Customer) from the dev DB.
+        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var allShiftMacroId = Guid.Parse("a3edd3f5-c31c-4746-a9a0-c613d14ffd23"); // AllShift, category Shift
+        var mediator = Substitute.For<IMediator>();
+        mediator.Send(Arg.Any<ListQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new List<MacroResource>
+            {
+                new() { Id = allShiftMacroId, Name = "AllShift", Category = MacroCategoryEnum.Shift }
+            });
+        var skill = new CreateShiftSkill(
+            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), mediator, _unitOfWork);
+
+        // (a) no client -> refused (an order must be billed to a customer)
+        var noClient = await skill.ExecuteAsync(TestSkillContext(), new Dictionary<string, object>
+        {
+            ["name"] = $"{TestShiftPrefix}NoClient",
+            ["startTime"] = "07:00",
+            ["endTime"] = "07:00"
+        }, CancellationToken.None);
+        noClient.Success.ShouldBeFalse("an order without a customer must be refused");
+
+        // (b) an employee (non-customer) -> refused
+        var employeeId = await _context.Client
+            .Where(c => c.Type == EntityTypeEnum.Employee && !c.IsDeleted)
+            .Select(c => c.Id)
+            .FirstAsync();
+        var wrongType = await skill.ExecuteAsync(TestSkillContext(), new Dictionary<string, object>
+        {
+            ["name"] = $"{TestShiftPrefix}WrongType",
+            ["clientId"] = employeeId.ToString(),
+            ["startTime"] = "07:00",
+            ["endTime"] = "07:00"
+        }, CancellationToken.None);
+        wrongType.Success.ShouldBeFalse("an order billed to a non-customer must be refused");
+
+        // (c) a customer -> created, ClientId persisted on the order
+        var ok = await skill.ExecuteAsync(TestSkillContext(), new Dictionary<string, object>
+        {
+            ["name"] = $"{TestShiftPrefix}WithCustomer",
+            ["clientId"] = customerId.ToString(),
+            ["startTime"] = "07:00",
+            ["endTime"] = "07:00",
+            ["fromDate"] = "2026-07-01"
+        }, CancellationToken.None);
+        ok.Success.ShouldBeTrue(ok.Message);
+
+        var order = await _context.Shift.AsNoTracking()
+            .FirstAsync(s => s.Name == $"{TestShiftPrefix}WithCustomer" && s.Status == ShiftStatus.SealedOrder);
+        order.ClientId.ShouldBe(customerId, "the order must be billed to the chosen customer");
+        order.MacroId.ShouldBe(allShiftMacroId, "the order must get the default Shift-category macro");
+    }
+
+    private CreateShiftSkill CreateShiftSkillWithDefaultMacro()
+    {
+        var allShiftMacroId = Guid.Parse("a3edd3f5-c31c-4746-a9a0-c613d14ffd23");
+        var mediator = Substitute.For<IMediator>();
+        mediator.Send(Arg.Any<ListQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new List<MacroResource>
+            {
+                new() { Id = allShiftMacroId, Name = "AllShift", Category = MacroCategoryEnum.Shift }
+            });
+        return new CreateShiftSkill(
+            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), mediator, _unitOfWork);
+    }
+
+    [Test]
+    public async Task CreateShiftSkill_ReIssue_Reuses_Existing_Uncut_Order()
+    {
+        // ORD-5a: re-issuing create_shift for the same uncut order (same key, incl. start/end time) must
+        // reuse it instead of creating a duplicate. Counter-test: a different time is a distinct order.
+        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var skill = CreateShiftSkillWithDefaultMacro();
+        var name = $"{TestShiftPrefix}Reuse24h";
+
+        Dictionary<string, object> Args() => new()
+        {
+            ["name"] = name,
+            ["clientId"] = customerId.ToString(),
+            ["startTime"] = "07:00",
+            ["endTime"] = "07:00",
+            ["fromDate"] = "2026-07-01"
+        };
+
+        var first = await skill.ExecuteAsync(TestSkillContext(), Args(), CancellationToken.None);
+        first.Success.ShouldBeTrue(first.Message);
+
+        var second = await skill.ExecuteAsync(TestSkillContext(), Args(), CancellationToken.None);
+        second.Success.ShouldBeTrue(second.Message);
+
+        (await _context.Shift.AsNoTracking()
+            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.SealedOrder && !s.IsDeleted))
+            .ShouldBe(1, "re-issuing create_shift must not create a second order");
+        (await _context.Shift.AsNoTracking()
+            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalShift && !s.IsDeleted))
+            .ShouldBe(1, "exactly one plannable OriginalShift must remain");
+
+        // Counter-test: same name/date/customer but a DIFFERENT time -> a genuinely distinct order.
+        var diffTime = Args();
+        diffTime["startTime"] = "08:00";
+        diffTime["endTime"] = "08:00";
+        var third = await skill.ExecuteAsync(TestSkillContext(), diffTime, CancellationToken.None);
+        third.Success.ShouldBeTrue(third.Message);
+
+        (await _context.Shift.AsNoTracking()
+            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.SealedOrder && !s.IsDeleted))
+            .ShouldBe(2, "an order with a different time must NOT be merged into the existing one");
+
+        // HIGH-2: a case/whitespace-only name change on re-issue must still reuse (no duplicate).
+        var caseVariant = Args();
+        caseVariant["name"] = "  " + name.ToUpperInvariant() + "  ";
+        var fourth = await skill.ExecuteAsync(TestSkillContext(), caseVariant, CancellationToken.None);
+        fourth.Success.ShouldBeTrue(fourth.Message);
+        (await _context.Shift.AsNoTracking()
+            .CountAsync(s => s.Status == ShiftStatus.SealedOrder && !s.IsDeleted
+                             && s.Name.ToLower().Trim() == name.ToLower()))
+            .ShouldBe(2, "a case/whitespace-only name change must reuse, not create a third order");
+    }
+
+    [Test]
+    public async Task CreateShiftSkill_StructuralDifference_Is_A_Distinct_Order()
+    {
+        // MED-1: an order that differs only in its weekdays (weekend vs. all) is a DISTINCT order and must
+        // NOT be merged into the existing one by the reuse-guard (otherwise the weekend order is lost).
+        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var skill = CreateShiftSkillWithDefaultMacro();
+        var name = $"{TestShiftPrefix}WeekdayDistinct";
+
+        Dictionary<string, object> Args(string weekdays) => new()
+        {
+            ["name"] = name,
+            ["clientId"] = customerId.ToString(),
+            ["startTime"] = "07:00",
+            ["endTime"] = "15:00",
+            ["fromDate"] = "2026-07-01",
+            ["weekdays"] = weekdays
+        };
+
+        (await skill.ExecuteAsync(TestSkillContext(), Args("weekdays"), CancellationToken.None))
+            .Success.ShouldBeTrue();
+        (await skill.ExecuteAsync(TestSkillContext(), Args("weekend"), CancellationToken.None))
+            .Success.ShouldBeTrue();
+
+        (await _context.Shift.AsNoTracking()
+            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.SealedOrder && !s.IsDeleted))
+            .ShouldBe(2, "orders with different weekdays are distinct and must not be merged");
+    }
+
+    [Test]
+    public async Task CreateShiftSkill_Without_FromDate_Asks_With_DatePicker()
+    {
+        // ORD-6: fromDate is required; the skill must ask with a date picker instead of defaulting to today.
+        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var skill = CreateShiftSkillWithDefaultMacro();
+
+        var result = await skill.ExecuteAsync(TestSkillContext(), new Dictionary<string, object>
+        {
+            ["name"] = $"{TestShiftPrefix}NoDate",
+            ["clientId"] = customerId.ToString(),
+            ["startTime"] = "07:00",
+            ["endTime"] = "15:00"
+        }, CancellationToken.None);
+
+        result.Success.ShouldBeFalse("fromDate must be required");
+        result.Message.ShouldContain("[REPLIES:date");
+    }
+
+    [Test]
+    public async Task CreateShiftSkill_Persists_StaffCount_And_Quantity()
+    {
+        // ORD-9 / ORD-10: SumEmployees (ClientCount) and Quantity (Menge) are persisted from the parameters.
+        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var skill = CreateShiftSkillWithDefaultMacro();
+        var name = $"{TestShiftPrefix}Counts";
+
+        var ok = await skill.ExecuteAsync(TestSkillContext(), new Dictionary<string, object>
+        {
+            ["name"] = name,
+            ["clientId"] = customerId.ToString(),
+            ["startTime"] = "07:00",
+            ["endTime"] = "15:00",
+            ["fromDate"] = "2026-07-01",
+            ["sumEmployees"] = 3,
+            ["quantity"] = 2
+        }, CancellationToken.None);
+        ok.Success.ShouldBeTrue(ok.Message);
+
+        var order = await _context.Shift.AsNoTracking()
+            .FirstAsync(s => s.Name == name && s.Status == ShiftStatus.SealedOrder);
+        order.SumEmployees.ShouldBe(3, "the required staff count must be persisted");
+        order.Quantity.ShouldBe(2, "the quantity (Menge) must be persisted, not hardcoded to 1");
+    }
+
+    [Test]
+    public async Task CreateShiftSkill_Reuse_Guard_Ignores_Scenario_Rows()
+    {
+        // XC-2: the reuse-guard must never match scenario rows (AnalyseToken set) — it must create a real order.
+        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var skill = CreateShiftSkillWithDefaultMacro();
+        var name = $"{TestShiftPrefix}ScenarioGuard";
+
+        Dictionary<string, object> Args() => new()
+        {
+            ["name"] = name,
+            ["clientId"] = customerId.ToString(),
+            ["startTime"] = "07:00",
+            ["endTime"] = "07:00",
+            ["fromDate"] = "2026-07-01"
+        };
+
+        var first = await skill.ExecuteAsync(TestSkillContext(), Args(), CancellationToken.None);
+        first.Success.ShouldBeTrue(first.Message);
+
+        // Turn the created OriginalShift into a scenario row.
+        var orig = await _context.Shift
+            .FirstAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalShift);
+        orig.AnalyseToken = Guid.NewGuid();
+        await _context.SaveChangesAsync();
+
+        // Re-issue: the scenario row must be ignored -> a fresh real order is created.
+        var second = await skill.ExecuteAsync(TestSkillContext(), Args(), CancellationToken.None);
+        second.Success.ShouldBeTrue(second.Message);
+
+        (await _context.Shift.AsNoTracking()
+            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalShift && !s.IsDeleted))
+            .ShouldBe(2, "the reuse-guard must ignore scenario rows and create a real order");
+        (await _context.Shift.AsNoTracking()
+            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalShift && s.AnalyseToken == null && !s.IsDeleted))
+            .ShouldBe(1, "exactly one real (non-scenario) order must exist");
+    }
+
+    [Test]
+    public async Task FindCustomerCandidates_Lists_Customers_For_Billing()
+    {
+        var skill = new FindCustomerCandidatesSkill(CreateClientRepository());
+
+        var result = await skill.ExecuteAsync(
+            TestSkillContext(),
+            new Dictionary<string, object> { ["searchString"] = "Tech Systems" },
+            CancellationToken.None);
+
+        result.Success.ShouldBeTrue(result.Message);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(result.Data);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("Count").GetInt32()
+            .ShouldBeGreaterThan(0, "at least one matching customer must be listed");
+
+        var names = doc.RootElement.GetProperty("Customers").EnumerateArray()
+            .Select(c => c.GetProperty("Name").GetString())
+            .ToList();
+        names.ShouldContain(n => n != null && n.Contains("Tech Systems"));
     }
 
     #endregion
