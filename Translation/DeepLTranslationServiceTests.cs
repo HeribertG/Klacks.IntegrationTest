@@ -1,21 +1,17 @@
-using Shouldly;
 using Klacks.Api.Application.Interfaces;
+using Klacks.Api.Application.Services.Translation;
 using Klacks.Api.Domain.Common;
-using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Services.Settings;
 using Klacks.Api.Infrastructure.Persistence;
-using Klacks.Api.Infrastructure.Repositories;
-using Klacks.Api.Infrastructure.Repositories.Associations;
-using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Infrastructure.Repositories.Settings;
 using Klacks.Api.Infrastructure.Services.Translation;
-using Klacks.Api.Application.Services.Translation;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NUnit.Framework;
+using Shouldly;
 
 namespace Klacks.IntegrationTest.Translation;
 
@@ -30,6 +26,12 @@ public class DeepLTranslationServiceTests
     private IMultiLanguageTranslationService _multiLanguageTranslationService = null!;
     private static string GetDataProtectionPath()
     {
+        var backendKeysPath = FindBackendDataProtectionPath();
+        if (backendKeysPath != null)
+        {
+            return backendKeysPath;
+        }
+
         var klacksPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Klacks", "DataProtection-Keys");
@@ -54,6 +56,24 @@ public class DeepLTranslationServiceTests
         }
 
         return klacksPath;
+    }
+
+    private static string? FindBackendDataProtectionPath()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory != null)
+        {
+            var candidate = Path.Combine(directory.FullName, "Klacks.Api", "DataProtection-Keys");
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
     }
 
     [OneTimeSetUp]
