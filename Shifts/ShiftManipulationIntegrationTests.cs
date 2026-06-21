@@ -1152,6 +1152,15 @@ public class ShiftManipulationIntegrationTests
             .FirstAsync(s => s.Name == $"{TestShiftPrefix}WithCustomer" && s.Status == ShiftStatus.SealedOrder);
         order.ClientId.ShouldBe(customerId, "the order must be billed to the chosen customer");
         order.MacroId.ShouldBe(allShiftMacroId, "the order must get the default Shift-category macro");
+        order.IsTimeRange.ShouldBeTrue(
+            "a created order must be a time-range shift, matching every FE shift, so it is not hidden by the shift-list filter");
+
+        var plannable = await _context.Shift.AsNoTracking()
+            .FirstAsync(s => s.Name == $"{TestShiftPrefix}WithCustomer" && s.Status == ShiftStatus.OriginalShift);
+        plannable.IsTimeRange.ShouldBeTrue("the plannable OriginalShift copy must inherit is_time_range=true");
+
+        // The success message must steer the model to split via cut_shift instead of navigating to the cut page.
+        ok.Message.ShouldContain("cut_shift");
     }
 
     private CreateShiftSkill CreateShiftSkillWithDefaultMacro()
