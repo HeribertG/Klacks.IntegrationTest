@@ -4,6 +4,9 @@ using Klacks.Api.Application.Commands.Shifts;
 using Klacks.Api.Application.Handlers.Shifts;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Mappers;
+using Klacks.Api.Domain.Common;
+using Klacks.Api.Domain.Interfaces.Settings;
+using Klacks.Api.Domain.Models.Settings;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Models.Schedules;
@@ -43,6 +46,7 @@ public class ShiftManipulationIntegrationTests
     private DataBaseContext _context = null!;
     private string _connectionString = null!;
     private const string TestShiftPrefix = "INTEGRATION_TEST_SHIFT_";
+    private const string TestCustomerPrefix = "INTEGRATION_TEST_CUST_";
 
     // Services
     private IShiftRepository _shiftRepository = null!;
@@ -168,6 +172,10 @@ public class ShiftManipulationIntegrationTests
         var sql = $@"
             DELETE FROM group_item WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestShiftPrefix}%');
             DELETE FROM shift WHERE name LIKE '{TestShiftPrefix}%';
+            DELETE FROM communication WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%');
+            DELETE FROM address WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%');
+            DELETE FROM membership WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%');
+            DELETE FROM client WHERE company LIKE '{TestCustomerPrefix}%';
         ";
 
         await context.Database.ExecuteSqlRawAsync(sql);
@@ -1076,6 +1084,21 @@ public class ShiftManipulationIntegrationTests
         Substitute.For<IClientValidator>(),
         Substitute.For<ILogger<ClientRepository>>());
 
+    private CreateEmployeeSkill CreateEmployeeSkillForTest()
+    {
+        var searchRepository = Substitute.For<IClientSearchRepository>();
+        var countryResolver = Substitute.For<ICountryResolver>();
+        var ch = new Countries
+        {
+            Abbreviation = "CH",
+            Prefix = "+41",
+            Name = new MultiLanguage { De = "Schweiz", En = "Switzerland" }
+        };
+        countryResolver.ResolveAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(ch);
+        countryResolver.GetDefaultAsync(Arg.Any<CancellationToken>()).Returns(ch);
+        return new CreateEmployeeSkill(CreateClientRepository(), searchRepository, _unitOfWork, countryResolver);
+    }
+
     [Test]
     public async Task CreateShiftSkill_Requires_A_Customer_And_Persists_ClientId()
     {
@@ -1330,6 +1353,65 @@ public class ShiftManipulationIntegrationTests
             .Select(c => c.GetProperty("Name").GetString())
             .ToList();
         names.ShouldContain(n => n != null && n.Contains("Tech Systems"));
+    }
+
+    [Test]
+    public async Task CreateCustomer_Twice_SameBusinessKey_Reuses_NoDuplicate()
+    {
+        // CUS-6 / HIGH-1: re-creating a customer with the same business key (company + zip + street) on
+        // "weiter" must reuse the existing customer instead of producing a duplicate (otherwise the order's
+        // ClientId guard misses and a duplicate order results too). Counter-test: same company + zip but a
+        // DIFFERENT street is a genuinely distinct customer (e.g. a second branch) and must NOT be merged.
+        var company = $"{TestCustomerPrefix}AcmeAG";
+        var skill = CreateEmployeeSkillForTest();
+
+        Dictionary<string, object> Args(string street) => new()
+        {
+            ["firstName"] = "Test",
+            ["lastName"] = "Contact",
+            ["gender"] = "Female",
+            ["entityType"] = "Customer",
+            ["company"] = company,
+            ["street"] = street,
+            ["zip"] = "2500",
+            ["city"] = "Biel",
+            ["email"] = "test@example.com",
+            ["phone"] = "+41 32 000 00 00",
+            ["memberSince"] = "2026-07-01"
+        };
+
+        var first = await skill.ExecuteAsync(TestSkillContext(), Args("Bahnhofstrasse 1"), CancellationToken.None);
+        first.Success.ShouldBeTrue(first.Message);
+
+        var firstId = await _context.Client.AsNoTracking()
+            .Where(c => c.Company == company && c.Type == EntityTypeEnum.Customer && !c.IsDeleted)
+            .Select(c => c.Id)
+            .SingleAsync();
+
+        // Re-create with the SAME business key (incl. a case/whitespace-variant street) -> reuse, no duplicate.
+        var second = await skill.ExecuteAsync(TestSkillContext(), Args("  bahnhofstrasse 1 "), CancellationToken.None);
+        second.Success.ShouldBeTrue(second.Message);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(second.Data);
+        using (var doc = System.Text.Json.JsonDocument.Parse(json))
+        {
+            doc.RootElement.GetProperty("Reused").GetBoolean()
+                .ShouldBeTrue("re-creating the same customer must reuse it");
+            doc.RootElement.GetProperty("ClientId").GetGuid()
+                .ShouldBe(firstId, "the reused id must be the existing customer's id");
+        }
+
+        (await _context.Client.AsNoTracking()
+            .CountAsync(c => c.Company == company && c.Type == EntityTypeEnum.Customer && !c.IsDeleted))
+            .ShouldBe(1, "re-creating the same customer must not create a duplicate");
+
+        // Counter-test: same company + zip, DIFFERENT street -> a distinct customer (no false merge).
+        var third = await skill.ExecuteAsync(TestSkillContext(), Args("Industrieweg 99"), CancellationToken.None);
+        third.Success.ShouldBeTrue(third.Message);
+
+        (await _context.Client.AsNoTracking()
+            .CountAsync(c => c.Company == company && c.Type == EntityTypeEnum.Customer && !c.IsDeleted))
+            .ShouldBe(2, "a different street is a distinct customer and must not be merged");
     }
 
     #endregion
