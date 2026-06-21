@@ -376,6 +376,35 @@ public class ShiftManipulationIntegrationTests
 
     #endregion
 
+    #region Cut list id-tolerance (empty cut page regression 2026-06-21)
+
+    [Test]
+    public async Task CutList_Is_IdTolerant_OriginalShiftId_Resolves_To_SealedOrder_Family()
+    {
+        // Arrange - a sealed order => SealedOrder (1) + OriginalShift (2).
+        var shiftResource = CreateTestShiftResource("CutListIdTol", ShiftStatus.SealedOrder,
+            fromDate: new DateOnly(2026, 1, 1));
+        var created = await _postHandler.Handle(new PostCommand<ShiftResource>(shiftResource), CancellationToken.None);
+        created.ShouldNotBeNull();
+        var originalShiftId = created!.Id;
+        var sealedOrderId = created.OriginalId!.Value;
+
+        // Act - the cut page is keyed by the SealedOrder id (WHERE OriginalId == id). The 2026-06-21
+        // incident: Klacksy navigated with the OriginalShift's own id -> empty list. Id-tolerance must
+        // resolve it to the SealedOrder family.
+        var bySealedOrder = await _shiftRepository.CutList(sealedOrderId);
+        var byOriginalShift = await _shiftRepository.CutList(originalShiftId);
+
+        // Assert - both ids resolve to the same non-empty family.
+        bySealedOrder.Count.ShouldBeGreaterThan(0, "the SealedOrder id must list the plannable shift to cut");
+        byOriginalShift.Count.ShouldBe(bySealedOrder.Count,
+            "the OriginalShift id must resolve to the same cut list (no empty page when reached with the wrong id)");
+        byOriginalShift.Select(s => s.Id).OrderBy(id => id)
+            .ShouldBe(bySealedOrder.Select(s => s.Id).OrderBy(id => id));
+    }
+
+    #endregion
+
     #region Tree integrity: form PUT must not change the cut hierarchy
 
     [Test]
