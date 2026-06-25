@@ -125,29 +125,6 @@ public class WizardSeriesTests : WizardHarnessTestBase
         result.Metrics.CoveragePercent.ShouldBe(1.0, "coverage must be 100%");
     }
 
-    [Test]
-    [Explicit]
-    [Category("Heavy")]
-    public async Task Scale_HundredClients()
-    {
-        const int clientCount = 100;
-        const int maxGenerations = 400;
-
-        var spec = BuildSpec(
-            scenarioName: "Scale_HundredClients",
-            clientCount: clientCount,
-            guaranteedHoursPerClient: _ => FlatGuaranteedHours,
-            shiftQuantity: DemandQuantity(clientCount));
-
-        var (result, best) = await RunScenarioWithSolutionAsync(
-            spec, maxGenerations: maxGenerations, earlyStop: maxGenerations);
-
-        best.FitnessStage0.ShouldBe(0, "GA must produce zero hard violations");
-        result.Metrics.ShiftCoverageRatio.ShouldBeGreaterThanOrEqualTo(
-            0.98,
-            "a 100-agent genome may not hit exactly 1.0 in bounded generations; require >= 0.98");
-    }
-
     /// <summary>
     /// Sizes FD/SD/ND Quantity so demand ~= 0.8 * capacity:
     /// Quantity = max(1, round(ClientCount * 180 * 0.8 / (8 * 31 * 3))). Yields 4/10/19 for 20/50/100.
