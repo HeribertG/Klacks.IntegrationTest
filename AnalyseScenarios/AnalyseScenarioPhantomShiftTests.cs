@@ -332,7 +332,7 @@ public class AnalyseScenarioPhantomShiftTests
             token, new[] { realShift.Id }, CancellationToken.None);
         await _context.SaveChangesAsync();
 
-        await _service.SoftDeleteRealScheduleDataAsync(null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31),
+        await _service.SoftDeleteRealScheduleDataAsync(null, token, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31),
             CancellationToken.None);
         await _service.PromoteScenarioWorksAsync(token, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31), CancellationToken.None);
         await _context.SaveChangesAsync();

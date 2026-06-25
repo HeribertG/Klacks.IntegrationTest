@@ -1,23 +1,17 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 /// <summary>
-/// CHARACTERIZATION tests for the Accept-path data-loss seam (Phase-0 blocker of the autofill/recovery
-/// button pipeline, see docs/knowledge/recovery-autofill-button-pipeline-plan-2026-06-25.md).
+/// Regression guard for the Accept-path lock-seam (Phase 0 of the autofill/recovery button pipeline,
+/// see docs/knowledge/recovery-autofill-button-pipeline-plan-2026-06-25.md). These tests previously
+/// CHARACTERIZED two data-loss bugs (green = bug present); the Phase-0 fix closed both, so they now assert
+/// the CORRECTED behaviour and guard against regression:
 ///
-/// Accepting an AnalyseScenario runs AnalyseScenarioService.SoftDeleteRealScheduleDataAsync, which has TWO
-/// independent data-loss defects. Each is pinned by exactly one test so a partial Phase-0 fix cannot give
-/// false confidence:
-///
-///  1. GLOBAL SCOPE when the scenario has no GroupId: SoftDeleteRealScheduleDataAsync leaves shiftIds == null
-///     (:227), so SoftDeleteRealWorks applies NO shift filter (:895) and deletes EVERY real work in the date
-///     window company-wide. -> Test 1 (lock state is irrelevant here; an unlocked work dies identically).
-///  2. NO LockLevel FILTER even when correctly scoped: SoftDeleteRealWorks (:889-893) never checks LockLevel,
-///     so a Confirmed/Approved/Closed work inside the scenario's group scope is silently deleted. -> Test 2.
-///
-/// Both tests are GREEN while the bugs exist (behaviour documented). The Phase-0 fix is two-part: (a) scope
-/// narrowing -> flips Test 1 red; (b) symmetric LockLevel skip on delete AND promote -> flips Test 2 red.
-/// When a part lands, invert that test's assertion; it then guards the fix. Mirrors RecoveryWizardLegality-
-/// CrossCheckTests (green = documented divergence). A fix that flips only one test means the other bug stands.
+///  1. SCOPE: a scenario with no GroupId scopes the Accept-delete to its OWN footprint (the real shifts its
+///     works promote onto), never the whole date window company-wide. -> Test 1.
+///  2. LOCK FILTER: SoftDeleteRealWorks skips LockLevel != None, so a Confirmed/Approved/Closed work is never
+///     deleted by Accept; an unlocked in-scope work still is. -> Test 2.
+///  3. NO DUPLICATION: the lock-skip is symmetric — PromoteScenarioWorksAsync does NOT promote the clone of a
+///     locked work (the original survives), so Accept never duplicates a locked work. -> Test 3.
 /// </summary>
 
 using Klacks.Api.Application.Commands.AnalyseScenarios;
@@ -122,7 +116,7 @@ public class AcceptLockSeamDataLossCharacterizationTests
             Id = Guid.NewGuid(),
             Name = TestPrefix + suffix,
             Abbreviation = "TST",
-            Description = "Accept data-loss characterization",
+            Description = "Accept lock-seam regression guard",
             Status = ShiftStatus.OriginalShift,
             FromDate = new DateOnly(2099, 1, 1),
             UntilDate = null,
@@ -224,17 +218,14 @@ public class AcceptLockSeamDataLossCharacterizationTests
             Substitute.For<ILogger<AcceptAnalyseScenarioCommandHandler>>());
     }
 
-    // BUG 1 — GLOBAL SCOPE: a GroupId == null scenario deletes real works on ANY shift in the window,
-    // not just the shifts it touched. Lock state plays no role here (victim is intentionally UNLOCKED).
+    // BUG 1 FIXED — SCOPE: a null-group scenario about shift X must NOT delete real works on an unrelated
+    // shift Y in the same window. Scope is the scenario's own footprint, not the whole window.
     [Test]
-    public async Task Accept_NullGroupScenario_GloballyDeletes_UnrelatedRealWork_InWindow()
+    public async Task Accept_NullGroupScenario_DoesNotDelete_UnrelatedRealWork_OutsideFootprint()
     {
-        // An unrelated, real (unlocked) assignment for the victim on its OWN shift.
         var victim = await CreateClientAsync("VICTIM1");
         var realShift = await CreateShiftAsync("REALSHIFT1");
-        var unrelated = await CreateRealWorkAsync(victim.Id, realShift.Id, WorkLockLevel.None);
 
-        // A scenario about a DIFFERENT shift, with GroupId == null, covering the same window.
         var cover = await CreateClientAsync("COVER1");
         var scenarioShift = await CreateShiftAsync("SCENARIOSHIFT1");
         var token = Guid.NewGuid();
@@ -244,6 +235,10 @@ public class AcceptLockSeamDataLossCharacterizationTests
         await _context.SaveChangesAsync();
         await InjectScenarioPlacementAsync(cover.Id, shiftIdMap[scenarioShift.Id], token);
 
+        // Created AFTER the clone, on a shift the scenario never touched -> outside the scenario footprint.
+        // The old global (GroupId==null) delete would wipe it; the footprint-scoped delete must leave it alone.
+        var unrelated = await CreateRealWorkAsync(victim.Id, realShift.Id, WorkLockLevel.None);
+
         var accepted = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);
         accepted.ShouldBeTrue();
 
@@ -252,28 +247,26 @@ public class AcceptLockSeamDataLossCharacterizationTests
             .CountAsync(w => w.ClientId == cover.Id && w.CurrentDate == WorkDate && w.AnalyseToken == null);
         promotedCover.ShouldBe(1);
 
-        // CHARACTERIZATION (BUG 1): the unrelated real work on a shift the scenario never touched is gone.
-        // After scope-narrowing (Phase-0 spec #1) this MUST become survived == 1; invert the assertion then.
+        // FIX 1: the unrelated work on a shift the scenario never touched survives.
         var survived = await verify.Work.IgnoreQueryFilters()
             .CountAsync(w => w.Id == unrelated.Id && !w.IsDeleted);
-        survived.ShouldBe(0);
+        survived.ShouldBe(1);
     }
 
-    // BUG 2 — NO LockLevel FILTER: even a correctly group-SCOPED accept deletes a Confirmed-locked work,
-    // while an out-of-scope work is correctly spared (proving scope works -> the lock filter is the defect).
+    // BUG 2 FIXED — LOCK FILTER: a group-scoped accept deletes the in-scope UNLOCKED work but preserves the
+    // in-scope CONFIRMED-locked work (proving the delete reaches the shift, and the lock filter saved it).
     [Test]
-    public async Task Accept_GroupScopedScenario_Deletes_ConfirmedLockedWork_ButSparesOutOfScope()
+    public async Task Accept_GroupScopedScenario_PreservesLockedWork_DeletesUnlockedInScope()
     {
         var group = await CreateGroupAsync("GROUP2");
-        var victim = await CreateClientAsync("VICTIM2");
         var inScopeShift = await CreateShiftAsync("INSCOPESHIFT2");
         await AddGroupItemAsync(group.Id, inScopeShift.Id);
-        var committedLocked = await CreateRealWorkAsync(victim.Id, inScopeShift.Id, WorkLockLevel.Confirmed);
 
-        // A bystander work on a shift that is NOT in the group -> outside the delete scope.
-        var bystander = await CreateClientAsync("BYSTANDER2");
-        var outOfScopeShift = await CreateShiftAsync("OUTOFSCOPESHIFT2");
-        var bystanderWork = await CreateRealWorkAsync(bystander.Id, outOfScopeShift.Id, WorkLockLevel.None);
+        var locked = await CreateClientAsync("LOCKED2");
+        var lockedWork = await CreateRealWorkAsync(locked.Id, inScopeShift.Id, WorkLockLevel.Confirmed);
+
+        var unlocked = await CreateClientAsync("UNLOCKED2");
+        var unlockedWork = await CreateRealWorkAsync(unlocked.Id, inScopeShift.Id, WorkLockLevel.None);
 
         var token = Guid.NewGuid();
         var scenario = await CreateScenarioRowAsync(token, groupId: group.Id);
@@ -283,15 +276,47 @@ public class AcceptLockSeamDataLossCharacterizationTests
 
         await using var verify = NewContext();
 
-        // Scope works: the out-of-group work survives -> this test is NOT about the scope bug.
-        var bystanderSurvived = await verify.Work.IgnoreQueryFilters()
-            .CountAsync(w => w.Id == bystanderWork.Id && !w.IsDeleted);
-        bystanderSurvived.ShouldBe(1);
+        // Delete reaches the in-scope shift: the unlocked work is gone.
+        var unlockedSurvived = await verify.Work.IgnoreQueryFilters()
+            .CountAsync(w => w.Id == unlockedWork.Id && !w.IsDeleted);
+        unlockedSurvived.ShouldBe(0);
 
-        // CHARACTERIZATION (BUG 2): the in-scope CONFIRMED-locked work is deleted only because there is no
-        // LockLevel filter. After the symmetric lock-skip (Phase-0 spec #2) this MUST become survived == 1.
-        var survived = await verify.Work.IgnoreQueryFilters()
-            .CountAsync(w => w.Id == committedLocked.Id && !w.IsDeleted);
-        survived.ShouldBe(0);
+        // FIX 2: the Confirmed-locked work on the same in-scope shift survives.
+        var lockedSurvived = await verify.Work.IgnoreQueryFilters()
+            .CountAsync(w => w.Id == lockedWork.Id && !w.IsDeleted);
+        lockedSurvived.ShouldBe(1);
+    }
+
+    // FIX 3 — NO DUPLICATION: a Confirmed work that the scenario cloned must end up as exactly ONE real work
+    // after accept (original preserved by the lock-skipping delete, clone NOT promoted).
+    [Test]
+    public async Task Accept_DoesNotDuplicate_ClonedLockedWork()
+    {
+        var group = await CreateGroupAsync("GROUP3");
+        var victim = await CreateClientAsync("VICTIM3");
+        var realShift = await CreateShiftAsync("REALSHIFT3");
+        await AddGroupItemAsync(group.Id, realShift.Id);
+        var lockedWork = await CreateRealWorkAsync(victim.Id, realShift.Id, WorkLockLevel.Confirmed);
+
+        var token = Guid.NewGuid();
+        var scenario = await CreateScenarioRowAsync(token, groupId: group.Id);
+        // Cloning the group data clones the Confirmed work into the token (clone carries LockLevel=Confirmed).
+        await _cloneService.CloneScenarioDataWithMapsAsync(
+            group.Id, PeriodFrom, PeriodUntil, token, new[] { realShift.Id }, CancellationToken.None);
+        await _context.SaveChangesAsync();
+
+        var accepted = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);
+        accepted.ShouldBeTrue();
+
+        await using var verify = NewContext();
+
+        // Exactly one real (non-deleted, promoted) work for the victim on the source shift — no duplicate.
+        var realWorks = await verify.Work.IgnoreQueryFilters()
+            .Where(w => w.ClientId == victim.Id && w.ShiftId == realShift.Id && w.CurrentDate == WorkDate
+                && w.AnalyseToken == null && !w.IsDeleted)
+            .ToListAsync();
+        realWorks.Count.ShouldBe(1);
+        realWorks[0].Id.ShouldBe(lockedWork.Id);
+        realWorks[0].LockLevel.ShouldBe(WorkLockLevel.Confirmed);
     }
 }
