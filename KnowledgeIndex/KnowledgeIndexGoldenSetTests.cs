@@ -12,6 +12,7 @@ using NUnit.Framework;
 namespace Klacks.IntegrationTest.KnowledgeIndex;
 
 [TestFixture]
+[Explicit("Requires ONNX models (~200 MB download) and real DB on port 5434. Run manually only.")]
 [Category("SlowModelLoad")]
 [Category("RealDatabase")]
 public class KnowledgeIndexGoldenSetTests
