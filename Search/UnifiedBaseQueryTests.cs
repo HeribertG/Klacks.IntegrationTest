@@ -5,6 +5,7 @@ using Klacks.Api.Application.DTOs.Filter;
 using Klacks.Api.Application.Handlers.ClientAvailabilities;
 using Klacks.Api.Application.Queries.ClientAvailabilities;
 using Klacks.Api.Application.Services.Clients;
+using Klacks.Api.Infrastructure.Services.Clients;
 using Klacks.Api.Domain.Models.Filters;
 using Klacks.Api.Domain.Services.Clients;
 using Klacks.Api.Domain.Services.Common;

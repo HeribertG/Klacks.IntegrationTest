@@ -15,6 +15,7 @@ using Klacks.Api.Domain.Models.Settings;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Common;
 using Klacks.Api.Application.Services.Clients;
+using Klacks.Api.Infrastructure.Services.Clients;
 using Klacks.Api.Infrastructure.Services.Macros;
 using Klacks.Api.Infrastructure.Services.PeriodHours;
 using Klacks.Api.Infrastructure.Services.Schedules;

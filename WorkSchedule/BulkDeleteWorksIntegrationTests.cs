@@ -9,6 +9,7 @@ using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Services.Common;
 using Klacks.Api.Application.Services.Clients;
+using Klacks.Api.Infrastructure.Services.Clients;
 using Klacks.Api.Infrastructure.Services.PeriodHours;
 using Klacks.Api.Infrastructure.Hubs;
 using Klacks.Api.Infrastructure.Persistence;

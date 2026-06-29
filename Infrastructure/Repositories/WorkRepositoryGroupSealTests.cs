@@ -1,6 +1,7 @@
 using Shouldly;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Services.Clients;
+using Klacks.Api.Infrastructure.Services.Clients;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
