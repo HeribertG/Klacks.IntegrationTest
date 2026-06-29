@@ -2,10 +2,10 @@
 
 using System.Text.Json;
 using Shouldly;
-using Klacks.Api.Infrastructure.KnowledgeIndex.Application.Constants;
-using Klacks.Api.Infrastructure.KnowledgeIndex.Application.Services;
-using Klacks.Api.Infrastructure.KnowledgeIndex.Infrastructure.Onnx;
-using Klacks.Api.Infrastructure.KnowledgeIndex.Infrastructure.Persistence;
+using Klacks.Api.KnowledgeIndex.Application.Constants;
+using Klacks.Api.KnowledgeIndex.Application.Services;
+using Klacks.Api.KnowledgeIndex.Infrastructure.Onnx;
+using Klacks.Api.KnowledgeIndex.Infrastructure.Persistence;
 using Npgsql;
 using NUnit.Framework;
 

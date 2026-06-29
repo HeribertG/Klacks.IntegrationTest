@@ -1,8 +1,8 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 using Shouldly;
-using Klacks.Api.Infrastructure.KnowledgeIndex.Domain;
-using Klacks.Api.Infrastructure.KnowledgeIndex.Infrastructure.Persistence;
+using Klacks.Api.KnowledgeIndex.Domain;
+using Klacks.Api.KnowledgeIndex.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
