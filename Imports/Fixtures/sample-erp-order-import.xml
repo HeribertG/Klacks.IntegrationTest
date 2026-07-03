@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Klacks ERP order import - sample file (schema version 1).
+
+  Place files like this in the configured drop point storage
+  (or send them via POST /api/erp-import/upload with an ERP import token).
+  Klacks polls the drop point on the configured cron schedule.
+
+  Rules:
+  - schemaVersion must be 1.
+  - sourceSystemId identifies the sending ERP system; it must stay constant
+    for the sending system because it scopes customer matching across imports.
+  - Dates use the format yyyy-MM-dd, times use HH:mm (24h).
+  - One <Order> element per order; a file may contain any number of orders.
+  - An incomplete or invalid order is rejected and reported; it does not
+    block the other orders in the batch. A file with at least one rejected
+    order is archived under error/ with the rejection reason.
+  - Every order needs at least one weekday set to true.
+  - ExternalOrderReference must be unique within one file.
+-->
+<ErpOrderImport schemaVersion="1" sourceSystemId="erp-example">
+
+  <!-- Full example: a time-range order with all fields, including optional ones. -->
+  <Order>
+    <ExternalOrderReference>ORD-2026-0001</ExternalOrderReference>
+    <!-- Description is optional free text shown on the order. -->
+    <Description>Morning care visit, ground floor, ring twice</Description>
+    <Customer>
+      <!-- ExternalCustomerReference is optional but strongly recommended:
+           it guarantees stable customer matching across imports. -->
+      <ExternalCustomerReference>CUST-1001</ExternalCustomerReference>
+      <Company>Spitex Musterhausen</Company>
+      <Address>
+        <Street>Hauptstrasse 5</Street>
+        <Zip>4000</Zip>
+        <City>Basel</City>
+        <State>BS</State>
+        <Country>CH</Country>
+      </Address>
+    </Customer>
+    <FromDate>2026-08-01</FromDate>
+    <!-- UntilDate is optional: omit it or leave it empty for open-ended orders. -->
+    <UntilDate>2026-12-31</UntilDate>
+    <StartTime>08:00</StartTime>
+    <EndTime>15:00</EndTime>
+    <!-- IsTimeRange true = the visit takes the Duration and may be planned
+         anywhere inside the StartTime-EndTime window;
+         false (default) = fixed shift from StartTime to EndTime.
+         Duration is REQUIRED when IsTimeRange is true. -->
+    <IsTimeRange>true</IsTimeRange>
+    <Duration>
+      <Hours>0</Hours>
+      <Minutes>20</Minutes>
+    </Duration>
+    <!-- Weekdays: at least one day must be true; a missing attribute counts as false. -->
+    <Weekdays monday="true" tuesday="true" wednesday="true" thursday="true" friday="true" saturday="false" sunday="false" />
+    <!-- Quantity and SumEmployees are optional and default to 1. -->
+    <Quantity>1</Quantity>
+    <SumEmployees>2</SumEmployees>
+  </Order>
+
+  <!-- Simple example: a fixed shift from StartTime to EndTime, no time range;
+       the duration is derived automatically (here 240 minutes).
+       Without ExternalCustomerReference the customer is matched by
+       Company + Zip + Street on first sight. -->
+  <Order>
+    <ExternalOrderReference>ORD-2026-0002</ExternalOrderReference>
+    <Customer>
+      <Company>Alterszentrum Sonnenblick</Company>
+      <Address>
+        <Street>Bahnhofweg 12</Street>
+        <Zip>8400</Zip>
+        <City>Winterthur</City>
+        <State>ZH</State>
+        <Country>CH</Country>
+      </Address>
+    </Customer>
+    <FromDate>2026-09-15</FromDate>
+    <StartTime>18:00</StartTime>
+    <EndTime>22:00</EndTime>
+    <Weekdays saturday="true" sunday="true" />
+  </Order>
+
+</ErpOrderImport>
