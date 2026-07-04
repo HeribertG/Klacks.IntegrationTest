@@ -292,6 +292,44 @@ public class DeepLTranslationServiceTests
     }
 
     [Test]
+    public async Task TranslateAsync_HtmlWithStyleBlockAndNestedLink_ShouldPreserveMarkupAndStyle()
+    {
+        await EnsureDeepLConfiguredOrIgnoreAsync();
+
+        // Arrange - representative real-world newsletter-style HTML email
+        var html = """
+            <html>
+            <head>
+            <style>
+              body { font-family: Arial, sans-serif; color: #333333; }
+              .header { background-color: #ff0000; padding: 10px; }
+              a { color: blue; text-decoration: none; }
+            </style>
+            </head>
+            <body>
+              <div class="header"><h1>Welcome to our newsletter</h1></div>
+              <p>Dear customer, thank you for <a href="https://example.com">visiting our store</a> last week. We hope you enjoyed your experience.</p>
+              <p>Best regards,<br>The Team</p>
+            </body>
+            </html>
+            """;
+
+        // Act
+        var result = await _translationService.TranslateAsync(html, "en", "de", isHtml: true);
+
+        // Assert / empirical inspection - dump raw output so a human can judge markup fidelity
+        TestContext.Out.WriteLine("=== TRANSLATED HTML OUTPUT ===");
+        TestContext.Out.WriteLine(result.TranslatedText);
+        TestContext.Out.WriteLine("=== END ===");
+
+        result.TranslatedText.ShouldContain("<style>", Case.Insensitive, "style block must survive as a tag");
+        result.TranslatedText.ShouldContain("background-color: #ff0000", Case.Insensitive, "CSS property/value must not be mangled by translation");
+        result.TranslatedText.ShouldContain("font-family: Arial, sans-serif", Case.Insensitive, "CSS font-family value must not be translated");
+        result.TranslatedText.ShouldContain("href=\"https://example.com\"", Case.Insensitive, "link target must survive unchanged");
+        result.TranslatedText.ShouldContain("<a ", Case.Insensitive, "anchor tag must remain a tag, not be flattened into text");
+    }
+
+    [Test]
     public void MultiLanguage_SupportedLanguages_ShouldContainAllFourLanguages()
     {
         // Arrange & Act
