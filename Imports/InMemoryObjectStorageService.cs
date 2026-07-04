@@ -70,6 +70,17 @@ public class InMemoryObjectStorageService : IObjectStorageService
         _lastModifiedUtc[key] = DateTime.UtcNow;
     }
 
+    public Task DeleteAsync(string key, CancellationToken cancellationToken = default)
+    {
+        if (!_objects.Remove(key))
+        {
+            throw new FileNotFoundException($"Object key not found: {key}");
+        }
+
+        _lastModifiedUtc.Remove(key);
+        return Task.CompletedTask;
+    }
+
     public bool Contains(string key)
     {
         return _objects.ContainsKey(key);
