@@ -17,8 +17,12 @@ namespace Klacks.IntegrationTest.KnowledgeIndex;
 public class KnowledgeIndexRepositoryTests
 {
     private const string ConnectionString = "Host=localhost;Port=5434;Database=klacks;Username=postgres;Password=admin";
+    private const string TestPrefix = "INTEGRATION_TEST_KNOWLEDGEINDEX_";
+
     private KnowledgeIndexRepository _repo = null!;
     private NpgsqlConnection _connection = null!;
+
+    private static string Prefixed(string sourceId) => TestPrefix + sourceId;
 
     [SetUp]
     public async Task Setup()
@@ -26,9 +30,7 @@ public class KnowledgeIndexRepositoryTests
         _connection = new NpgsqlConnection(ConnectionString);
         await _connection.OpenAsync();
 
-        await using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "TRUNCATE TABLE knowledge_index;";
-        await cmd.ExecuteNonQueryAsync();
+        await CleanupAsync();
 
         _repo = new KnowledgeIndexRepository(_connection);
     }
@@ -36,7 +38,16 @@ public class KnowledgeIndexRepositoryTests
     [TearDown]
     public async Task TearDown()
     {
+        await CleanupAsync();
         await _connection.DisposeAsync();
+    }
+
+    private async Task CleanupAsync()
+    {
+        await using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM knowledge_index WHERE source_id LIKE @prefix;";
+        cmd.Parameters.AddWithValue("prefix", TestPrefix + "%");
+        await cmd.ExecuteNonQueryAsync();
     }
 
     [Test]
@@ -46,11 +57,12 @@ public class KnowledgeIndexRepositoryTests
         var norm = Math.Sqrt(embedding.Sum(x => (double)x * x));
         embedding = embedding.Select(x => (float)(x / norm)).ToArray();
 
+        var sourceId = Prefixed("ListOpenShifts");
         var entry = new KnowledgeEntry
         {
             Id = Guid.NewGuid(),
             Kind = KnowledgeEntryKind.Skill,
-            SourceId = "ListOpenShifts",
+            SourceId = sourceId,
             Text = "ListOpenShifts. Returns open shifts.",
             TextHash = new byte[] { 1, 2, 3 },
             Embedding = embedding,
@@ -66,7 +78,7 @@ public class KnowledgeIndexRepositoryTests
             topN: 5,
             CancellationToken.None);
 
-        result.ShouldHaveSingleItem().SourceId.ShouldBe("ListOpenShifts");
+        result.ShouldContain(r => r.SourceId == sourceId);
     }
 
     [Test]
@@ -74,11 +86,14 @@ public class KnowledgeIndexRepositoryTests
     {
         var embedding = Enumerable.Range(0, 384).Select(_ => 1.0f / (float)Math.Sqrt(384)).ToArray();
 
+        var restrictedSourceId = Prefixed("RestrictedSkill");
+        var publicSourceId = Prefixed("PublicSkill");
+
         var restrictedEntry = new KnowledgeEntry
         {
             Id = Guid.NewGuid(),
             Kind = KnowledgeEntryKind.Skill,
-            SourceId = "RestrictedSkill",
+            SourceId = restrictedSourceId,
             Text = "Requires permission.",
             TextHash = [1],
             Embedding = embedding,
@@ -90,7 +105,7 @@ public class KnowledgeIndexRepositoryTests
         {
             Id = Guid.NewGuid(),
             Kind = KnowledgeEntryKind.Skill,
-            SourceId = "PublicSkill",
+            SourceId = publicSourceId,
             Text = "No permission required.",
             TextHash = [2],
             Embedding = embedding,
@@ -107,7 +122,8 @@ public class KnowledgeIndexRepositoryTests
             topN: 10,
             CancellationToken.None);
 
-        result.ShouldHaveSingleItem().SourceId.ShouldBe("PublicSkill");
+        result.ShouldContain(r => r.SourceId == publicSourceId);
+        result.ShouldNotContain(r => r.SourceId == restrictedSourceId);
     }
 
     [Test]
@@ -115,15 +131,21 @@ public class KnowledgeIndexRepositoryTests
     {
         var embedding = Enumerable.Range(0, 384).Select(_ => 1.0f / (float)Math.Sqrt(384)).ToArray();
 
+        var sourceIdA = Prefixed("A");
+        var sourceIdB = Prefixed("B");
+
         await _repo.UpsertAsync(
         [
-            new KnowledgeEntry { Id = Guid.NewGuid(), Kind = KnowledgeEntryKind.Skill, SourceId = "A", Text = "A", TextHash = [1], Embedding = embedding, RequiredPermission = "admin.only", UpdatedAt = DateTime.UtcNow },
-            new KnowledgeEntry { Id = Guid.NewGuid(), Kind = KnowledgeEntryKind.Skill, SourceId = "B", Text = "B", TextHash = [2], Embedding = embedding, RequiredPermission = null, UpdatedAt = DateTime.UtcNow }
+            new KnowledgeEntry { Id = Guid.NewGuid(), Kind = KnowledgeEntryKind.Skill, SourceId = sourceIdA, Text = "A", TextHash = [1], Embedding = embedding, RequiredPermission = "admin.only", UpdatedAt = DateTime.UtcNow },
+            new KnowledgeEntry { Id = Guid.NewGuid(), Kind = KnowledgeEntryKind.Skill, SourceId = sourceIdB, Text = "B", TextHash = [2], Embedding = embedding, RequiredPermission = null, UpdatedAt = DateTime.UtcNow }
         ], CancellationToken.None);
 
         var result = await _repo.FindNearestAsync(embedding, [], adminBypass: true, topN: 10, CancellationToken.None);
 
-        result.Count.ShouldBe(2);
+        var testResults = result.Where(r => r.SourceId.StartsWith(TestPrefix)).ToList();
+        testResults.Count.ShouldBe(2);
+        testResults.ShouldContain(r => r.SourceId == sourceIdA);
+        testResults.ShouldContain(r => r.SourceId == sourceIdB);
     }
 
     [Test]
@@ -131,16 +153,17 @@ public class KnowledgeIndexRepositoryTests
     {
         var embedding = Enumerable.Range(0, 384).Select(_ => 1.0f / (float)Math.Sqrt(384)).ToArray();
         var hash = new byte[] { 9, 8, 7 };
+        var sourceId = Prefixed("HashSkill");
 
         await _repo.UpsertAsync(
         [
-            new KnowledgeEntry { Id = Guid.NewGuid(), Kind = KnowledgeEntryKind.Skill, SourceId = "HashSkill", Text = "Txt", TextHash = hash, Embedding = embedding, UpdatedAt = DateTime.UtcNow }
+            new KnowledgeEntry { Id = Guid.NewGuid(), Kind = KnowledgeEntryKind.Skill, SourceId = sourceId, Text = "Txt", TextHash = hash, Embedding = embedding, UpdatedAt = DateTime.UtcNow }
         ], CancellationToken.None);
 
         var hashes = await _repo.GetAllHashesAsync(CancellationToken.None);
 
-        hashes.ContainsKey((KnowledgeEntryKind.Skill, "HashSkill")).ShouldBeTrue();
-        hashes[(KnowledgeEntryKind.Skill, "HashSkill")].ShouldBeEquivalentTo(hash);
+        hashes.ContainsKey((KnowledgeEntryKind.Skill, sourceId)).ShouldBeTrue();
+        hashes[(KnowledgeEntryKind.Skill, sourceId)].ShouldBeEquivalentTo(hash);
     }
 
     [Test]
@@ -148,16 +171,19 @@ public class KnowledgeIndexRepositoryTests
     {
         var embedding = Enumerable.Range(0, 384).Select(_ => 1.0f / (float)Math.Sqrt(384)).ToArray();
 
+        var toDeleteSourceId = Prefixed("ToDelete");
+        var toKeepSourceId = Prefixed("ToKeep");
+
         await _repo.UpsertAsync(
         [
-            new KnowledgeEntry { Id = Guid.NewGuid(), Kind = KnowledgeEntryKind.Skill, SourceId = "ToDelete", Text = "x", TextHash = [1], Embedding = embedding, UpdatedAt = DateTime.UtcNow },
-            new KnowledgeEntry { Id = Guid.NewGuid(), Kind = KnowledgeEntryKind.Skill, SourceId = "ToKeep", Text = "y", TextHash = [2], Embedding = embedding, UpdatedAt = DateTime.UtcNow }
+            new KnowledgeEntry { Id = Guid.NewGuid(), Kind = KnowledgeEntryKind.Skill, SourceId = toDeleteSourceId, Text = "x", TextHash = [1], Embedding = embedding, UpdatedAt = DateTime.UtcNow },
+            new KnowledgeEntry { Id = Guid.NewGuid(), Kind = KnowledgeEntryKind.Skill, SourceId = toKeepSourceId, Text = "y", TextHash = [2], Embedding = embedding, UpdatedAt = DateTime.UtcNow }
         ], CancellationToken.None);
 
-        await _repo.DeleteAsync([(KnowledgeEntryKind.Skill, "ToDelete")], CancellationToken.None);
+        await _repo.DeleteAsync([(KnowledgeEntryKind.Skill, toDeleteSourceId)], CancellationToken.None);
 
         var hashes = await _repo.GetAllHashesAsync(CancellationToken.None);
-        hashes.Keys.ShouldNotContain((KnowledgeEntryKind.Skill, "ToDelete"));
-        hashes.Keys.ShouldContain((KnowledgeEntryKind.Skill, "ToKeep"));
+        hashes.Keys.ShouldNotContain((KnowledgeEntryKind.Skill, toDeleteSourceId));
+        hashes.Keys.ShouldContain((KnowledgeEntryKind.Skill, toKeepSourceId));
     }
 }
