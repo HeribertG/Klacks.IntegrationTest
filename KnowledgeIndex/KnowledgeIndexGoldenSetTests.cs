@@ -1,5 +1,6 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Shouldly;
 using Klacks.Api.KnowledgeIndex.Application.Constants;
@@ -41,6 +42,18 @@ public class KnowledgeIndexGoldenSetTests
     // or the reranker is upgraded.
     private const double MinPassRate = 0.85;
 
+    [SetUp]
+    public void SkipOnUnsupportedOnnxPlatform()
+    {
+        // Mirrors ServiceCollectionExtensions.IsOnnxRuntimeSupported: on Windows ARM64 the ONNX
+        // native runtime is never loaded, knowledge_index stays empty, and every query reports
+        // 0% recall regardless of actual retrieval quality. Skip instead of a false failure.
+        if (OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+        {
+            Assert.Ignore("ONNX Runtime is unsupported on Windows ARM64 — retrieval is structurally disabled on this host, so top-3 recall cannot be measured here.");
+        }
+    }
+
     [Test]
     public async Task GoldenSet_QueriesMeetTop3RecallBaseline()
     {
@@ -60,7 +73,7 @@ public class KnowledgeIndexGoldenSetTests
         foreach (var item in golden)
         {
             var result = await service.RetrieveAsync(
-                item.Query, [], isAdmin: true, topK: 3, CancellationToken.None);
+                item.Query, [], isAdmin: true, topK: 3, currentRoute: null, CancellationToken.None);
 
             var found = result.Candidates.Any(c =>
                 c.Entry.SourceId.Equals(item.ExpectedSourceId, StringComparison.OrdinalIgnoreCase));
