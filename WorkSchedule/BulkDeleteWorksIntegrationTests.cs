@@ -5,6 +5,7 @@ using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Mappers;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Interfaces.Associations;
+using Klacks.Api.Domain.Interfaces.Settings;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Services.Common;
@@ -63,7 +64,8 @@ public class BulkDeleteWorksIntegrationTests
             Substitute.For<ILogger<PeriodHoursService>>(),
             workNotificationService,
             Substitute.For<IClientGroupFilterService>(),
-            contractDataProvider);
+            contractDataProvider,
+            CreateDefaultWeekConfiguration());
 
         var baseQueryService = new ClientBaseQueryService(_context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientSearchFilterService>());
         var workRepository = new WorkRepository(
@@ -329,6 +331,24 @@ public class BulkDeleteWorksIntegrationTests
             {
                 var clientIds = callInfo.Arg<List<Guid>>();
                 return Task.FromResult(clientIds.ToDictionary(id => id, _ => defaultData));
+            });
+        return mock;
+    }
+
+    private static IWeekConfiguration CreateDefaultWeekConfiguration()
+    {
+        var mock = Substitute.For<IWeekConfiguration>();
+        var weekendDays = new HashSet<DayOfWeek> { DayOfWeek.Saturday, DayOfWeek.Sunday };
+        mock.GetWeekendDaysAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlySet<DayOfWeek>)weekendDays);
+        mock.IsWeekendAsync(Arg.Any<DayOfWeek>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => Task.FromResult(weekendDays.Contains(callInfo.Arg<DayOfWeek>())));
+        mock.GetWeekStartDayAsync(Arg.Any<CancellationToken>()).Returns(DayOfWeek.Monday);
+        mock.GetWeekStartAsync(Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                var date = callInfo.Arg<DateOnly>();
+                var offset = ((int)date.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+                return Task.FromResult(date.AddDays(-offset));
             });
         return mock;
     }

@@ -7,6 +7,7 @@ using Klacks.Api.Domain.Common;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Interfaces.Associations;
 using Klacks.Api.Domain.Interfaces.Schedules;
+using Klacks.Api.Domain.Interfaces.Settings;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Domain.Models.Macros;
@@ -75,7 +76,8 @@ public class BulkAddWorksIntegrationTests
             Substitute.For<ILogger<PeriodHoursService>>(),
             workNotificationService,
             Substitute.For<IClientGroupFilterService>(),
-            contractDataProvider);
+            contractDataProvider,
+            CreateDefaultWeekConfiguration());
 
         var shiftRepository = Substitute.For<IShiftRepository>();
         shiftRepository.Get(Arg.Any<Guid>()).Returns(callInfo =>
@@ -94,7 +96,8 @@ public class BulkAddWorksIntegrationTests
             _context,
             Substitute.For<IHolidayCalculatorCache>(),
             contractDataProvider,
-            Substitute.For<IWorkChangeEffectiveTimeService>());
+            Substitute.For<IWorkChangeEffectiveTimeService>(),
+            CreateDefaultWeekConfiguration());
 
         var macroEngine = new MacroEngine();
 
@@ -517,7 +520,8 @@ OUTPUT 1, Round(TotalBonus, 2)",
             Substitute.For<ILogger<PeriodHoursService>>(),
             workNotificationService,
             Substitute.For<IClientGroupFilterService>(),
-            contractDataProvider);
+            contractDataProvider,
+            CreateDefaultWeekConfiguration());
 
         var shiftRepository = Substitute.For<IShiftRepository>();
         shiftRepository.Get(Arg.Any<Guid>()).Returns(callInfo =>
@@ -603,6 +607,24 @@ OUTPUT 1, Round(TotalBonus, 2)",
             {
                 var clientIds = callInfo.Arg<List<Guid>>();
                 return Task.FromResult(clientIds.ToDictionary(id => id, _ => defaultData));
+            });
+        return mock;
+    }
+
+    private static IWeekConfiguration CreateDefaultWeekConfiguration()
+    {
+        var mock = Substitute.For<IWeekConfiguration>();
+        var weekendDays = new HashSet<DayOfWeek> { DayOfWeek.Saturday, DayOfWeek.Sunday };
+        mock.GetWeekendDaysAsync(Arg.Any<CancellationToken>()).Returns((IReadOnlySet<DayOfWeek>)weekendDays);
+        mock.IsWeekendAsync(Arg.Any<DayOfWeek>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => Task.FromResult(weekendDays.Contains(callInfo.Arg<DayOfWeek>())));
+        mock.GetWeekStartDayAsync(Arg.Any<CancellationToken>()).Returns(DayOfWeek.Monday);
+        mock.GetWeekStartAsync(Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                var date = callInfo.Arg<DateOnly>();
+                var offset = ((int)date.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+                return Task.FromResult(date.AddDays(-offset));
             });
         return mock;
     }
