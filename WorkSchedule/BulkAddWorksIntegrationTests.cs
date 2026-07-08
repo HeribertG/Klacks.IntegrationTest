@@ -177,8 +177,8 @@ import holiday
 import holidaynextday
 import nightrate
 import holidayrate
-import sarate
-import sorate
+import we1rate
+import we2rate
 import guaranteedhours
 import fulltime
 
@@ -199,13 +199,13 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
     NRate = 0
     IF NightHours > 0 THEN NRate = NightRate ENDIF
     IF HasHoliday AndAlso HolidayRate > NRate THEN NRate = HolidayRate ENDIF
-    IF IsSaturday AndAlso SaRate > NRate THEN NRate = SaRate ENDIF
-    IF IsSunday AndAlso SoRate > NRate THEN NRate = SoRate ENDIF
+    IF IsSaturday AndAlso WE1Rate > NRate THEN NRate = WE1Rate ENDIF
+    IF IsSunday AndAlso WE2Rate > NRate THEN NRate = WE2Rate ENDIF
 
     DRate = 0
     IF HasHoliday AndAlso HolidayRate > DRate THEN DRate = HolidayRate ENDIF
-    IF IsSaturday AndAlso SaRate > DRate THEN DRate = SaRate ENDIF
-    IF IsSunday AndAlso SoRate > DRate THEN DRate = SoRate ENDIF
+    IF IsSaturday AndAlso WE1Rate > DRate THEN DRate = WE1Rate ENDIF
+    IF IsSunday AndAlso WE2Rate > DRate THEN DRate = WE2Rate ENDIF
 
     CalcSegment = NightHours * NRate + NonNightHours * DRate
 ENDFUNCTION
@@ -241,8 +241,8 @@ OUTPUT 1, Round(TotalBonus, 2)",
         {
             Id = _testContractId,
             Name = "TEST_Contract",
-            SaRate = 0.1m,
-            SoRate = 0.1m,
+            WE1Rate = 0.1m,
+            WE2Rate = 0.1m,
             NightRate = 0.1m,
             HolidayRate = 0.15m,
             GuaranteedHours = 168m,
@@ -477,8 +477,8 @@ OUTPUT 1, Round(TotalBonus, 2)",
             HolidayNextDay = false,
             NightRate = 0.1m,
             HolidayRate = 0.15m,
-            SaRate = 0.1m,
-            SoRate = 0.1m,
+            WE1Rate = 0.1m,
+            WE2Rate = 0.1m,
             GuaranteedHours = 168m,
             FullTime = 100m
         };
@@ -595,8 +595,8 @@ OUTPUT 1, Round(TotalBonus, 2)",
             DefaultWorkingHours = 8m,
             NightRate = 0.1m,
             HolidayRate = 0.15m,
-            SaRate = 0.1m,
-            SoRate = 0.1m,
+            WE1Rate = 0.1m,
+            WE2Rate = 0.1m,
             HasActiveContract = true,
             PaymentInterval = 1
         };

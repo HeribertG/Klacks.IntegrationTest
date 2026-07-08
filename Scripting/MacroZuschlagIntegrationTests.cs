@@ -16,8 +16,8 @@ import holiday
 import holidaynextday
 import nightrate
 import holidayrate
-import sarate
-import sorate
+import we1rate
+import we2rate
 import guaranteedhours
 import fulltime
 
@@ -38,13 +38,13 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
       NRate = 0
       IF NightHours > 0 THEN NRate = NightRate ENDIF
       IF HasHoliday AndAlso HolidayRate > NRate THEN NRate = HolidayRate ENDIF
-      IF IsSaturday AndAlso SaRate > NRate THEN NRate = SaRate ENDIF
-      IF IsSunday AndAlso SoRate > NRate THEN NRate = SoRate ENDIF
+      IF IsSaturday AndAlso WE1Rate > NRate THEN NRate = WE1Rate ENDIF
+      IF IsSunday AndAlso WE2Rate > NRate THEN NRate = WE2Rate ENDIF
 
       DRate = 0
       IF HasHoliday AndAlso HolidayRate > DRate THEN DRate = HolidayRate ENDIF
-      IF IsSaturday AndAlso SaRate > DRate THEN DRate = SaRate ENDIF
-      IF IsSunday AndAlso SoRate > DRate THEN DRate = SoRate ENDIF
+      IF IsSaturday AndAlso WE1Rate > DRate THEN DRate = WE1Rate ENDIF
+      IF IsSunday AndAlso WE2Rate > DRate THEN DRate = WE2Rate ENDIF
 
       CalcSegment = NightHours * NRate + NonNightHours * DRate
   ENDFUNCTION
@@ -101,7 +101,7 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         compiled.SetExternalValue("fromhour", "08:00");
         compiled.SetExternalValue("untilhour", "16:00");
         compiled.SetExternalValue("weekday", 6);
-        compiled.SetExternalValue("sarate", 0.1m);
+        compiled.SetExternalValue("we1rate", 0.1m);
 
         // Act
         var context = new ScriptExecutionContext(compiled);
@@ -114,7 +114,7 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
     }
 
     [Test]
-    public void Execute_Sunday8Hours_ShouldReturnSoRateBonus()
+    public void Execute_Sunday8Hours_ShouldReturnWE2RateBonus()
     {
         // Arrange
         var compiled = CompiledScript.Compile(ZuschlagMacroScript);
@@ -122,7 +122,7 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         compiled.SetExternalValue("fromhour", "08:00");
         compiled.SetExternalValue("untilhour", "16:00");
         compiled.SetExternalValue("weekday", 7);
-        compiled.SetExternalValue("sorate", 0.15m);
+        compiled.SetExternalValue("we2rate", 0.15m);
 
         // Act
         var context = new ScriptExecutionContext(compiled);
@@ -207,7 +207,7 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         compiled.SetExternalValue("untilhour", "07:00");
         compiled.SetExternalValue("weekday", 6);
         compiled.SetExternalValue("holidaynextday", true);
-        compiled.SetExternalValue("sarate", 0.1m);
+        compiled.SetExternalValue("we1rate", 0.1m);
         compiled.SetExternalValue("holidayrate", 0.25m);
         compiled.SetExternalValue("nightrate", 0.15m);
 
@@ -260,7 +260,7 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         compiled.SetExternalValue("untilhour", "16:00");
         compiled.SetExternalValue("weekday", 6);
         compiled.SetExternalValue("holiday", 1);
-        compiled.SetExternalValue("sarate", 0.1m);
+        compiled.SetExternalValue("we1rate", 0.1m);
         compiled.SetExternalValue("holidayrate", 0.25m);
 
         // Act
@@ -308,8 +308,8 @@ OUTPUT 1, nextday
         compiled.SetExternalValue("holidaynextday", 0);
         compiled.SetExternalValue("nightrate", 0m);
         compiled.SetExternalValue("holidayrate", 0m);
-        compiled.SetExternalValue("sarate", 0m);
-        compiled.SetExternalValue("sorate", 0m);
+        compiled.SetExternalValue("we1rate", 0m);
+        compiled.SetExternalValue("we2rate", 0m);
         compiled.SetExternalValue("guaranteedhours", 160m);
         compiled.SetExternalValue("fulltime", 180m);
     }

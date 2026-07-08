@@ -319,8 +319,8 @@ public class BulkDeleteWorksIntegrationTests
             DefaultWorkingHours = 8m,
             NightRate = 0.1m,
             HolidayRate = 0.15m,
-            SaRate = 0.1m,
-            SoRate = 0.1m,
+            WE1Rate = 0.1m,
+            WE2Rate = 0.1m,
             HasActiveContract = true,
             PaymentInterval = 1
         };
