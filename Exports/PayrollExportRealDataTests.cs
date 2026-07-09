@@ -160,7 +160,7 @@ public class PayrollExportRealDataTests
         var config = new PayrollExportGroupConfig
         {
             GroupId = _groupId,
-            TargetSystem = PayrollExportConstants.TargetSystemDatevLug,
+            TargetSystem = PayrollExportConstants.FormatKeyDatevLug,
             Delimiter = PayrollExportConstants.DefaultDelimiter,
             Encoding = PayrollExportConstants.DefaultEncoding,
             BaseWageType = BaseWageType,
