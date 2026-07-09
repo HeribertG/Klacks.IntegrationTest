@@ -16,6 +16,7 @@ public class TurnSelectionGoldenSetTests
 {
     private const string GoldsetName = "turn-selection-v1";
     private const string ModelIdEnvironmentVariable = "TURNEVAL_MODEL_ID";
+    private const string MaxItemsEnvironmentVariable = "TURNEVAL_MAX_ITEMS";
     private const string DefaultModelId = "gpt-54-mini";
     private const string AdminRight = "Admin";
 
@@ -37,6 +38,10 @@ public class TurnSelectionGoldenSetTests
     public async Task TurnSelectionGoldset_ReplaysAllItemsAndReportsScorecard()
     {
         var modelId = Environment.GetEnvironmentVariable(ModelIdEnvironmentVariable) ?? DefaultModelId;
+        int? maxItems = int.TryParse(
+            Environment.GetEnvironmentVariable(MaxItemsEnvironmentVariable), out var parsedMaxItems) && parsedMaxItems > 0
+            ? parsedMaxItems
+            : null;
 
         using var scope = _factory.Services.CreateScope();
         var runner = scope.ServiceProvider.GetRequiredService<ITurnEvalRunnerService>();
@@ -44,7 +49,7 @@ public class TurnSelectionGoldenSetTests
         var result = await runner.RunAsync(
             GoldsetName,
             modelId,
-            maxItems: null,
+            maxItems,
             userId: Guid.NewGuid().ToString(),
             userRights: [AdminRight]);
 
@@ -77,7 +82,8 @@ public class TurnSelectionGoldenSetTests
         {
             TestContext.WriteLine(
                 $"MISS {item.ItemId}: expected={item.ExpectedTool ?? "(none)"}, chosen={item.ChosenTool ?? "(none)"}, " +
-                $"slotScore={Format(item.SlotScore)}, excluded={item.Excluded}, errored={item.Errored}, error={item.Error ?? "-"}");
+                $"slotScore={Format(item.SlotScore)}, toolAvailable={item.ExpectedToolAvailable?.ToString() ?? "n/a"}, " +
+                $"recipe={item.EngineRecipeWouldTrigger}, excluded={item.Excluded}, errored={item.Errored}, error={item.Error ?? "-"}");
         }
     }
 
