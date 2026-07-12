@@ -48,9 +48,16 @@ public class IdentityProviderSecretEncryptionTests
 
     private DataBaseContext CreateContextWithRealEncryption()
     {
+        // EnableServiceProviderCaching(false) gives this context its own internal EF service provider,
+        // hence its own model cache. EF Core otherwise caches the model per DbContext type in a shared
+        // provider: a context built WITHOUT an encryption service (the two-arg constructor other fixtures
+        // use) would freeze a model without the BindPassword/ClientSecret HasConversion and, if it ran
+        // first, silently disable encryption here. An isolated provider builds the encrypting model fresh,
+        // independent of test execution order.
         var options = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(_connectionString)
             .UseSnakeCaseNamingConvention()
+            .EnableServiceProviderCaching(false)
             .Options;
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();

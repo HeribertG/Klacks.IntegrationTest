@@ -2,7 +2,9 @@
 
 // Verifies the contract filter added to ClientSearchRepository.SearchAsync against a real PostgreSQL
 // database: the EF 'Any' subquery translates and executes, narrows the result set to active contract
-// holders, and every returned client actually holds the requested active contract.
+// holders, and every returned client actually holds the requested active contract. The test seeds its
+// own contract + canton-BE employees (prefixed, so the cleanup is key-scoped and never touches real
+// data) instead of relying on ambient dev-seed rows, which do not exist in a fresh database.
 
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Domain.Enums;
@@ -23,14 +25,19 @@ namespace Klacks.IntegrationTest.Search;
 [Category("RealDatabase")]
 public class FillGroupByCriteriaSearchTests
 {
+    private const string TestPrefix = "INTEGRATION_TEST_FILLGROUP_";
     private const string TargetCanton = "BE";
-    private const string TargetContractName = "Vollzeit 180 BE";
+    private const string TargetContractName = TestPrefix + "Vollzeit 180 BE";
 
     private DataBaseContext _context = null!;
     private ClientSearchRepository _repository = null!;
 
+    private readonly Guid _contractId = Guid.NewGuid();
+    private readonly Guid _holderClientId = Guid.NewGuid();
+    private readonly Guid _nonHolderClientId = Guid.NewGuid();
+
     [SetUp]
-    public void Setup()
+    public async Task Setup()
     {
         var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
             ?? "Host=localhost;Port=5434;Database=klacks;Username=postgres;Password=admin";
@@ -41,13 +48,104 @@ public class FillGroupByCriteriaSearchTests
             .Options;
 
         _context = new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
-        _repository = new ClientSearchRepository(_context, Substitute.For<IClientGroupFilterService>());
+        _repository = new ClientSearchRepository(_context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientFuzzySearchService>());
+
+        await CleanupTestDataAsync();
+        await SeedTestDataAsync();
     }
 
     [TearDown]
-    public void TearDown()
+    public async Task TearDown()
     {
+        await CleanupTestDataAsync();
         _context.Dispose();
+    }
+
+    private async Task SeedTestDataAsync()
+    {
+        _context.Contract.Add(new Contract
+        {
+            Id = _contractId,
+            Name = TargetContractName,
+            GuaranteedHours = 180
+        });
+        await _context.SaveChangesAsync();
+
+        // A canton-BE employee that holds the target contract as an ACTIVE contract.
+        var holder = new Client
+        {
+            Id = _holderClientId,
+            Name = TestPrefix + "Holder",
+            FirstName = "Contract",
+            Type = EntityTypeEnum.Employee,
+            Gender = GenderEnum.Female,
+            LegalEntity = false,
+            IsDeleted = false
+        };
+        holder.Addresses.Add(new Address
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _holderClientId,
+            Street = TestPrefix + "Street 1",
+            Zip = "3000",
+            City = "Bern",
+            Country = "CH",
+            State = TargetCanton,
+            Type = AddressTypeEnum.Employee,
+            ValidFrom = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        // A second canton-BE employee WITHOUT the contract, so the contract filter genuinely narrows.
+        var nonHolder = new Client
+        {
+            Id = _nonHolderClientId,
+            Name = TestPrefix + "NonHolder",
+            FirstName = "NoContract",
+            Type = EntityTypeEnum.Employee,
+            Gender = GenderEnum.Male,
+            LegalEntity = false,
+            IsDeleted = false
+        };
+        nonHolder.Addresses.Add(new Address
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _nonHolderClientId,
+            Street = TestPrefix + "Street 2",
+            Zip = "3001",
+            City = "Bern",
+            Country = "CH",
+            State = TargetCanton,
+            Type = AddressTypeEnum.Employee,
+            ValidFrom = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        _context.Client.AddRange(holder, nonHolder);
+        await _context.SaveChangesAsync();
+
+        _context.ClientContract.Add(new ClientContract
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _holderClientId,
+            ContractId = _contractId,
+            FromDate = new DateOnly(2020, 1, 1),
+            UntilDate = null,
+            IsActive = true
+        });
+        await _context.SaveChangesAsync();
+    }
+
+    private async Task CleanupTestDataAsync()
+    {
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM client_contract WHERE client_id IN (SELECT id FROM client WHERE name LIKE {0})",
+            TestPrefix + "%");
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM address WHERE client_id IN (SELECT id FROM client WHERE name LIKE {0})",
+            TestPrefix + "%");
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM client WHERE name LIKE {0}", TestPrefix + "%");
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM contract WHERE name LIKE {0}", TestPrefix + "%");
     }
 
     [Test]

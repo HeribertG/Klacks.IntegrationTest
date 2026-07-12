@@ -48,6 +48,15 @@ public class ShiftManipulationIntegrationTests
     private const string TestShiftPrefix = "INTEGRATION_TEST_SHIFT_";
     private const string TestCustomerPrefix = "INTEGRATION_TEST_CUST_";
 
+    // Self-seeded fixtures (a fresh database has none of the old dev-seed groups/customers). Stable
+    // per fixture instance; re-created on every [SetUp] and removed on every [TearDown] by name/company
+    // prefix, so nothing production-plausible is ever deleted.
+    private readonly Guid _customerId = Guid.NewGuid();
+    private readonly Guid _employeeId = Guid.NewGuid();
+    private readonly Guid _groupAId = Guid.NewGuid();
+    private readonly Guid _groupBId = Guid.NewGuid();
+    private readonly Guid _bielGroupId = Guid.NewGuid();
+
     // Services
     private IShiftRepository _shiftRepository = null!;
     private IUnitOfWork _unitOfWork = null!;
@@ -87,7 +96,7 @@ public class ShiftManipulationIntegrationTests
     }
 
     [SetUp]
-    public void SetUp()
+    public async Task SetUp()
     {
         var options = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(_connectionString)
@@ -158,6 +167,11 @@ public class ShiftManipulationIntegrationTests
 
         var resetCutsHandlerLogger = Substitute.For<ILogger<PostResetCutsCommandHandler>>();
         _resetCutsHandler = new PostResetCutsCommandHandler(_shiftCutFacade, _scheduleMapper, resetCutsHandlerLogger);
+
+        // A fresh database has none of the old dev-seed groups/customers the tests referenced by fixed
+        // GUID. Clean any leftovers, then seed the customer, employee and groups these tests need.
+        await CleanupTestDataWithContext(_context);
+        await SeedFixtureDataAsync();
     }
 
     [TearDown]
@@ -167,15 +181,61 @@ public class ShiftManipulationIntegrationTests
         _context?.Dispose();
     }
 
+    private async Task SeedFixtureDataAsync()
+    {
+        _context.Set<Klacks.Api.Domain.Models.Staffs.Client>().Add(new Klacks.Api.Domain.Models.Staffs.Client
+        {
+            Id = _customerId,
+            Name = $"{TestCustomerPrefix}TechSystems",
+            FirstName = "Billing",
+            Company = $"{TestCustomerPrefix}Tech Systems GmbH",
+            Type = EntityTypeEnum.Customer,
+            Gender = GenderEnum.Female,
+            LegalEntity = true,
+            IsDeleted = false
+        });
+        _context.Set<Klacks.Api.Domain.Models.Staffs.Client>().Add(new Klacks.Api.Domain.Models.Staffs.Client
+        {
+            Id = _employeeId,
+            Name = $"{TestShiftPrefix}Employee",
+            FirstName = "Test",
+            Company = string.Empty,
+            Type = EntityTypeEnum.Employee,
+            Gender = GenderEnum.Male,
+            LegalEntity = false,
+            IsDeleted = false
+        });
+
+        AddGroup(_groupAId, "GroupA");
+        AddGroup(_groupBId, "GroupB");
+        AddGroup(_bielGroupId, "Biel/Bienne");
+
+        await _context.SaveChangesAsync();
+    }
+
+    private void AddGroup(Guid id, string suffix)
+    {
+        _context.Set<Klacks.Api.Domain.Models.Associations.Group>().Add(new Klacks.Api.Domain.Models.Associations.Group
+        {
+            Id = id,
+            Name = $"{TestShiftPrefix}{suffix}",
+            Description = string.Empty,
+            ValidFrom = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            Parent = null
+        });
+    }
+
     private static async Task CleanupTestDataWithContext(DataBaseContext context)
     {
         var sql = $@"
             DELETE FROM group_item WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestShiftPrefix}%');
+            DELETE FROM group_item WHERE group_id IN (SELECT id FROM ""group"" WHERE name LIKE '{TestShiftPrefix}%');
             DELETE FROM shift WHERE name LIKE '{TestShiftPrefix}%';
-            DELETE FROM communication WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%');
-            DELETE FROM address WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%');
-            DELETE FROM membership WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%');
-            DELETE FROM client WHERE company LIKE '{TestCustomerPrefix}%';
+            DELETE FROM communication WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
+            DELETE FROM address WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
+            DELETE FROM membership WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
+            DELETE FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%';
+            DELETE FROM ""group"" WHERE name LIKE '{TestShiftPrefix}%';
         ";
 
         await context.Database.ExecuteSqlRawAsync(sql);
@@ -518,9 +578,9 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FormPut_With_Unchanged_Groups_Should_Preserve_Them()
     {
-        // Two real groups from the dev DB (Westschweiz, Deutschschweiz Ost).
-        var groupA = Guid.Parse("706e2414-9aa4-46e3-8143-a49eca1f0a44");
-        var groupB = Guid.Parse("39ac4862-ad34-477e-aa57-3bfa5ec1a476");
+        // Two self-seeded groups (see SeedFixtureDataAsync).
+        var groupA = _groupAId;
+        var groupB = _groupBId;
 
         // Arrange - create an OriginalOrder shift carrying 2 groups.
         var createResource = CreateTestShiftResource("GroupPreserve", ShiftStatus.OriginalOrder);
@@ -962,8 +1022,8 @@ public class ShiftManipulationIntegrationTests
     public async Task CutShiftSkill_Should_Split_24h_Order_Into_Three_Linked_Parts()
     {
         // Arrange - a 24h order (07:00-07:00) carrying a real dev-DB group, sealed -> OriginalShift.
-        var groupA = Guid.Parse("706e2414-9aa4-46e3-8143-a49eca1f0a44");
-        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae"); // Tech Systems GmbH (Customer)
+        var groupA = _groupAId;
+        var customerId = _customerId; // self-seeded customer (Tech Systems GmbH)
         var macroId = Guid.Parse("a3edd3f5-c31c-4746-a9a0-c613d14ffd23");     // AllShift (category Shift)
         var orderResource = CreateTestShiftResource("CutSkill_24h", ShiftStatus.SealedOrder,
             fromDate: new DateOnly(2026, 6, 1),
@@ -1060,9 +1120,10 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FindSplitShiftCandidates_Should_List_An_Existing_Split_Order_In_The_Group()
     {
-        // Biel/Bienne group from the dev DB (canton BE); the location of a split service comes
-        // from its group, so listing the group's orders is what the disambiguation step needs.
-        var bielGroupId = Guid.Parse("4e2e0e67-d744-40a6-b9fc-6fc66b8a7edf");
+        // Self-seeded "Biel/Bienne" group; the location of a split service comes from its group, so
+        // listing the group's orders is what the disambiguation step needs. The seeded group name
+        // contains "Biel/Bienne", so the group-name resolution in the skill matches it.
+        var bielGroupId = _bielGroupId;
 
         // Arrange - a 24h order in the Biel group, already cut into 2 parts.
         var orderResource = CreateTestShiftResource("FindCand_24h", ShiftStatus.SealedOrder,
@@ -1132,7 +1193,7 @@ public class ShiftManipulationIntegrationTests
     public async Task CreateShiftSkill_Requires_A_Customer_And_Persists_ClientId()
     {
         // A real customer (type Customer) from the dev DB.
-        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var customerId = _customerId;
         var allShiftMacroId = Guid.Parse("a3edd3f5-c31c-4746-a9a0-c613d14ffd23"); // AllShift, category Shift
         var mediator = Substitute.For<IMediator>();
         mediator.Send(Arg.Any<ListQuery>(), Arg.Any<CancellationToken>())
@@ -1210,7 +1271,7 @@ public class ShiftManipulationIntegrationTests
     {
         // ORD-5a: re-issuing create_shift for the same uncut order (same key, incl. start/end time) must
         // reuse it instead of creating a duplicate. Counter-test: a different time is a distinct order.
-        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var customerId = _customerId;
         var skill = CreateShiftSkillWithDefaultMacro();
         var name = $"{TestShiftPrefix}Reuse24h";
 
@@ -1263,7 +1324,7 @@ public class ShiftManipulationIntegrationTests
     {
         // MED-1: an order that differs only in its weekdays (weekend vs. all) is a DISTINCT order and must
         // NOT be merged into the existing one by the reuse-guard (otherwise the weekend order is lost).
-        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var customerId = _customerId;
         var skill = CreateShiftSkillWithDefaultMacro();
         var name = $"{TestShiftPrefix}WeekdayDistinct";
 
@@ -1291,7 +1352,7 @@ public class ShiftManipulationIntegrationTests
     public async Task CreateShiftSkill_Without_FromDate_Asks_With_DatePicker()
     {
         // ORD-6: fromDate is required; the skill must ask with a date picker instead of defaulting to today.
-        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var customerId = _customerId;
         var skill = CreateShiftSkillWithDefaultMacro();
 
         var result = await skill.ExecuteAsync(TestSkillContext(), new Dictionary<string, object>
@@ -1310,7 +1371,7 @@ public class ShiftManipulationIntegrationTests
     public async Task CreateShiftSkill_Persists_StaffCount_And_Quantity()
     {
         // ORD-9 / ORD-10: SumEmployees (ClientCount) and Quantity (Menge) are persisted from the parameters.
-        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var customerId = _customerId;
         var skill = CreateShiftSkillWithDefaultMacro();
         var name = $"{TestShiftPrefix}Counts";
 
@@ -1336,7 +1397,7 @@ public class ShiftManipulationIntegrationTests
     public async Task CreateShiftSkill_Reuse_Guard_Ignores_Scenario_Rows()
     {
         // XC-2: the reuse-guard must never match scenario rows (AnalyseToken set) — it must create a real order.
-        var customerId = Guid.Parse("f435fe8b-6468-44c2-92fa-69b87546d4ae");
+        var customerId = _customerId;
         var skill = CreateShiftSkillWithDefaultMacro();
         var name = $"{TestShiftPrefix}ScenarioGuard";
 

@@ -6,7 +6,10 @@ using Klacks.Api.Application.Handlers.ClientAvailabilities;
 using Klacks.Api.Application.Queries.ClientAvailabilities;
 using Klacks.Api.Application.Services.Clients;
 using Klacks.Api.Infrastructure.Services.Clients;
+using Klacks.Api.Domain.Enums;
+using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Filters;
+using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Clients;
 using Klacks.Api.Domain.Services.Common;
 using Klacks.Api.Infrastructure.Persistence;
@@ -23,13 +26,17 @@ namespace Klacks.IntegrationTest.Search;
 [Category("RealDatabase")]
 public class UnifiedBaseQueryTests
 {
+    private const string TestPrefix = "INTEGRATION_TEST_ELLA_";
+
     private DataBaseContext _context = null!;
     private ClientBaseQueryService _baseQueryService = null!;
     private WorkRepository _workRepository = null!;
     private ListClientsQueryHandler _availabilityHandler = null!;
 
+    private readonly Guid _ellaClientId = Guid.NewGuid();
+
     [SetUp]
-    public void Setup()
+    public async Task Setup()
     {
         var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
             ?? "Host=localhost;Port=5434;Database=klacks;Username=postgres;Password=admin";
@@ -60,12 +67,54 @@ public class UnifiedBaseQueryTests
         _availabilityHandler = new ListClientsQueryHandler(
             _baseQueryService,
             Substitute.For<ILogger<ListClientsQueryHandler>>());
+
+        await CleanupTestDataAsync();
+        await SeedTestDataAsync();
     }
 
     [TearDown]
-    public void TearDown()
+    public async Task TearDown()
     {
+        await CleanupTestDataAsync();
         _context.Dispose();
+    }
+
+    // Seeds the "Ella Abel" employee the search tests look for. The last name carries the test prefix so
+    // the cleanup is key-scoped (never deletes by a production-plausible name); the search term "Ella Abel"
+    // still matches because the first name is "Ella" and the prefixed last name contains "Abel". The
+    // membership is valid from well before and open-ended, so the client is active across every date range
+    // the diagnostic test probes (exact month, extended, whole year).
+    private async Task SeedTestDataAsync()
+    {
+        var ella = new Client
+        {
+            Id = _ellaClientId,
+            Name = TestPrefix + "Abel",
+            FirstName = "Ella",
+            Type = EntityTypeEnum.Employee,
+            Gender = GenderEnum.Female,
+            LegalEntity = false,
+            IsDeleted = false
+        };
+        _context.Client.Add(ella);
+        await _context.SaveChangesAsync();
+
+        _context.Membership.Add(new Membership
+        {
+            ClientId = _ellaClientId,
+            ValidFrom = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            ValidUntil = null
+        });
+        await _context.SaveChangesAsync();
+    }
+
+    private async Task CleanupTestDataAsync()
+    {
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM membership WHERE client_id IN (SELECT id FROM client WHERE name LIKE {0})",
+            TestPrefix + "%");
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM client WHERE name LIKE {0}", TestPrefix + "%");
     }
 
     [Test]
