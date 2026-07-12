@@ -76,7 +76,7 @@ public class LanguageConfigIntegrationTests
     }
 
     [Test]
-    public void LanguageConfigController_GetLanguages_ShouldReturnCorrectResponse()
+    public async Task LanguageConfigController_GetLanguages_ShouldReturnCorrectResponse()
     {
         // Arrange
         var configuration = Substitute.For<IConfiguration>();
@@ -94,10 +94,13 @@ public class LanguageConfigIntegrationTests
         languagePluginService.GetInstalledPluginCodes().Returns(new List<string>());
         var featurePluginService = Substitute.For<Klacks.Api.Application.Interfaces.Plugins.IFeaturePluginService>();
         var marketplaceClient = Substitute.For<IMarketplaceClientService>();
-        var controller = new LanguageConfigController(configuration, languagePluginService, featurePluginService, marketplaceClient);
+        var settingsReader = Substitute.For<Klacks.Api.Domain.Interfaces.Settings.ISettingsReader>();
+        settingsReader.GetSetting(Arg.Any<string>()).Returns((Klacks.Api.Domain.Models.Settings.Settings?)null);
+        var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<LanguageConfigController>>();
+        var controller = new LanguageConfigController(configuration, languagePluginService, featurePluginService, marketplaceClient, settingsReader, logger);
 
         // Act
-        var result = controller.GetLanguages();
+        var result = await controller.GetLanguages();
 
         // Assert
         result.ShouldNotBeNull();

@@ -235,8 +235,8 @@ FUNCTION CalcSegment(StartTime, EndTime, HolidayFlag, WeekdayNum)
         compiled.SetExternalValue("holidayNextDay", false);
         compiled.SetExternalValue("NightRate", 0.1m);
         compiled.SetExternalValue("HOLIDAYRATE", 0.15m);
-        compiled.SetExternalValue("saRate", 0.1m);
-        compiled.SetExternalValue("SORATE", 0.1m);
+        compiled.SetExternalValue("we1Rate", 0.1m);
+        compiled.SetExternalValue("WE2RATE", 0.1m);
         compiled.SetExternalValue("GuaranteedHours", 160m);
         compiled.SetExternalValue("FullTime", 180m);
 
