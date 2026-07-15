@@ -19,6 +19,7 @@ using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces.Macros;
 using Klacks.Api.Domain.Interfaces.Schedules;
 using Klacks.Api.Domain.Models.Schedules;
+using Klacks.Api.Domain.Models.Scheduling;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.ScheduleEntries;
 using Klacks.Api.Infrastructure.Services.Schedules;
@@ -406,8 +407,11 @@ public class WorkChangeDurationStorageTests
         shiftRepository.Get(Arg.Any<Guid>()).Returns(ci => _context.Shift.AsNoTracking().FirstOrDefault(s => s.Id == (Guid)ci[0]));
         var macroDataProvider = Substitute.For<IMacroDataProvider>();
         var macroCompilationService = Substitute.For<IMacroCompilationService>();
+        var overtimeSurchargeCalculator = Substitute.For<IOvertimeSurchargeCalculator>();
+        overtimeSurchargeCalculator.CalculateAsync(Arg.Any<Work>())
+            .Returns(OvertimeCalculationResult.None(SurchargeStackingMode.HighestWins));
         var logger = Substitute.For<ILogger<WorkMacroService>>();
-        return new WorkMacroService(_context, shiftRepository, macroDataProvider, macroCompilationService, logger);
+        return new WorkMacroService(_context, shiftRepository, macroDataProvider, macroCompilationService, overtimeSurchargeCalculator, logger);
     }
 
     private async Task<Guid> InsertWorkChange(

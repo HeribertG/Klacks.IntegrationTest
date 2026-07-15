@@ -4,6 +4,7 @@ using Klacks.Api.Application.Handlers.Works;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Mappers;
 using Klacks.Api.Domain.Common;
+using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Interfaces.Associations;
 using Klacks.Api.Domain.Interfaces.Schedules;
@@ -12,6 +13,7 @@ using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Domain.Models.Macros;
 using Klacks.Api.Domain.Models.Schedules;
+using Klacks.Api.Domain.Models.Scheduling;
 using Klacks.Api.Domain.Models.Settings;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Common;
@@ -107,11 +109,16 @@ public class BulkAddWorksIntegrationTests
             macroEngine,
             Substitute.For<ILogger<MacroCompilationService>>());
 
+        var overtimeSurchargeCalculator = Substitute.For<IOvertimeSurchargeCalculator>();
+        overtimeSurchargeCalculator.CalculateAsync(Arg.Any<Work>())
+            .Returns(OvertimeCalculationResult.None(SurchargeStackingMode.HighestWins));
+
         var workMacroService = new WorkMacroService(
             _context,
             shiftRepository,
             macroDataProvider,
             macroCompilationService,
+            overtimeSurchargeCalculator,
             Substitute.For<ILogger<WorkMacroService>>());
 
         var baseQueryService = new ClientBaseQueryService(_context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientSearchFilterService>());
@@ -143,6 +150,7 @@ public class BulkAddWorksIntegrationTests
             completionService,
             notificationFacade,
             Substitute.For<IContainerWorkExpansionService>(),
+            Substitute.For<IOvertimeCascadeService>(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
 
         await SetupTestData();
@@ -543,11 +551,16 @@ OUTPUT 1, Round(TotalBonus, 2)",
             macroEngine,
             Substitute.For<ILogger<MacroCompilationService>>());
 
+        var overtimeSurchargeCalculator = Substitute.For<IOvertimeSurchargeCalculator>();
+        overtimeSurchargeCalculator.CalculateAsync(Arg.Any<Work>())
+            .Returns(OvertimeCalculationResult.None(SurchargeStackingMode.HighestWins));
+
         var workMacroService = new WorkMacroService(
             _context,
             shiftRepository,
             macroDataProvider,
             macroCompilationService,
+            overtimeSurchargeCalculator,
             Substitute.For<ILogger<WorkMacroService>>());
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
@@ -581,6 +594,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
             completionService,
             notificationFacade,
             Substitute.For<IContainerWorkExpansionService>(),
+            Substitute.For<IOvertimeCascadeService>(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
     }
 

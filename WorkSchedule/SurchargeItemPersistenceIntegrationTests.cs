@@ -4,6 +4,7 @@ using Klacks.Api.Domain.Interfaces.Associations;
 using Klacks.Api.Domain.Interfaces.Schedules;
 using Klacks.Api.Domain.Models.Macros;
 using Klacks.Api.Domain.Models.Schedules;
+using Klacks.Api.Domain.Models.Scheduling;
 using Klacks.Api.Domain.Models.Settings;
 using Klacks.Api.Domain.Services.Common;
 using Klacks.Api.Infrastructure.Persistence;
@@ -170,9 +171,13 @@ OUTPUT 14, BonusHoliday
             new MacroEngine(),
             Substitute.For<ILogger<MacroCompilationService>>());
 
+        var overtimeSurchargeCalculator = Substitute.For<IOvertimeSurchargeCalculator>();
+        overtimeSurchargeCalculator.CalculateAsync(Arg.Any<Work>())
+            .Returns(OvertimeCalculationResult.None(SurchargeStackingMode.HighestWins));
+
         var workMacroService = new WorkMacroService(
             _context, shiftRepository, macroDataProvider, macroCompilationService,
-            Substitute.For<ILogger<WorkMacroService>>());
+            overtimeSurchargeCalculator, Substitute.For<ILogger<WorkMacroService>>());
 
         var baseQueryService = new ClientBaseQueryService(
             _context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientSearchFilterService>());

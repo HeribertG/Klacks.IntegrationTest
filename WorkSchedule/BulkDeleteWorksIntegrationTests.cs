@@ -89,6 +89,7 @@ public class BulkDeleteWorksIntegrationTests
             periodHoursService,
             completionService,
             notificationFacade,
+            Substitute.For<IOvertimeCascadeService>(),
             Substitute.For<ILogger<BulkDeleteWorksCommandHandler>>());
 
         await SetupTestData();
