@@ -166,7 +166,7 @@ OUTPUT 14, BonusHoliday
         });
 
         var macroCompilationService = new MacroCompilationService(
-            new MacroManagementService(_context, Substitute.For<ILogger<MacroManagementService>>()),
+            new MacroManagementService(_context, new MacroCache(), Substitute.For<ILogger<MacroManagementService>>()),
             new MacroCache(),
             new MacroEngine(),
             Substitute.For<ILogger<MacroCompilationService>>());

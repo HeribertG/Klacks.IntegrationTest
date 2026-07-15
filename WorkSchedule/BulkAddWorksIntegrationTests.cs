@@ -88,11 +88,12 @@ public class BulkAddWorksIntegrationTests
             return _context.Shift.FirstOrDefaultAsync(s => s.Id == shiftId);
         });
 
+        var macroCache = new MacroCache();
+
         var macroManagementService = new MacroManagementService(
             _context,
+            macroCache,
             Substitute.For<ILogger<MacroManagementService>>());
-
-        var macroCache = new MacroCache();
 
         var macroDataProvider = new MacroDataProvider(
             _context,
@@ -538,11 +539,12 @@ OUTPUT 1, Round(TotalBonus, 2)",
             return _context.Shift.FirstOrDefaultAsync(s => s.Id == shiftId);
         });
 
+        var macroCache = new MacroCache();
+
         var macroManagementService = new MacroManagementService(
             _context,
+            macroCache,
             Substitute.For<ILogger<MacroManagementService>>());
-
-        var macroCache = new MacroCache();
         var macroEngine = new MacroEngine();
 
         var macroCompilationService = new MacroCompilationService(
