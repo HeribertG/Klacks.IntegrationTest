@@ -173,7 +173,7 @@ OUTPUT 14, BonusHoliday
 
         var overtimeSurchargeCalculator = Substitute.For<IOvertimeSurchargeCalculator>();
         overtimeSurchargeCalculator.CalculateAsync(Arg.Any<Work>())
-            .Returns(OvertimeCalculationResult.None(SurchargeStackingMode.HighestWins));
+            .Returns(OvertimeCalculationResult.None());
 
         var workMacroService = new WorkMacroService(
             _context, shiftRepository, macroDataProvider, macroCompilationService,

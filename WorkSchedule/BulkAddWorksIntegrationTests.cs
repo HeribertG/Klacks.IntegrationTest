@@ -111,7 +111,7 @@ public class BulkAddWorksIntegrationTests
 
         var overtimeSurchargeCalculator = Substitute.For<IOvertimeSurchargeCalculator>();
         overtimeSurchargeCalculator.CalculateAsync(Arg.Any<Work>())
-            .Returns(OvertimeCalculationResult.None(SurchargeStackingMode.HighestWins));
+            .Returns(OvertimeCalculationResult.None());
 
         var workMacroService = new WorkMacroService(
             _context,
@@ -553,7 +553,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
         var overtimeSurchargeCalculator = Substitute.For<IOvertimeSurchargeCalculator>();
         overtimeSurchargeCalculator.CalculateAsync(Arg.Any<Work>())
-            .Returns(OvertimeCalculationResult.None(SurchargeStackingMode.HighestWins));
+            .Returns(OvertimeCalculationResult.None());
 
         var workMacroService = new WorkMacroService(
             _context,

@@ -409,7 +409,7 @@ public class WorkChangeDurationStorageTests
         var macroCompilationService = Substitute.For<IMacroCompilationService>();
         var overtimeSurchargeCalculator = Substitute.For<IOvertimeSurchargeCalculator>();
         overtimeSurchargeCalculator.CalculateAsync(Arg.Any<Work>())
-            .Returns(OvertimeCalculationResult.None(SurchargeStackingMode.HighestWins));
+            .Returns(OvertimeCalculationResult.None());
         var logger = Substitute.For<ILogger<WorkMacroService>>();
         return new WorkMacroService(_context, shiftRepository, macroDataProvider, macroCompilationService, overtimeSurchargeCalculator, logger);
     }

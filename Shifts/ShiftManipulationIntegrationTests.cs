@@ -157,7 +157,8 @@ public class ShiftManipulationIntegrationTests
 
         // Create handlers
         var postHandlerLogger = Substitute.For<ILogger<PostCommandHandler>>();
-        _postHandler = new PostCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, postHandlerLogger);
+        var defaultShiftMacroResolver = Substitute.For<IDefaultShiftMacroResolver>();
+        _postHandler = new PostCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, defaultShiftMacroResolver, postHandlerLogger);
 
         var putHandlerLogger = Substitute.For<ILogger<PutCommandHandler>>();
         _putHandler = new PutCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, putHandlerLogger);
@@ -1121,8 +1122,9 @@ public class ShiftManipulationIntegrationTests
     public async Task FindSplitShiftCandidates_Should_List_An_Existing_Split_Order_In_The_Group()
     {
         // Self-seeded "Biel/Bienne" group; the location of a split service comes from its group, so
-        // listing the group's orders is what the disambiguation step needs. The seeded group name
-        // contains "Biel/Bienne", so the group-name resolution in the skill matches it.
+        // listing the group's orders is what the disambiguation step needs. The search below uses the
+        // full prefixed seed name: the shared dev DB can legitimately contain a real "Biel/Bienne"
+        // group, and a bare-name search would then hit the multiple-matches branch.
         var bielGroupId = _bielGroupId;
 
         // Arrange - a 24h order in the Biel group, already cut into 2 parts.
@@ -1145,7 +1147,7 @@ public class ShiftManipulationIntegrationTests
         var skill = new FindSplitShiftCandidatesSkill(_shiftRepository, new GroupSearchRepository(_context));
         var result = await skill.ExecuteAsync(
             TestSkillContext(),
-            new Dictionary<string, object> { ["groupName"] = "Biel/Bienne" },
+            new Dictionary<string, object> { ["groupName"] = $"{TestShiftPrefix}Biel/Bienne" },
             CancellationToken.None);
 
         // Assert - the skill returns the seeded order, flagged as already split with its 2 parts.
@@ -1201,8 +1203,11 @@ public class ShiftManipulationIntegrationTests
             {
                 new() { Id = allShiftMacroId, Name = "AllShift", Category = MacroCategoryEnum.Shift }
             });
+        var noClientMacroResolver = Substitute.For<IDefaultShiftMacroResolver>();
+        noClientMacroResolver.ResolveDefaultMacroIdAsync(Arg.Any<CancellationToken>())
+            .Returns(allShiftMacroId);
         var skill = new CreateShiftSkill(
-            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), mediator, _unitOfWork);
+            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), mediator, _unitOfWork, noClientMacroResolver);
 
         // (a) no client -> refused (an order must be billed to a customer)
         var noClient = await skill.ExecuteAsync(TestSkillContext(), new Dictionary<string, object>
@@ -1262,8 +1267,11 @@ public class ShiftManipulationIntegrationTests
             {
                 new() { Id = allShiftMacroId, Name = "AllShift", Category = MacroCategoryEnum.Shift }
             });
+        var defaultMacroResolver = Substitute.For<IDefaultShiftMacroResolver>();
+        defaultMacroResolver.ResolveDefaultMacroIdAsync(Arg.Any<CancellationToken>())
+            .Returns(allShiftMacroId);
         return new CreateShiftSkill(
-            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), mediator, _unitOfWork);
+            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), mediator, _unitOfWork, defaultMacroResolver);
     }
 
     [Test]

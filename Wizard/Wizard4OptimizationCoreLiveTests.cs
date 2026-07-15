@@ -83,7 +83,11 @@ public class Wizard4OptimizationCoreLiveTests
             .Returns(new Dictionary<Guid, Klacks.Api.Domain.DTOs.Schedules.PeriodHoursResource>());
         var eligibilityBuilder = Substitute.For<IEligibilityMatrixBuilder>();
         eligibilityBuilder
-            .BuildAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<IReadOnlyCollection<EligibilitySlot>>(), Arg.Any<CancellationToken>())
+            .BuildAsync(
+                Arg.Any<IReadOnlyCollection<Guid>>(),
+                Arg.Any<IReadOnlyCollection<EligibilitySlot>>(),
+                Arg.Any<IReadOnlySet<(string AgentId, Guid ShiftId, DateOnly Date)>?>(),
+                Arg.Any<CancellationToken>())
             .Returns(EligibilityMatrix.Empty);
 
         var availabilityService = Substitute.For<IAvailabilityIneligibilityService>();
