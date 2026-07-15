@@ -85,7 +85,12 @@ public class ProposePlanGuardrailSeamTests
             .EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, TimeOnly StartTime, TimeOnly EndTime)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
 
-        _checker = new PreCommitConflictChecker(_context, timeline, resolver, enforcementResolver, settingsReader, periodCapEvaluator, restDayRotationEvaluator);
+        var counterRuleEvaluator = Substitute.For<ICounterRuleEvaluator>();
+        counterRuleEvaluator
+            .EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, TimeOnly StartTime, TimeOnly EndTime)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ScheduleValidationNotificationDto>());
+
+        _checker = new PreCommitConflictChecker(_context, timeline, resolver, enforcementResolver, settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator);
     }
 
     [TearDown]
