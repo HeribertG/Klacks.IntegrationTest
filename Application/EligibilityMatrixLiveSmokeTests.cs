@@ -10,6 +10,7 @@
 using Klacks.Api.Application.Services.Schedules;
 using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Domain.Enums;
+using Klacks.Api.Domain.Interfaces.Settings;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Associations;
@@ -70,7 +71,8 @@ public class EligibilityMatrixLiveSmokeTests
 
         var builder = new EligibilityMatrixBuilder(
             new ClientQualificationRepository(_context, Substitute.For<ILogger<ClientQualification>>()),
-            new ShiftRequiredQualificationRepository(_context, Substitute.For<ILogger<ShiftRequiredQualification>>()));
+            new ShiftRequiredQualificationRepository(_context, Substitute.For<ILogger<ShiftRequiredQualification>>()),
+            Substitute.For<ISettingsReader>());
 
         var matrix = await builder.BuildAsync(agentIds, slots);
 

@@ -8,11 +8,13 @@
 /// held, in-window, sufficient-level qualification does not block. Only the policy resolver is stubbed.
 /// </summary>
 
+using Klacks.Api.Application.DTOs.Notifications;
 using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Domain.Common;
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
+using Klacks.Api.Domain.Interfaces.Settings;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Scheduling;
 using Klacks.Api.Domain.Models.Staffs;
@@ -61,7 +63,17 @@ public class EligibilityGuardrailTests
         resolver.GetForClientAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>())
             .Returns(new SchedulingPolicy(
                 TimeSpan.FromHours(11), TimeSpan.FromHours(10), 6, TimeSpan.FromHours(50), 2));
-        _checker = new PreCommitConflictChecker(_context, timeline, resolver);
+        var enforcementResolver = Substitute.For<IComplianceEnforcementResolver>();
+        enforcementResolver.GetModeAsync(Arg.Any<string>()).Returns(RuleEnforcementMode.Warn);
+
+        var settingsReader = Substitute.For<ISettingsReader>();
+
+        var periodCapEvaluator = Substitute.For<IPeriodCapEvaluator>();
+        periodCapEvaluator
+            .EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, decimal Hours)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ScheduleValidationNotificationDto>());
+
+        _checker = new PreCommitConflictChecker(_context, timeline, resolver, enforcementResolver, settingsReader, periodCapEvaluator);
     }
 
     [TearDown]
