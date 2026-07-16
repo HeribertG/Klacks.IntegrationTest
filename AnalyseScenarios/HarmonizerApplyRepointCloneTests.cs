@@ -205,6 +205,7 @@ public class HarmonizerApplyRepointCloneTests
             _service,
             Substitute.For<IUnitOfWork>(),
             _context,
+            Substitute.For<IWizardRunCaptureRepository>(),
             Substitute.For<ILogger<HarmonizerApplyService>>());
 
         var repointed = await apply.RepointClonedWorksAsync(
@@ -275,6 +276,7 @@ public class HarmonizerApplyRepointCloneTests
             _service,
             Substitute.For<IUnitOfWork>(),
             _context,
+            Substitute.For<IWizardRunCaptureRepository>(),
             Substitute.For<ILogger<HarmonizerApplyService>>());
 
         var repointed = await apply.RepointClonedWorksAsync(

@@ -181,7 +181,15 @@ public class WizardApplyPersistenceGapsTests
         var softeningRepo = new WorkSofteningRepository(_context);
         var unitOfWork = new UnitOfWork(_context, Substitute.For<ILogger<UnitOfWork>>());
 
-        return new WizardApplyService(cache, mediator, scenarioRepo, _scenarioService, unitOfWork, softeningRepo);
+        return new WizardApplyService(
+            cache,
+            mediator,
+            scenarioRepo,
+            _scenarioService,
+            unitOfWork,
+            softeningRepo,
+            Substitute.For<IWizardRunCaptureRepository>(),
+            Substitute.For<ILogger<WizardApplyService>>());
     }
 
     [Test, Explicit("Read/write W1 apply locked-token materialisation against the real test DB (port 5434); cleans up after itself.")]
