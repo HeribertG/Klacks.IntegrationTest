@@ -94,6 +94,11 @@ public class Wizard4OptimizationCoreLiveTests
         availabilityService
             .GetAsync(Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<IReadOnlyList<AvailabilityShiftSlot>>(), Arg.Any<CancellationToken>())
             .Returns((IReadOnlySet<(string, Guid, DateOnly)>)new HashSet<(string, Guid, DateOnly)>());
+        var warmStartBuilder = Substitute.For<IWizardWarmStartBuilder>();
+        warmStartBuilder
+            .BuildAsync(Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
+            .Returns((IReadOnlyList<Klacks.ScheduleOptimizer.Models.CoreWarmStartAssignment>)
+                new List<Klacks.ScheduleOptimizer.Models.CoreWarmStartAssignment>());
         var wizardBuilder = new WizardContextBuilder(
             new WizardAgentSnapshotBuilder(provider),
             new WizardShiftBuilder(_context),
@@ -101,7 +106,8 @@ public class Wizard4OptimizationCoreLiveTests
             periodHours,
             provider,
             eligibilityBuilder,
-            availabilityService);
+            availabilityService,
+            warmStartBuilder);
         var objectiveContext = await wizardBuilder.BuildContextAsync(
             new WizardContextRequest(from, until, agentIds, null, null), CancellationToken.None);
 
