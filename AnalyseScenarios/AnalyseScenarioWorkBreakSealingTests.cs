@@ -30,6 +30,16 @@ public class AnalyseScenarioWorkBreakSealingTests
 {
     private const string TestPrefix = "INTEGRATION_TEST_SEALING_";
 
+    // These tests run against the SHARED dev database which contains real works/breaks.
+    // SealByPeriod/UnsealByPeriod/GetSealingSummaryAsync operate period-wide (not per
+    // fixture row), so any period overlapping real data would seal/unseal/count real
+    // rows. All fixture dates therefore live in a far-future window (June 2062) that
+    // is guaranteed to contain only rows created by this fixture.
+    private static readonly DateOnly PeriodStart = new(2062, 6, 1);
+    private static readonly DateOnly PeriodEnd = new(2062, 6, 30);
+    private static readonly DateOnly FixtureDate = new(2062, 6, 15);
+    private static readonly DateOnly ShiftValidFrom = new(2062, 1, 1);
+
     private DataBaseContext _context = null!;
     private string _connectionString = null!;
     private IWorkRepository _workRepository = null!;
@@ -102,7 +112,7 @@ public class AnalyseScenarioWorkBreakSealingTests
             Abbreviation = "TST",
             Description = "sealing test",
             Status = ShiftStatus.OriginalShift,
-            FromDate = new DateOnly(2026, 1, 1),
+            FromDate = ShiftValidFrom,
             StartShift = new TimeOnly(8, 0),
             EndShift = new TimeOnly(16, 0),
             IsMonday = true, IsTuesday = true, IsWednesday = true, IsThursday = true, IsFriday = true,
@@ -191,15 +201,15 @@ public class AnalyseScenarioWorkBreakSealingTests
     public async Task Work_SealByPeriod_Skips_Scenario_Clones()
     {
         var client = await CreateTestClientAsync("SealClient1");
-        var date = new DateOnly(2026, 6, 15);
+        var date = FixtureDate;
         var shift = await CreateShiftAsync("Shift1");
         var realWork = await CreateWorkAsync(client.Id, shift.Id, date, analyseToken: null, "RealWork");
         var token = Guid.NewGuid();
         var cloneWork = await CreateWorkAsync(client.Id, shift.Id, date, analyseToken: token, "CloneWork");
 
         var affected = await _workRepository.SealByPeriod(
-            startDate: new DateOnly(2026, 6, 1),
-            endDate: new DateOnly(2026, 6, 30),
+            startDate: PeriodStart,
+            endDate: PeriodEnd,
             level: WorkLockLevel.Closed,
             sealedBy: "test-user",
             CancellationToken.None);
@@ -222,7 +232,7 @@ public class AnalyseScenarioWorkBreakSealingTests
     public async Task Work_UnsealByPeriod_Skips_Scenario_Clones()
     {
         var client = await CreateTestClientAsync("UnsealClient1");
-        var date = new DateOnly(2026, 6, 15);
+        var date = FixtureDate;
         var token = Guid.NewGuid();
 
         var shift = await CreateShiftAsync("Shift2");
@@ -237,8 +247,8 @@ public class AnalyseScenarioWorkBreakSealingTests
         await _context.SaveChangesAsync();
 
         var affected = await _workRepository.UnsealByPeriod(
-            startDate: new DateOnly(2026, 6, 1),
-            endDate: new DateOnly(2026, 6, 30),
+            startDate: PeriodStart,
+            endDate: PeriodEnd,
             level: WorkLockLevel.Closed,
             CancellationToken.None);
 
@@ -258,15 +268,15 @@ public class AnalyseScenarioWorkBreakSealingTests
     public async Task Break_SealByPeriod_Skips_Scenario_Clones()
     {
         var client = await CreateTestClientAsync("SealBreakClient");
-        var date = new DateOnly(2026, 6, 15);
+        var date = FixtureDate;
         var absence = await CreateAbsenceAsync("Absence1");
         var realBreak = await CreateBreakAsync(client.Id, absence.Id, date, null, "RealBreak");
         var token = Guid.NewGuid();
         var cloneBreak = await CreateBreakAsync(client.Id, absence.Id, date, token, "CloneBreak");
 
         var affected = await _breakRepository.SealByPeriod(
-            startDate: new DateOnly(2026, 6, 1),
-            endDate: new DateOnly(2026, 6, 30),
+            startDate: PeriodStart,
+            endDate: PeriodEnd,
             level: WorkLockLevel.Closed,
             sealedBy: "test-user",
             CancellationToken.None);
@@ -287,7 +297,7 @@ public class AnalyseScenarioWorkBreakSealingTests
     public async Task Work_GetSealingSummary_Excludes_Clones_From_Totals()
     {
         var client = await CreateTestClientAsync("SummaryClient");
-        var date = new DateOnly(2026, 6, 15);
+        var date = FixtureDate;
         var token = Guid.NewGuid();
 
         var shift = await CreateShiftAsync("Shift3");
@@ -296,8 +306,8 @@ public class AnalyseScenarioWorkBreakSealingTests
         await CreateWorkAsync(client.Id, shift.Id, date, token, "Clone1");
 
         var summary = await _workRepository.GetSealingSummaryAsync(
-            from: new DateOnly(2026, 6, 1),
-            to: new DateOnly(2026, 6, 30),
+            from: PeriodStart,
+            to: PeriodEnd,
             groupId: null,
             CancellationToken.None);
 

@@ -1,4 +1,5 @@
 using Shouldly;
+using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
@@ -400,23 +401,31 @@ public class GetShiftScheduleTests
 
     #region IsWeekdayAndHoliday Tests
 
+    // The IsWeekdayAndHoliday branch of get_shift_schedule classifies "weekday" via the
+    // CALENDAR_WEEKEND_DAYS setting of the shared dev database (e.g. Friday/Saturday for
+    // Gulf-region setups), not via a fixed Saturday/Sunday weekend. These tests therefore
+    // read the configured weekend days and derive their expectations from them.
+
     [Test]
     public async Task GetShiftSchedule_Should_Return_IsWeekdayAndHoliday_Shift_On_Weekdays()
     {
         // Arrange
         var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHoliday", isWeekdayAndHoliday: true);
 
+        var weekendDows = await GetConfiguredWeekendIsoDowsAsync();
+        var expectedWeekdayDows = Enumerable.Range(1, 7).Where(d => !weekendDows.Contains(d)).ToArray();
+
         var monday = GetNextWeekday(DayOfWeek.Monday);
         var startDate = monday;
-        var endDate = monday.AddDays(4);
+        var endDate = monday.AddDays(6);
 
         // Act
         var result = await _service.GetShiftScheduleQuery(startDate, endDate).ToListAsync();
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Count.ShouldBe(5);
-        shiftResults.Select(r => r.DayOfWeek).ToArray().ShouldBeEquivalentTo(new[] { 1, 2, 3, 4, 5 });
+        shiftResults.Count.ShouldBe(expectedWeekdayDows.Length);
+        shiftResults.Select(r => r.DayOfWeek).OrderBy(d => d).ToArray().ShouldBeEquivalentTo(expectedWeekdayDows);
     }
 
     [Test]
@@ -425,19 +434,20 @@ public class GetShiftScheduleTests
         // Arrange
         var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHolidayOnHoliday", isWeekdayAndHoliday: true);
 
-        var saturday = GetNextWeekday(DayOfWeek.Saturday);
-        var startDate = saturday;
-        var endDate = saturday.AddDays(1);
+        var weekendDows = await GetConfiguredWeekendIsoDowsAsync();
+        var holidayOnWeekend = GetNextDateWithIsoDow(weekendDows.Min());
+        var startDate = holidayOnWeekend;
+        var endDate = holidayOnWeekend;
 
         // Act
         var result = await _service.GetShiftScheduleQuery(
             startDate, endDate,
-            new List<DateOnly> { saturday }).ToListAsync();
+            new List<DateOnly> { holidayOnWeekend }).ToListAsync();
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
         shiftResults.Count.ShouldBe(1);
-        shiftResults.Single().Date.ShouldBe(saturday);
+        shiftResults.Single().Date.ShouldBe(holidayOnWeekend);
     }
 
     [Test]
@@ -446,17 +456,19 @@ public class GetShiftScheduleTests
         // Arrange
         var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHolidayNoWeekend", isWeekdayAndHoliday: true);
 
-        var saturday = GetNextWeekday(DayOfWeek.Saturday);
-        var sunday = saturday.AddDays(1);
-        var startDate = saturday;
-        var endDate = sunday;
+        var weekendDows = await GetConfiguredWeekendIsoDowsAsync();
+
+        var monday = GetNextWeekday(DayOfWeek.Monday);
+        var startDate = monday;
+        var endDate = monday.AddDays(6);
 
         // Act
         var result = await _service.GetShiftScheduleQuery(startDate, endDate).ToListAsync();
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.ShouldBeEmpty();
+        shiftResults.Where(r => weekendDows.Contains(r.DayOfWeek))
+            .ShouldBeEmpty("shift must not appear on configured weekend days without a holiday");
     }
 
     [Test]
@@ -465,21 +477,24 @@ public class GetShiftScheduleTests
         // Arrange
         var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHolidayBoth", isWeekdayAndHoliday: true);
 
+        var weekendDows = await GetConfiguredWeekendIsoDowsAsync();
+        var expectedWeekdayDows = Enumerable.Range(1, 7).Where(d => !weekendDows.Contains(d)).ToArray();
+
         var monday = GetNextWeekday(DayOfWeek.Monday);
-        var saturday = monday.AddDays(5);
         var startDate = monday;
-        var endDate = saturday;
+        var endDate = monday.AddDays(6);
+        var holidayOnWeekend = monday.AddDays(weekendDows.Min() - 1);
 
         // Act
         var result = await _service.GetShiftScheduleQuery(
             startDate, endDate,
-            new List<DateOnly> { saturday }).ToListAsync();
+            new List<DateOnly> { holidayOnWeekend }).ToListAsync();
 
         // Assert
         var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Count.ShouldBe(6);
-        shiftResults.Where(r => r.DayOfWeek >= 1 && r.DayOfWeek <= 5).Count().ShouldBe(5);
-        shiftResults.Where(r => r.Date == saturday).Count().ShouldBe(1);
+        shiftResults.Count.ShouldBe(expectedWeekdayDows.Length + 1);
+        shiftResults.Where(r => expectedWeekdayDows.Contains(r.DayOfWeek)).Count().ShouldBe(expectedWeekdayDows.Length);
+        shiftResults.Where(r => r.Date == holidayOnWeekend).Count().ShouldBe(1);
     }
 
     [Test]
@@ -675,6 +690,34 @@ public class GetShiftScheduleTests
             daysUntilTarget = 7;
         return today.AddDays(daysUntilTarget);
     }
+
+    // Mirrors the weekend_dows CTE of get_shift_schedule: no CALENDAR_WEEKEND_DAYS row
+    // means Saturday/Sunday, otherwise the CSV of DayOfWeek names is mapped to ISO
+    // weekday numbers (Monday = 1 .. Sunday = 7) and unknown names are dropped.
+    private async Task<HashSet<int>> GetConfiguredWeekendIsoDowsAsync()
+    {
+        var settingValue = await _context.Settings
+            .AsNoTracking()
+            .Where(s => s.Type == SettingKeys.WeekendDays)
+            .Select(s => s.Value)
+            .FirstOrDefaultAsync();
+
+        if (settingValue == null)
+        {
+            return [6, 7];
+        }
+
+        return settingValue
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(name => Enum.TryParse<DayOfWeek>(name, ignoreCase: true, out var day) ? (int?)ToIsoDow(day) : null)
+            .Where(dow => dow.HasValue)
+            .Select(dow => dow!.Value)
+            .ToHashSet();
+    }
+
+    private static int ToIsoDow(DayOfWeek day) => day == DayOfWeek.Sunday ? 7 : (int)day;
+
+    private static DateOnly GetNextDateWithIsoDow(int isoDow) => GetNextWeekday((DayOfWeek)(isoDow % 7));
 
     private async Task<Group> CreateTestGroup(string name, Guid? parentId = null)
     {
