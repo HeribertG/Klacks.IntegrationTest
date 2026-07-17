@@ -123,6 +123,22 @@ public class RefreshTokenRotationTests
         remaining.ShouldNotContain(expired.Token);
     }
 
+    [Test]
+    public async Task RemoveAllUserRefreshTokensAsync_RemovesAllTokensForUser_LeavesOtherUsersUntouched()
+    {
+        var otherUserId = TestUserPrefix + Guid.NewGuid();
+
+        var tabA = await _service.CreateRefreshTokenAsync(_userId);
+        var tabB = await _service.CreateRefreshTokenAsync(_userId);
+        var otherUserToken = await _service.CreateRefreshTokenAsync(otherUserId);
+
+        await _service.RemoveAllUserRefreshTokensAsync(_userId);
+
+        (await _service.ValidateRefreshTokenAsync(_userId, tabA)).ShouldBeFalse();
+        (await _service.ValidateRefreshTokenAsync(_userId, tabB)).ShouldBeFalse();
+        (await _service.ValidateRefreshTokenAsync(otherUserId, otherUserToken)).ShouldBeTrue();
+    }
+
     private DataBaseContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<DataBaseContext>()
