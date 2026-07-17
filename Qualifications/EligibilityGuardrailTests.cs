@@ -83,7 +83,12 @@ public class EligibilityGuardrailTests
             .EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, TimeOnly StartTime, TimeOnly EndTime)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
 
-        _checker = new PreCommitConflictChecker(_context, timeline, resolver, enforcementResolver, settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator);
+        var restrictedTimeWindowEvaluator = new RestrictedTimeWindowEvaluator(
+            new Klacks.Api.Infrastructure.Repositories.Scheduling.RestrictedTimeWindowRuleRepository(_context),
+            _context,
+            enforcementResolver);
+
+        _checker = new PreCommitConflictChecker(_context, timeline, resolver, enforcementResolver, settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator, restrictedTimeWindowEvaluator);
     }
 
     [TearDown]

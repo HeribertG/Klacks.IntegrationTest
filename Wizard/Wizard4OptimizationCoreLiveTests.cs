@@ -99,6 +99,9 @@ public class Wizard4OptimizationCoreLiveTests
             .BuildAsync(Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
             .Returns((IReadOnlyList<Klacks.ScheduleOptimizer.Models.CoreWarmStartAssignment>)
                 new List<Klacks.ScheduleOptimizer.Models.CoreWarmStartAssignment>());
+        var restrictedWindowBuilder = new WizardRestrictedWindowBuilder(
+            new Klacks.Api.Infrastructure.Repositories.Scheduling.RestrictedTimeWindowRuleRepository(_context),
+            _context);
         var wizardBuilder = new WizardContextBuilder(
             new WizardAgentSnapshotBuilder(provider),
             new WizardShiftBuilder(_context),
@@ -107,7 +110,8 @@ public class Wizard4OptimizationCoreLiveTests
             provider,
             eligibilityBuilder,
             availabilityService,
-            warmStartBuilder);
+            warmStartBuilder,
+            restrictedWindowBuilder);
         var objectiveContext = await wizardBuilder.BuildContextAsync(
             new WizardContextRequest(from, until, agentIds, null, null), CancellationToken.None);
 
@@ -116,7 +120,8 @@ public class Wizard4OptimizationCoreLiveTests
             provider,
             new WorkSofteningRepository(_context),
             eligibilityBuilder,
-            availabilityService);
+            availabilityService,
+            restrictedWindowBuilder);
         var bitmapInput = await harmonizerBuilder.BuildContextAsync(
             new HarmonizerContextRequest(from, until, agentIds, null), CancellationToken.None);
 
