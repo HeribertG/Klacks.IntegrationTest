@@ -79,7 +79,8 @@ public class BulkAddWorksIntegrationTests
             workNotificationService,
             Substitute.For<IClientGroupFilterService>(),
             contractDataProvider,
-            CreateDefaultWeekConfiguration());
+            CreateDefaultWeekConfiguration(),
+            new Klacks.Api.Infrastructure.Services.Schedules.OnCallConfigResolver(_context));
 
         var shiftRepository = Substitute.For<IShiftRepository>();
         shiftRepository.Get(Arg.Any<Guid>()).Returns(callInfo =>
@@ -530,7 +531,8 @@ OUTPUT 1, Round(TotalBonus, 2)",
             workNotificationService,
             Substitute.For<IClientGroupFilterService>(),
             contractDataProvider,
-            CreateDefaultWeekConfiguration());
+            CreateDefaultWeekConfiguration(),
+            new Klacks.Api.Infrastructure.Services.Schedules.OnCallConfigResolver(_context));
 
         var shiftRepository = Substitute.For<IShiftRepository>();
         shiftRepository.Get(Arg.Any<Guid>()).Returns(callInfo =>
