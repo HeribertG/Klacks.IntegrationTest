@@ -96,6 +96,7 @@ public class AnalyseScenarioWorkBreakSealingTests
             DELETE FROM work_change WHERE work_id IN (SELECT id FROM work WHERE information LIKE '{TestPrefix}%');
             DELETE FROM break WHERE information LIKE '{TestPrefix}%';
             DELETE FROM work WHERE information LIKE '{TestPrefix}%';
+            UPDATE shift SET scenario_source_shift_id = NULL WHERE name LIKE '{TestPrefix}%';
             DELETE FROM shift WHERE name LIKE '{TestPrefix}%';
             DELETE FROM absence WHERE name->>'de' LIKE '{TestPrefix}%';
             DELETE FROM client WHERE name LIKE '{TestPrefix}%';

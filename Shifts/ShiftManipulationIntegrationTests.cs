@@ -231,6 +231,7 @@ public class ShiftManipulationIntegrationTests
         var sql = $@"
             DELETE FROM group_item WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestShiftPrefix}%');
             DELETE FROM group_item WHERE group_id IN (SELECT id FROM ""group"" WHERE name LIKE '{TestShiftPrefix}%');
+            UPDATE shift SET scenario_source_shift_id = NULL WHERE name LIKE '{TestShiftPrefix}%';
             DELETE FROM shift WHERE name LIKE '{TestShiftPrefix}%';
             DELETE FROM communication WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
             DELETE FROM address WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');

@@ -114,6 +114,7 @@ public class EligibilityGuardrailTests
             DELETE FROM shift_required_qualification WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestPrefix}%');
             DELETE FROM qualification WHERE name->>'de' LIKE '{TestPrefix}%';
             DELETE FROM client WHERE name LIKE '{TestPrefix}%';
+            UPDATE shift SET scenario_source_shift_id = NULL WHERE name LIKE '{TestPrefix}%';
             DELETE FROM shift WHERE name LIKE '{TestPrefix}%';
         ";
         await context.Database.ExecuteSqlRawAsync(sql);

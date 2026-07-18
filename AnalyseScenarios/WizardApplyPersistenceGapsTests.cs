@@ -96,6 +96,7 @@ public class WizardApplyPersistenceGapsTests
             DELETE FROM group_item WHERE group_id IN (SELECT id FROM ""group"" WHERE name LIKE '{TestPrefix}%')
                 OR shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestPrefix}%')
                 OR client_id IN (SELECT id FROM client WHERE name LIKE '{TestPrefix}%');
+            UPDATE shift SET scenario_source_shift_id = NULL WHERE name LIKE '{TestPrefix}%';
             DELETE FROM shift WHERE name LIKE '{TestPrefix}%';
             DELETE FROM ""group"" WHERE name LIKE '{TestPrefix}%';
             DELETE FROM client WHERE name LIKE '{TestPrefix}%';
