@@ -31,6 +31,7 @@ public class SignalRTestWebApplicationFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+        TestHostDatabase.UseTestConnection(builder);
         builder.ConfigureServices(services =>
         {
             services.Configure<AuthenticationOptions>(options =>

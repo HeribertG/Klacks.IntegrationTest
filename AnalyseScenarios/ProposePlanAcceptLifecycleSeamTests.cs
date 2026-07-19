@@ -168,8 +168,18 @@ public class ProposePlanAcceptLifecycleSeamTests
         var repo = new AnalyseScenarioRepository(_context, Substitute.For<ILogger<AnalyseScenario>>());
         var unitOfWork = new UnitOfWork(_context, Substitute.For<ILogger<UnitOfWork>>());
         var softening = Substitute.For<IWorkSofteningRepository>();
+        // The compliance gate is stubbed to an empty report: this seam test asserts the promote
+        // remapping; the gate itself is covered by AcceptScenarioComplianceGateSeamTests.
+        var compliance = Substitute.For<Klacks.Api.Application.Interfaces.Schedules.IScenarioComplianceService>();
+        compliance
+            .EvaluateAsync(Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new Klacks.Api.Application.DTOs.Schedules.ScenarioComplianceReport([], []));
         return new AcceptAnalyseScenarioCommandHandler(
             repo, _cloneService, unitOfWork, softening,
+            compliance,
+            Substitute.For<Klacks.Api.Application.Interfaces.Schedules.ISupervisorOverrideAuthorizer>(),
+            Substitute.For<Klacks.Api.Application.Interfaces.IScheduleTimelineService>(),
+            Substitute.For<IHttpContextAccessor>(),
             Substitute.For<ILogger<AcceptAnalyseScenarioCommandHandler>>());
     }
 

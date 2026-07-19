@@ -187,6 +187,13 @@ public class WizardApplyDoublePromotionTests
         var softeningRepo = Substitute.For<IWorkSofteningRepository>();
         var unitOfWork = new UnitOfWork(_context, Substitute.For<ILogger<UnitOfWork>>());
 
+        // Pass-through partition: these tests assert the double-promotion seam, not the compliance seam.
+        var partitionService = Substitute.For<ICompliancePartitionService>();
+        partitionService
+            .PartitionAsync(Arg.Any<IReadOnlyList<PlannedWorkRow>>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new CompliancePartitionResult(
+                Enumerable.Range(0, ci.Arg<IReadOnlyList<PlannedWorkRow>>().Count).ToList(), [], [], false));
+
         return new WizardApplyService(
             cache,
             mediator,
@@ -195,6 +202,7 @@ public class WizardApplyDoublePromotionTests
             unitOfWork,
             softeningRepo,
             Substitute.For<IWizardRunCaptureRepository>(),
+            partitionService,
             Substitute.For<ILogger<WizardApplyService>>());
     }
 
@@ -212,7 +220,7 @@ public class WizardApplyDoublePromotionTests
         var jobId = Guid.NewGuid();
         cache.Store(jobId, new CoreScenario { Id = "s", Tokens = [PlannerToken(shift.Id, planned.Id)] }, analyseToken: null);
 
-        var (resource, _) = await CreateApplyService(cache).ApplyAsScenarioAsync(jobId, group.Id, CancellationToken.None);
+        var (resource, _) = await CreateApplyService(cache).ApplyAsScenarioAsync(jobId, group.Id, overrideBlock: false, CancellationToken.None);
 
         var worksInSlot = await _context.Work.IgnoreQueryFilters().AsNoTracking()
             .Where(w => w.AnalyseToken == resource.Token && w.CurrentDate == WorkDate && !w.IsDeleted)
@@ -243,7 +251,7 @@ public class WizardApplyDoublePromotionTests
         var jobId = Guid.NewGuid();
         cache.Store(jobId, new CoreScenario { Id = "s", Tokens = [PlannerToken(shiftPlanned.Id, planned.Id)] }, analyseToken: null);
 
-        var (resource, _) = await CreateApplyService(cache).ApplyAsScenarioAsync(jobId, group.Id, CancellationToken.None);
+        var (resource, _) = await CreateApplyService(cache).ApplyAsScenarioAsync(jobId, group.Id, overrideBlock: false, CancellationToken.None);
 
         var bystanderWorks = await _context.Work.IgnoreQueryFilters().AsNoTracking()
             .Where(w => w.AnalyseToken == resource.Token && w.ClientId == bystander.Id && !w.IsDeleted)

@@ -182,6 +182,13 @@ public class WizardApplyPersistenceGapsTests
         var softeningRepo = new WorkSofteningRepository(_context);
         var unitOfWork = new UnitOfWork(_context, Substitute.For<ILogger<UnitOfWork>>());
 
+        // Pass-through partition: these tests assert the persistence gaps, not the compliance seam.
+        var partitionService = Substitute.For<ICompliancePartitionService>();
+        partitionService
+            .PartitionAsync(Arg.Any<IReadOnlyList<PlannedWorkRow>>(), Arg.Any<Guid?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new CompliancePartitionResult(
+                Enumerable.Range(0, ci.Arg<IReadOnlyList<PlannedWorkRow>>().Count).ToList(), [], [], false));
+
         return new WizardApplyService(
             cache,
             mediator,
@@ -190,6 +197,7 @@ public class WizardApplyPersistenceGapsTests
             unitOfWork,
             softeningRepo,
             Substitute.For<IWizardRunCaptureRepository>(),
+            partitionService,
             Substitute.For<ILogger<WizardApplyService>>());
     }
 
@@ -216,9 +224,9 @@ public class WizardApplyPersistenceGapsTests
             ]
         }, analyseToken: null);
 
-        var (resource, createdIds) = await CreateApplyService(cache).ApplyAsScenarioAsync(jobId, group.Id, CancellationToken.None);
+        var (resource, outcome) = await CreateApplyService(cache).ApplyAsScenarioAsync(jobId, group.Id, overrideBlock: false, CancellationToken.None);
 
-        createdIds.Count.ShouldBe(1, "only the non-locked token may be materialised as a Work; the locked token must be skipped by the `.Where(t => !t.IsLocked)` filter.");
+        outcome.CreatedWorkIds.Count.ShouldBe(1, "only the non-locked token may be materialised as a Work; the locked token must be skipped by the `.Where(t => !t.IsLocked)` filter.");
 
         var works = await _context.Work.IgnoreQueryFilters().AsNoTracking()
             .Where(w => w.AnalyseToken == resource.Token && w.CurrentDate == WorkDate && !w.IsDeleted)
@@ -267,7 +275,7 @@ public class WizardApplyPersistenceGapsTests
             Tokens = [Token(shift.Id, applied.Id, isLocked: false)]
         }, analyseToken: null, escalations: escalations);
 
-        var (resource, _) = await CreateApplyService(cache).ApplyAsScenarioAsync(jobId, group.Id, CancellationToken.None);
+        var (resource, _) = await CreateApplyService(cache).ApplyAsScenarioAsync(jobId, group.Id, overrideBlock: false, CancellationToken.None);
 
         var softenings = await _context.WorkSoftening.IgnoreQueryFilters().AsNoTracking()
             .Where(s => s.AnalyseToken == resource.Token && !s.IsDeleted)

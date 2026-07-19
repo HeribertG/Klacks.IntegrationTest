@@ -95,7 +95,7 @@ public class ProposePlanGuardrailSeamTests
             _context,
             enforcementResolver);
 
-        _checker = new PreCommitConflictChecker(_context, timeline, resolver, enforcementResolver, settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator, restrictedTimeWindowEvaluator);
+        _checker = new PreCommitConflictChecker(_context, timeline, resolver, new Klacks.Api.Application.Services.Schedules.ComplianceEscalationService(enforcementResolver), settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator, restrictedTimeWindowEvaluator);
     }
 
     [TearDown]

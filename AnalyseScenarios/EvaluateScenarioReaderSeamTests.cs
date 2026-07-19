@@ -216,7 +216,7 @@ public class EvaluateScenarioReaderSeamTests
         var entries = new ScheduleEntriesService(
             _context, Substitute.For<ILogger<ScheduleEntriesService>>());
         var loader = Substitute.For<IPeriodValidationLoader>();
-        loader.LoadAsync(Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+        loader.LoadAsync(Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(new List<PeriodIssueDto>());
         return new EvaluateScenarioQueryHandler(scenarioRepo, entries, loader);
     }

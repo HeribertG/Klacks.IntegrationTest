@@ -21,6 +21,7 @@ public class LdapClientSyncTestFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+        TestHostDatabase.UseTestConnection(builder);
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<ILdapService>();
