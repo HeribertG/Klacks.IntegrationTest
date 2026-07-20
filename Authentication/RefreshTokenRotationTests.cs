@@ -92,6 +92,39 @@ public class RefreshTokenRotationTests
     }
 
     [Test]
+    public async Task RotateRefreshToken_ConcurrentCallsWithSameOldToken_ExactlyOneWins()
+    {
+        var original = await _service.CreateRefreshTokenAsync(_userId);
+
+        await using var contextB = CreateContext();
+        var serviceB = new RefreshTokenService(contextB, Substitute.For<ILogger<RefreshTokenService>>());
+
+        // Pre-open both connections so connection-establishment latency doesn't
+        // accidentally serialize the two calls below and mask the race.
+        await _context.Database.OpenConnectionAsync();
+        await contextB.Database.OpenConnectionAsync();
+
+        // Simulates the HTTP interceptor and SignalR (or two browser tabs) racing to
+        // rotate the same refresh token at the same instant. Before the rotation was
+        // made atomic (a single ExecuteDeleteAsync), both callers could pass a separate
+        // read-then-write check and both mutate the table, producing an inconsistent
+        // result instead of a clean winner/loser split.
+        var taskA = TryRotateAsync(_service, _userId, original);
+        var taskB = TryRotateAsync(serviceB, _userId, original);
+        var results = await Task.WhenAll(taskA, taskB);
+
+        results.Count(r => r.Success).ShouldBe(1);
+        results.Count(r => !r.Success).ShouldBe(1);
+
+        var remaining = await _context.RefreshToken
+            .Where(rt => rt.AspNetUsersId == _userId)
+            .ToListAsync();
+        remaining.Count.ShouldBe(1);
+        var winnerToken = results.Single(r => r.Success).Token!;
+        (await _service.ValidateRefreshTokenAsync(_userId, winnerToken)).ShouldBeTrue();
+    }
+
+    [Test]
     public async Task RotateRefreshToken_WithUnknownToken_ThrowsAndIssuesNothing()
     {
         await Should.ThrowAsync<InvalidOperationException>(
@@ -137,6 +170,20 @@ public class RefreshTokenRotationTests
         (await _service.ValidateRefreshTokenAsync(_userId, tabA)).ShouldBeFalse();
         (await _service.ValidateRefreshTokenAsync(_userId, tabB)).ShouldBeFalse();
         (await _service.ValidateRefreshTokenAsync(otherUserId, otherUserToken)).ShouldBeTrue();
+    }
+
+    private static async Task<(bool Success, string? Token)> TryRotateAsync(
+        RefreshTokenService service, string userId, string oldToken)
+    {
+        try
+        {
+            var token = await service.RotateRefreshTokenAsync(userId, oldToken);
+            return (true, token);
+        }
+        catch (InvalidOperationException)
+        {
+            return (false, null);
+        }
     }
 
     private DataBaseContext CreateContext()
