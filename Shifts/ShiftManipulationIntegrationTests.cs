@@ -1189,7 +1189,8 @@ public class ShiftManipulationIntegrationTests
         };
         countryResolver.ResolveAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(ch);
         countryResolver.GetDefaultAsync(Arg.Any<CancellationToken>()).Returns(ch);
-        return new CreateEmployeeSkill(CreateClientRepository(), searchRepository, _unitOfWork, countryResolver);
+        return new CreateEmployeeSkill(CreateClientRepository(), searchRepository, _unitOfWork, countryResolver,
+            Substitute.For<Klacks.Api.Domain.Interfaces.Assistant.IPendingConfirmationStore>());
     }
 
     [Test]

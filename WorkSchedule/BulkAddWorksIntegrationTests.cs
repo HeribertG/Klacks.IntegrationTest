@@ -153,6 +153,7 @@ public class BulkAddWorksIntegrationTests
             notificationFacade,
             Substitute.For<IContainerWorkExpansionService>(),
             Substitute.For<IOvertimeCascadeService>(),
+            Substitute.For<IDayLockService>(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
 
         await SetupTestData();
@@ -599,6 +600,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
             notificationFacade,
             Substitute.For<IContainerWorkExpansionService>(),
             Substitute.For<IOvertimeCascadeService>(),
+            Substitute.For<IDayLockService>(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
     }
 
