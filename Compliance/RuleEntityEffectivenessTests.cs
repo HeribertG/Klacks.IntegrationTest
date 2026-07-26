@@ -377,5 +377,14 @@ public class RuleEntityEffectivenessTests
         {
             return _context.Settings.AsNoTracking().FirstOrDefaultAsync(s => s.Type == type);
         }
+
+        public async Task<IReadOnlyDictionary<string, string>> GetSettingsByTypesAsync(IEnumerable<string> types)
+        {
+            var typeList = types.ToList();
+            return await _context.Settings
+                .AsNoTracking()
+                .Where(s => typeList.Contains(s.Type))
+                .ToDictionaryAsync(s => s.Type, s => s.Value);
+        }
     }
 }

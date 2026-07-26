@@ -7,6 +7,7 @@ using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Infrastructure.Email;
 using Klacks.IntegrationTest;
 using Klacks.IntegrationTest.SignalR;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using NUnit.Framework;
@@ -38,17 +39,7 @@ public class EmailAnalysisLlmJsonRobustnessTests
     private const string TestBody =
         "Hallo, ich kann im August jeden Dienstag nur zwischen 06:00 und 17:00 Uhr arbeiten. Danke!";
 
-    private static readonly ScheduleCommandKeywordSet DefaultKeywords = new()
-    {
-        FreeToken = "FREE",
-        NegFreeToken = "-FREE",
-        EarlyToken = "EARLY",
-        NegEarlyToken = "-EARLY",
-        LateToken = "LATE",
-        NegLateToken = "-LATE",
-        NightToken = "NIGHT",
-        NegNightToken = "-NIGHT",
-    };
+    private static readonly ScheduleCommandKeywordSet DefaultKeywords = ScheduleCommandKeywordTestFactory.Default;
 
     private static readonly string[] ProviderUnavailableMarkers =
     [

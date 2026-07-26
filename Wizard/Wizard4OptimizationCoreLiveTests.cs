@@ -18,6 +18,7 @@ using Klacks.ScheduleOptimizer.Harmonizer.Bitmap;
 using Klacks.ScheduleOptimizer.Harmonizer.Conductor;
 using Klacks.ScheduleOptimizer.Harmonizer.Evolution;
 using Klacks.ScheduleOptimizer.Wizard4;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
@@ -103,17 +104,7 @@ public class Wizard4OptimizationCoreLiveTests
             new Klacks.Api.Infrastructure.Repositories.Scheduling.RestrictedTimeWindowRuleRepository(_context),
             _context);
         var keywordProvider = Substitute.For<IScheduleCommandKeywordProvider>();
-        keywordProvider.GetAsync(Arg.Any<CancellationToken>()).Returns(new Klacks.Api.Domain.Models.Schedules.ScheduleCommandKeywordSet
-        {
-            FreeToken = "FREE",
-            NegFreeToken = "-FREE",
-            EarlyToken = "EARLY",
-            NegEarlyToken = "-EARLY",
-            LateToken = "LATE",
-            NegLateToken = "-LATE",
-            NightToken = "NIGHT",
-            NegNightToken = "-NIGHT",
-        });
+        keywordProvider.GetAsync(Arg.Any<CancellationToken>()).Returns(ScheduleCommandKeywordTestFactory.Default);
         var wizardBuilder = new WizardContextBuilder(
             new WizardAgentSnapshotBuilder(provider),
             new WizardShiftBuilder(_context),
