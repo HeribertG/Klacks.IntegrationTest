@@ -102,10 +102,22 @@ public class Wizard4OptimizationCoreLiveTests
         var restrictedWindowBuilder = new WizardRestrictedWindowBuilder(
             new Klacks.Api.Infrastructure.Repositories.Scheduling.RestrictedTimeWindowRuleRepository(_context),
             _context);
+        var keywordProvider = Substitute.For<IScheduleCommandKeywordProvider>();
+        keywordProvider.GetAsync(Arg.Any<CancellationToken>()).Returns(new Klacks.Api.Domain.Models.Schedules.ScheduleCommandKeywordSet
+        {
+            FreeToken = "FREE",
+            NegFreeToken = "-FREE",
+            EarlyToken = "EARLY",
+            NegEarlyToken = "-EARLY",
+            LateToken = "LATE",
+            NegLateToken = "-LATE",
+            NightToken = "NIGHT",
+            NegNightToken = "-NIGHT",
+        });
         var wizardBuilder = new WizardContextBuilder(
             new WizardAgentSnapshotBuilder(provider),
             new WizardShiftBuilder(_context),
-            new WizardHardConstraintBuilder(_context),
+            new WizardHardConstraintBuilder(_context, keywordProvider),
             periodHours,
             provider,
             eligibilityBuilder,
@@ -121,7 +133,8 @@ public class Wizard4OptimizationCoreLiveTests
             new WorkSofteningRepository(_context),
             eligibilityBuilder,
             availabilityService,
-            restrictedWindowBuilder);
+            restrictedWindowBuilder,
+            keywordProvider);
         var bitmapInput = await harmonizerBuilder.BuildContextAsync(
             new HarmonizerContextRequest(from, until, agentIds, null), CancellationToken.None);
 

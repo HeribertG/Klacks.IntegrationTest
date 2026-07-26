@@ -3,6 +3,7 @@
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Domain.Models.Email;
+using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Infrastructure.Email;
 using Klacks.IntegrationTest;
 using Klacks.IntegrationTest.SignalR;
@@ -36,6 +37,18 @@ public class EmailAnalysisLlmJsonRobustnessTests
     private const string TestSubject = "Verfügbarkeit";
     private const string TestBody =
         "Hallo, ich kann im August jeden Dienstag nur zwischen 06:00 und 17:00 Uhr arbeiten. Danke!";
+
+    private static readonly ScheduleCommandKeywordSet DefaultKeywords = new()
+    {
+        FreeToken = "FREE",
+        NegFreeToken = "-FREE",
+        EarlyToken = "EARLY",
+        NegEarlyToken = "-EARLY",
+        LateToken = "LATE",
+        NegLateToken = "-LATE",
+        NightToken = "NIGHT",
+        NegNightToken = "-NIGHT",
+    };
 
     private static readonly string[] ProviderUnavailableMarkers =
     [
@@ -98,7 +111,7 @@ public class EmailAnalysisLlmJsonRobustnessTests
 
         var context = new LLMContext
         {
-            Message = EmailIntentAnalysisService.BuildPrompt(email, EntityTypeEnum.Employee, TestBody),
+            Message = EmailIntentAnalysisService.BuildPrompt(email, EntityTypeEnum.Employee, TestBody, DefaultKeywords),
             ModelId = modelId,
             UserId = userId,
             IsNonConversational = true,
