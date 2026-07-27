@@ -12,11 +12,21 @@ using NUnit.Framework;
 
 namespace Klacks.IntegrationTest.KnowledgeIndex;
 
+/// <summary>
+/// Recall report for the "hard" golden set (knowledge-index-golden-hard.json): queries deliberately
+/// aimed at clusters of semantically overlapping skills/recipes (e.g. the company-rule intake
+/// lifecycle, single-vs-bulk group membership, the near-identical explain_page_* description
+/// template) rather than the well-separated names the original 91-item golden set exercises.
+/// Uses the real ONNX embedding + reranker pipeline directly (same pattern as
+/// <see cref="KnowledgeIndexGoldenSetTests"/>), so it requires the ONNX models and does not run
+/// on Windows ARM64 (Snapdragon X) — see <see cref="KnowledgeIndexHardGoldenSetDiHostTests"/> for
+/// the DI-fallback path that does run there.
+/// </summary>
 [TestFixture]
 [Explicit("Requires ONNX models (~200 MB download) and real DB on port 5434. Run manually only.")]
 [Category("SlowModelLoad")]
 [Category("RealDatabase")]
-public class KnowledgeIndexGoldenSetTests
+public class KnowledgeIndexHardGoldenSetTests
 {
     private const string ConnectionString = "Host=localhost;Port=5434;Database=klacks;Username=postgres;Password=admin";
 
@@ -33,14 +43,13 @@ public class KnowledgeIndexGoldenSetTests
             KnowledgeIndexConstants.RerankerModelName);
 
     private static readonly string GoldenSetPath =
-        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden.json");
+        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard.json");
 
     private record GoldenItem(string Query, string ExpectedSourceId);
 
-    // Multilingual cross-encoder ranking does not yet match every golden item.
-    // The baseline below tolerates known recall gaps; tighten when the index is re-ingested
-    // or the reranker is upgraded.
-    private const double MinPassRate = 0.85;
+    // No baseline gate on purpose: this set exists to MEASURE the confusable-cluster gap, not to
+    // enforce a threshold yet. Once a baseline run has happened, replace this with a real number.
+    private const double MinPassRate = 0.0;
 
     [SetUp]
     public void SkipOnUnsupportedOnnxPlatform()
@@ -50,12 +59,12 @@ public class KnowledgeIndexGoldenSetTests
         // 0% recall regardless of actual retrieval quality. Skip instead of a false failure.
         if (OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
         {
-            Assert.Ignore("ONNX Runtime is unsupported on Windows ARM64 — retrieval is structurally disabled on this host, so top-3 recall cannot be measured here.");
+            Assert.Ignore("ONNX Runtime is unsupported on Windows ARM64 — retrieval is structurally disabled on this host, so recall cannot be measured here. Use KnowledgeIndexHardGoldenSetDiHostTests instead.");
         }
     }
 
     [Test]
-    public async Task GoldenSet_QueriesMeetTop3RecallBaseline()
+    public async Task HardGoldenSet_QueriesMeetTop3RecallBaseline()
     {
         var golden = LoadGoldenSet();
 
@@ -122,7 +131,7 @@ public class KnowledgeIndexGoldenSetTests
 
         passRate.ShouldBeGreaterThanOrEqualTo(
             MinPassRate,
-            $"top-3 recall regressed below baseline ({MinPassRate:P0}). Current: {passRate:P1} ({failures.Count} failures of {golden.Count}).");
+            $"top-3 recall on the hard golden set: {passRate:P1} ({failures.Count} failures of {golden.Count}).");
     }
 
     private static List<GoldenItem> LoadGoldenSet()

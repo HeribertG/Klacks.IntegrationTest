@@ -33,6 +33,9 @@
 		<None Update="KnowledgeIndex\knowledge-index-golden.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
+		<None Update="KnowledgeIndex\knowledge-index-golden-hard.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
 		<None Update="Imports\Fixtures\sample-erp-order-import.xml">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>

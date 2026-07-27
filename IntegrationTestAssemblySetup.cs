@@ -33,8 +33,6 @@ public class IntegrationTestAssemblySetup
     [OneTimeSetUp]
     public async Task GlobalSetup()
     {
-        AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
-
         await EnsureDatabaseInitializedAsync();
     }
 
