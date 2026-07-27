@@ -269,33 +269,6 @@ public class WorkChangeDurationStorageTests
     }
 
     [Test]
-    public async Task OnCallWithinTypes_StoredTimes_SpEchoesRange_AndSoftDeletedExcluded()
-    {
-        await InsertWorkChange(WorkChangeType.OnCallPresence, new TimeOnly(20, 0), new TimeOnly(22, 0), changeTime: 2.0m);
-        var standbyId = await InsertWorkChange(WorkChangeType.OnCallStandby, new TimeOnly(22, 0), new TimeOnly(23, 0), changeTime: 1.0m);
-
-        var entries = await LoadWorkChangeEntries();
-
-        var presence = entries.Single(e => e.WorkChangeType == (int)WorkChangeType.OnCallPresence);
-        presence.ClientId.ShouldBe(_clientId);
-        presence.StartTime.ShouldBe(T(20, 0), "OnCall echoes the stored start time");
-        presence.EndTime.ShouldBe(T(22, 0), "OnCall echoes the stored end time");
-
-        var standby = entries.Single(e => e.WorkChangeType == (int)WorkChangeType.OnCallStandby);
-        standby.StartTime.ShouldBe(T(22, 0));
-        standby.EndTime.ShouldBe(T(23, 0));
-
-        await _context.Database.ExecuteSqlRawAsync(
-            "UPDATE work_change SET is_deleted = true WHERE id = {0}", standbyId);
-
-        var afterDelete = await LoadWorkChangeEntries();
-        afterDelete.ShouldContain(e => e.WorkChangeType == (int)WorkChangeType.OnCallPresence,
-            "the active OnCall entry stays in the feed");
-        afterDelete.ShouldNotContain(e => e.WorkChangeType == (int)WorkChangeType.OnCallStandby,
-            "the soft-deleted OnCall entry must not appear in the feed");
-    }
-
-    [Test]
     public async Task ReplacementStart_DurationOnly_SpBuildsLosingBlockAtShiftStart()
     {
         await InsertWorkChange(WorkChangeType.ReplacementStart, TimeOnly.MinValue, TimeOnly.MinValue, changeTime: 0.5m, replaceClientId: _replaceClientId);

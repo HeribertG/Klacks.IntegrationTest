@@ -341,9 +341,7 @@ public class RuleEntityEffectivenessTests
         services.AddSingleton<ISchedulingPolicyResolver, SchedulingPolicyResolver>();
         services.AddSingleton<IComplianceEnforcementResolver, ComplianceEnforcementResolver>();
         services.AddSingleton<IOvertimeConfigResolver, OvertimeConfigResolver>();
-        services.AddSingleton<IOnCallConfigResolver, OnCallConfigResolver>();
         services.AddSingleton<IClientWorkHoursProvider, ClientWorkHoursProvider>();
-        services.AddSingleton<IClientOnCallHoursProvider, ClientOnCallHoursProvider>();
         services.AddSingleton<IClientMembershipStartResolver, ClientMembershipStartResolver>();
         services.AddSingleton<IWeekConfiguration, Klacks.Api.Infrastructure.Services.WeekConfiguration>();
         services.AddSingleton<IPeriodCapRuleRepository, PeriodCapRuleRepository>();

@@ -139,36 +139,6 @@ public class UspSettingsEffectivenessTests
     }
 
     [Test]
-    public async Task OnCallConfigResolver_Settings_DriveResolvedConfigAndWeighting()
-    {
-        var resolver = new OnCallConfigResolver(_context);
-
-        await UpsertSettingAsync(SettingKeys.WorktimeOnCallEnabled, "true");
-        await UpsertSettingAsync(SettingKeys.WorktimeOnCallPresenceCountsPercent, "60");
-        await UpsertSettingAsync(SettingKeys.WorktimeOnCallStandbyCountsPercent, "25");
-        await UpsertSettingAsync(SettingKeys.WorktimeOnCallIncludeInPeriodCaps, "true");
-
-        var configA = await resolver.ResolveAsync();
-
-        configA.Enabled.ShouldBeTrue();
-        configA.PresenceFactor.ShouldBe(0.60m);
-        configA.StandbyFactor.ShouldBe(0.25m);
-        configA.IncludeInPeriodCaps.ShouldBeTrue();
-        configA.FactorFor(WorkChangeType.OnCallPresence).ShouldBe(0.60m);
-        configA.FactorFor(WorkChangeType.OnCallStandby).ShouldBe(0.25m);
-
-        await UpsertSettingAsync(SettingKeys.WorktimeOnCallEnabled, "false");
-        await UpsertSettingAsync(SettingKeys.WorktimeOnCallIncludeInPeriodCaps, "false");
-
-        var configB = await resolver.ResolveAsync();
-
-        configB.Enabled.ShouldBeFalse("disabling WORKTIME_ONCALL_ENABLED must turn the feature off");
-        configB.IncludeInPeriodCaps.ShouldBeFalse();
-        configB.FactorFor(WorkChangeType.OnCallPresence)
-            .ShouldBe(0m, "a disabled on-call feature must contribute zero hours regardless of the percent settings");
-    }
-
-    [Test]
     public async Task ClientContractDataProvider_NightWindowSettings_DriveContractlessDefaults()
     {
         var provider = new ClientContractDataProvider(_context);
