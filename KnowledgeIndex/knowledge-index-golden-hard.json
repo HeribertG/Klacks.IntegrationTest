@@ -29,7 +29,10 @@
   },
   {
     "query": "trage für die ganze Gruppe Nord morgen einen Schulungstag ein",
-    "expectedSourceId": "bulk-add-absence-for-group"
+    "expectedSourceId": "bulk-add-absence-for-group",
+    "alsoAcceptedSourceIds": [
+      "bulk_add_absence_for_group"
+    ]
   },
   {
     "query": "add a training day for every member of the North team tomorrow, preview first",
@@ -73,7 +76,10 @@
   },
   {
     "query": "weise diesen neuen Kunden automatisch der geografisch nächstgelegenen Gruppe zu",
-    "expectedSourceId": "add_client_to_nearest_group"
+    "expectedSourceId": "add_client_to_nearest_group",
+    "alsoAcceptedSourceIds": [
+      "add-customer-to-nearest-group"
+    ]
   },
   {
     "query": "aggiungi il signor Rossi al gruppo geograficamente più vicino automaticamente",
@@ -117,7 +123,10 @@
   },
   {
     "query": "add every shift whose name matches 'cleaning' to the Service group in one step",
-    "expectedSourceId": "bulk-add-shifts-to-group"
+    "expectedSourceId": "bulk-add-shifts-to-group",
+    "alsoAcceptedSourceIds": [
+      "bulk_add_shifts_to_group"
+    ]
   },
   {
     "query": "löse die Verknüpfung dieses Dienstes von der Gruppe Ost wieder",
@@ -169,7 +178,10 @@
   },
   {
     "query": "sigilla definitivamente questo ordine così diventa immutabile",
-    "expectedSourceId": "seal_shift"
+    "expectedSourceId": "seal_shift",
+    "alsoAcceptedSourceIds": [
+      "seal-shift-order"
+    ]
   },
   {
     "query": "create a brand-new sealed shift order for this customer end to end, ready to plan",

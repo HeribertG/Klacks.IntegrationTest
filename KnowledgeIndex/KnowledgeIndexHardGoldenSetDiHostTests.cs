@@ -38,8 +38,6 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
     private static readonly string GoldenSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard.json");
 
-    private record GoldenItem(string Query, string ExpectedSourceId);
-
     private sealed class NoOpUiControlRepository : IUiControlRepository
     {
         public Task<List<UiControl>> GetByPageKeyAsync(string pageKey, CancellationToken cancellationToken = default) =>
@@ -129,7 +127,7 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             var queryVec = await embeddingProvider.EmbedQueryAsync(item.Query, CancellationToken.None);
             var preRerankCandidates = await repository.FindNearestAsync(
                 queryVec, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, CancellationToken.None);
-            if (preRerankCandidates.Any(c => c.SourceId.Equals(item.ExpectedSourceId, StringComparison.OrdinalIgnoreCase)))
+            if (preRerankCandidates.Any(c => item.Accepts(c.SourceId)))
             {
                 preRerankRecallHits++;
             }
@@ -138,24 +136,24 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
                 item.Query, [], isAdmin: true, topK: 3, currentRoute: null, CancellationToken.None);
 
             var isTop1 = result.Candidates.Count > 0 &&
-                result.Candidates[0].Entry.SourceId.Equals(item.ExpectedSourceId, StringComparison.OrdinalIgnoreCase);
+                item.Accepts(result.Candidates[0].Entry.SourceId);
             if (isTop1)
             {
                 top1Hits++;
             }
 
             var foundTop3 = result.Candidates.Any(c =>
-                c.Entry.SourceId.Equals(item.ExpectedSourceId, StringComparison.OrdinalIgnoreCase));
+                item.Accepts(c.Entry.SourceId));
             if (!foundTop3)
             {
                 var top3 = string.Join(", ", result.Candidates.Select(c => c.Entry.SourceId));
-                failures.Add($"Query '{item.Query}': expected '{item.ExpectedSourceId}' in top-3, got [{top3}]");
+                failures.Add($"Query '{item.Query}': expected '{item.ExpectedDisplay}' in top-3, got [{top3}]");
             }
 
             if (!isTop1)
             {
                 var top3Scored = string.Join(", ", result.Candidates.Select(c => $"{c.Entry.SourceId}={c.Score:F4}"));
-                top1Misses.Add($"TOP1MISS | expected={item.ExpectedSourceId} | query=\"{item.Query}\" | top3=[{top3Scored}]");
+                top1Misses.Add($"TOP1MISS | expected={item.ExpectedDisplay} | query=\"{item.Query}\" | top3=[{top3Scored}]");
             }
         }
 
@@ -180,12 +178,5 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
         golden.Count.ShouldBeGreaterThan(0);
     }
 
-    private static List<GoldenItem> LoadGoldenSet()
-    {
-        var json = File.ReadAllText(GoldenSetPath);
-        var raw = JsonSerializer.Deserialize<JsonElement[]>(json)!;
-        return raw.Select(e => new GoldenItem(
-            e.GetProperty("query").GetString()!,
-            e.GetProperty("expectedSourceId").GetString()!)).ToList();
-    }
+    private static List<HardGoldenSetItem> LoadGoldenSet() => HardGoldenSetItem.Load(GoldenSetPath);
 }

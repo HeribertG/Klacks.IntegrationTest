@@ -45,8 +45,6 @@ public class KnowledgeIndexHardGoldenSetTests
     private static readonly string GoldenSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard.json");
 
-    private record GoldenItem(string Query, string ExpectedSourceId);
-
     // No baseline gate on purpose: this set exists to MEASURE the confusable-cluster gap, not to
     // enforce a threshold yet. Once a baseline run has happened, replace this with a real number.
     private const double MinPassRate = 0.0;
@@ -86,7 +84,7 @@ public class KnowledgeIndexHardGoldenSetTests
             var queryVec = await embeddingProvider.EmbedQueryAsync(item.Query, CancellationToken.None);
             var preRerankCandidates = await repo.FindNearestAsync(
                 queryVec, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, CancellationToken.None);
-            if (preRerankCandidates.Any(c => c.SourceId.Equals(item.ExpectedSourceId, StringComparison.OrdinalIgnoreCase)))
+            if (preRerankCandidates.Any(c => item.Accepts(c.SourceId)))
             {
                 preRerankRecallHits++;
             }
@@ -95,10 +93,10 @@ public class KnowledgeIndexHardGoldenSetTests
                 item.Query, [], isAdmin: true, topK: 3, currentRoute: null, CancellationToken.None);
 
             var found = result.Candidates.Any(c =>
-                c.Entry.SourceId.Equals(item.ExpectedSourceId, StringComparison.OrdinalIgnoreCase));
+                item.Accepts(c.Entry.SourceId));
 
             if (result.Candidates.Count > 0 &&
-                result.Candidates[0].Entry.SourceId.Equals(item.ExpectedSourceId, StringComparison.OrdinalIgnoreCase))
+                item.Accepts(result.Candidates[0].Entry.SourceId))
             {
                 top1Hits++;
             }
@@ -106,7 +104,7 @@ public class KnowledgeIndexHardGoldenSetTests
             if (!found)
             {
                 var top3 = string.Join(", ", result.Candidates.Select(c => c.Entry.SourceId));
-                failures.Add($"Query '{item.Query}': expected '{item.ExpectedSourceId}' in top-3, got [{top3}]");
+                failures.Add($"Query '{item.Query}': expected '{item.ExpectedDisplay}' in top-3, got [{top3}]");
             }
         }
 
@@ -134,12 +132,5 @@ public class KnowledgeIndexHardGoldenSetTests
             $"top-3 recall on the hard golden set: {passRate:P1} ({failures.Count} failures of {golden.Count}).");
     }
 
-    private static List<GoldenItem> LoadGoldenSet()
-    {
-        var json = File.ReadAllText(GoldenSetPath);
-        var raw = JsonSerializer.Deserialize<JsonElement[]>(json)!;
-        return raw.Select(e => new GoldenItem(
-            e.GetProperty("query").GetString()!,
-            e.GetProperty("expectedSourceId").GetString()!)).ToList();
-    }
+    private static List<HardGoldenSetItem> LoadGoldenSet() => HardGoldenSetItem.Load(GoldenSetPath);
 }
