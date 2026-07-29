@@ -1,15 +1,11 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 /// <summary>
-/// One case of the hard golden set, shared by both runners so they score identically.
-/// Some queries have more than one defensible target: the catalog contains recipe/skill pairs for the
-/// same action (bulk-add-absence-for-group vs. bulk_add_absence_for_group), where the recipe is the
-/// guided flow and the skill does the same job in one call with a preview mode. Forcing a single
-/// answer there measures an arbitrary preference rather than retrieval quality, so a case may list
-/// additional accepted targets via "alsoAcceptedSourceIds".
-/// This is deliberately narrow: it exists for genuinely equivalent targets, NOT to wave through
-/// misses. Whether the catalog should carry both variants at all is a product question, not a
-/// retrieval one.
+/// One case of the hard golden set, shared by both runners so they score identically. Some queries
+/// have more than one defensible target, so a case may list additional accepted targets via
+/// "alsoAcceptedSourceIds". This is deliberately narrow: it exists for genuinely equivalent targets,
+/// NOT to wave through misses — the recipe/skill duplicates that originally motivated this field were
+/// resolved 2026-07-28 in favour of the skill.
 /// </summary>
 
 using System.Text.Json;
@@ -19,7 +15,8 @@ namespace Klacks.IntegrationTest.KnowledgeIndex;
 internal sealed record HardGoldenSetItem(
     string Query,
     string ExpectedSourceId,
-    IReadOnlyList<string> AlsoAcceptedSourceIds)
+    IReadOnlyList<string> AlsoAcceptedSourceIds,
+    string Lang)
 {
     public bool Accepts(string sourceId) =>
         sourceId.Equals(ExpectedSourceId, StringComparison.OrdinalIgnoreCase)
@@ -38,7 +35,8 @@ internal sealed record HardGoldenSetItem(
             e.GetProperty("expectedSourceId").GetString()!,
             e.TryGetProperty("alsoAcceptedSourceIds", out var also)
                 ? also.EnumerateArray().Select(a => a.GetString()!).ToList()
-                : []))
+                : [],
+            e.TryGetProperty("lang", out var lang) ? lang.GetString()! : "unknown"))
             .ToList();
     }
 }

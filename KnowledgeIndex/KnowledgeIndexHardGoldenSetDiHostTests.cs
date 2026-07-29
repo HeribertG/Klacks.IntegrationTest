@@ -141,7 +141,7 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             $"{KnowledgeIndexConstants.DefaultTopK}: {coreHits + extHits}/{core.Count + extended.Count} = " +
             $"{(double)(coreHits + extHits) / (core.Count + extended.Count):P1}");
 
-        await ReportOffTopicWidthAsync(retrieval);
+        await ReportOffTopicWidthAsync(retrieval, embeddingProvider, repository, reranker);
 
         core.Count.ShouldBeGreaterThan(0);
         extended.Count.ShouldBeGreaterThan(0);
@@ -180,6 +180,9 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
         var cutoffFreeRecallHits = 0;
         var targetScores = new List<double>();
         var hitRanks = new List<int>();
+        var sweepHits = new int[CutoffSweep.Length];
+        var perLanguageHits = new Dictionary<string, int>();
+        var perLanguageTotal = new Dictionary<string, int>();
 
         foreach (var item in golden)
         {
@@ -206,12 +209,32 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
                 toolsetRecallHits++;
             }
 
+            // Split by language so a single-language index can be compared against the mixed one on the
+            // questions it is supposed to serve. Without this split, building the index from one
+            // language would help German questions and hurt the rest, and the total would hide both.
+            perLanguageTotal[item.Lang] = perLanguageTotal.GetValueOrDefault(item.Lang) + 1;
+            if (toolsetHit)
+            {
+                perLanguageHits[item.Lang] = perLanguageHits.GetValueOrDefault(item.Lang) + 1;
+            }
+
             // Ranked for EVERY case, not just the failures: the "recall if the cutoff were removed"
             // figure must be measured, not extrapolated from the failures alone. Removing the cutoff
             // lets more candidates survive into Take(topK), so in principle a target that fits today
             // could be pushed out. Counting rank < DefaultTopK across all cases settles that directly.
-            var (cause, detail, targetRank, targetScore) =
+            var (cause, detail, targetRank, targetScore, ranked) =
                 await ClassifyTargetAsync(item, preRerankCandidates, reranker);
+
+            // All candidate scores are already computed, so every candidate cutoff can be evaluated
+            // from the same pass. Measuring the alternatives together is what makes gain and price
+            // comparable; picking one value and reporting only its result would hide the trade-off.
+            for (var c = 0; c < CutoffSweep.Length; c++)
+            {
+                if (TargetSurvives(ranked, item, CutoffSweep[c]))
+                {
+                    sweepHits[c]++;
+                }
+            }
 
             if (targetRank >= 0 && targetRank < KnowledgeIndexConstants.DefaultTopK)
             {
@@ -298,6 +321,23 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
                 $"cannot push a current hit out)");
         }
 
+        TestContext.WriteLine($"--- Toolset recall@{KnowledgeIndexConstants.DefaultTopK} per query language ---");
+        foreach (var lang in perLanguageTotal.Keys.OrderBy(k => k))
+        {
+            var hits = perLanguageHits.GetValueOrDefault(lang);
+            TestContext.WriteLine(
+                $"  {lang}: {hits}/{perLanguageTotal[lang]} = {(double)hits / perLanguageTotal[lang]:P1}");
+        }
+
+        TestContext.WriteLine($"--- Toolset recall@{KnowledgeIndexConstants.DefaultTopK} per score cutoff ---");
+        for (var c = 0; c < CutoffSweep.Length; c++)
+        {
+            var marker = CutoffSweep[c] == KnowledgeIndexConstants.DefaultScoreCutoff ? "  <- current" : string.Empty;
+            TestContext.WriteLine(
+                $"  cutoff {CutoffSweep[c]:F4}: {sweepHits[c]}/{golden.Count} = " +
+                $"{(double)sweepHits[c] / golden.Count:P1}{marker}");
+        }
+
         var toolsetMisses = golden.Count - toolsetRecallHits;
         TestContext.WriteLine(
             $"--- Why the {toolsetMisses} toolset misses happened (decides which fix applies) ---");
@@ -330,17 +370,33 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
     /// price side of relaxing the score cutoff: the cutoff is what currently keeps an off-topic
     /// question from being answered with a full toolset, and DefaultTopK alone does not do that.
     /// </summary>
-    private static async Task ReportOffTopicWidthAsync(IKnowledgeRetrievalService retrieval)
+    private static async Task ReportOffTopicWidthAsync(
+        IKnowledgeRetrievalService retrieval,
+        IEmbeddingProvider embeddingProvider,
+        IKnowledgeIndexRepository repository,
+        IRerankerProvider reranker)
     {
         var queries = JsonSerializer.Deserialize<string[]>(File.ReadAllText(OffTopicPath))!;
         var widths = new List<int>();
+        var sweepWidths = new int[CutoffSweep.Length];
 
         foreach (var query in queries)
         {
             var result = await retrieval.RetrieveAsync(
                 query, [], isAdmin: true, KnowledgeIndexConstants.DefaultTopK, currentRoute: null, CancellationToken.None);
             widths.Add(result.Candidates.Count);
-            TestContext.WriteLine($"OFFTOPIC | {result.Candidates.Count} entries | \"{query}\"");
+
+            var queryVec = await embeddingProvider.EmbedQueryAsync(query, CancellationToken.None);
+            var candidates = await repository.FindNearestAsync(
+                queryVec, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, CancellationToken.None);
+            var scores = await reranker.ScoreAsync(
+                query, candidates.Select(c => c.Text).ToList(), CancellationToken.None);
+
+            for (var c = 0; c < CutoffSweep.Length; c++)
+            {
+                sweepWidths[c] += Math.Min(
+                    scores.Count(s => s >= CutoffSweep[c]), KnowledgeIndexConstants.DefaultTopK);
+            }
         }
 
         TestContext.WriteLine(
@@ -348,7 +404,34 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             $"entries handed to the model: min={widths.Min()} max={widths.Max()} " +
             $"avg={widths.Average():F1} (cap is {KnowledgeIndexConstants.DefaultTopK}); " +
             $"questions answered with zero tools: {widths.Count(w => w == 0)}");
+
+        // The price of every cutoff in the sweep: entries a question with no valid tool would carry
+        // into the prompt. Recall gain is meaningless without this column next to it.
+        TestContext.WriteLine("--- Off-topic entries per score cutoff (avg per question) ---");
+        for (var c = 0; c < CutoffSweep.Length; c++)
+        {
+            var marker = CutoffSweep[c] == KnowledgeIndexConstants.DefaultScoreCutoff ? "  <- current" : string.Empty;
+            TestContext.WriteLine(
+                $"  cutoff {CutoffSweep[c]:F4}: {(double)sweepWidths[c] / queries.Length:F1} entries{marker}");
+        }
     }
+
+    // Candidate score cutoffs, current production value first so every run reproduces the baseline
+    // alongside the alternatives.
+    private static readonly double[] CutoffSweep = [0.05, 0.02, 0.01, 0.005, 0.001, 0.0];
+
+    /// <summary>
+    /// Whether the target would reach the toolset at the given cutoff. Mirrors production order:
+    /// filter by raw score, then take the first DefaultTopK.
+    /// </summary>
+    private static bool TargetSurvives(
+        IReadOnlyList<(KnowledgeEntry Entry, double Score)> ranked,
+        HardGoldenSetItem item,
+        double cutoff) =>
+        ranked
+            .Where(x => x.Score >= cutoff)
+            .Take(KnowledgeIndexConstants.DefaultTopK)
+            .Any(x => item.Accepts(x.Entry.SourceId));
 
     private enum ToolsetMissCause
     {
@@ -367,7 +450,8 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
     /// with currentRoute = null. Runs only for failing cases, keeping the extra cross-encoder work
     /// proportional to the miss count rather than to the whole golden set.
     /// </summary>
-    private static async Task<(ToolsetMissCause Cause, string Detail, int TargetRank, double TargetScore)>
+    private static async Task<(ToolsetMissCause Cause, string Detail, int TargetRank, double TargetScore,
+        IReadOnlyList<(KnowledgeEntry Entry, double Score)> Ranked)>
         ClassifyTargetAsync(
         HardGoldenSetItem item,
         IReadOnlyList<KnowledgeEntry> preRerankCandidates,
@@ -378,7 +462,7 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             return (ToolsetMissCause.RetrieverMiss,
                 $"MISS/retriever | expected={item.ExpectedDisplay} | query=\"{item.Query}\" | " +
                 $"not among the {KnowledgeIndexConstants.MaxRerankerCandidates} KNN candidates",
-                -1, double.NaN);
+                -1, double.NaN, []);
         }
 
         var wrappedEndpoints = preRerankCandidates
@@ -395,7 +479,7 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             return (ToolsetMissCause.WrapFilter,
                 $"MISS/wrap-filter | expected={item.ExpectedDisplay} | query=\"{item.Query}\" | " +
                 $"removed as an endpoint already wrapped by a skill",
-                -1, double.NaN);
+                -1, double.NaN, []);
         }
 
         var scores = await reranker.ScoreAsync(
@@ -423,7 +507,7 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             $"MISS/{cause} | expected={item.ExpectedDisplay} | query=\"{item.Query}\" | " +
             $"score={targetScore:F4} (cutoff={KnowledgeIndexConstants.DefaultScoreCutoff}) | " +
             $"rank={rawRank + 1} of {ranked.Count} (topK={KnowledgeIndexConstants.DefaultTopK})",
-            rawRank, targetScore);
+            rawRank, targetScore, ranked);
     }
 
     private static List<HardGoldenSetItem> LoadGoldenSet() => HardGoldenSetItem.Load(GoldenSetPath);
