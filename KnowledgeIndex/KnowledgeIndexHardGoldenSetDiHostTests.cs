@@ -439,8 +439,11 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
     }
 
     // Candidate score cutoffs, current production value first so every run reproduces the baseline
-    // alongside the alternatives.
-    private static readonly double[] CutoffSweep = [0.05, 0.02, 0.01, 0.005, 0.001, 0.0];
+    // alongside the alternatives. The steps between 0.001 and 0.0 are not decoration: every target
+    // this set currently loses to the cutoff scores between 0.0001 and 0.0009, so the whole decision
+    // lives in that interval. Sweeping only 0.001 -> 0.0 forces a choice between keeping the losses
+    // and handing an off-topic question the full toolset, with nothing measured in between.
+    private static readonly double[] CutoffSweep = [0.05, 0.02, 0.01, 0.005, 0.001, 0.0005, 0.0002, 0.0001, 0.0];
 
     /// <summary>
     /// Whether the target would reach the toolset at the given cutoff. Mirrors production order:
