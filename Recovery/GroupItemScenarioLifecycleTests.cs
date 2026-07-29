@@ -55,7 +55,7 @@ public sealed class GroupItemScenarioLifecycleTests : WizardHarnessTestBase
         var rows = await Context.Set<GroupItem>().IgnoreQueryFilters()
             .Where(gi => gi.ClientId == clientId && gi.GroupId == groupId
                 && (gi.AnalyseToken != null || gi.ScenarioSourceGroupItemId != null
-                    || gi.ValidFrom == From.ToDateTime(TimeOnly.MinValue)))
+                    || gi.ValidFrom == From.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc)))
             .ToListAsync();
         if (rows.Count > 0)
         {
