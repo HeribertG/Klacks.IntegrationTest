@@ -207,6 +207,7 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
         var singleHits = 0;
         var facetHits = 0;
         var combinedHits = 0;
+        var fusedHits = 0;
         var rescued = new List<string>();
         var lost = new List<string>();
 
@@ -232,21 +233,38 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
                         Dot(queryVector, s.Vector),
                         facetsBySkill.TryGetValue(s.SourceId, out var fv) ? fv.Max(v => Dot(queryVector, v)) : float.MinValue))));
 
+            // Taking the maximum lets one incidentally matching short phrase override an otherwise
+            // solid whole-text score, which is why it loses more than it gains. Rank fusion cannot do
+            // that: a second list can only add evidence for a skill, never overwrite the first list's
+            // verdict. This is the shape production already uses for dense + lexical, so measuring it
+            // here decides whether phrases are worth adding as a third source.
+            var rankBySingle = RankMap(singleVectors.Select(s => (s.SourceId, Dot(queryVector, s.Vector))));
+            var rankByFacet = RankMap(facetsBySkill.Select(kv => (kv.Key, kv.Value.Max(v => Dot(queryVector, v)))));
+            var fusedRank = RankOf(
+                item.ExpectedSourceId,
+                rankBySingle.Select(kv => (
+                    kv.Key,
+                    Score: ReciprocalRank(kv.Value) +
+                           (rankByFacet.TryGetValue(kv.Key, out var fr) ? ReciprocalRank(fr) : 0f))));
+
             var singleIn = singleRank > 0 && singleRank <= RecallCutoff;
             var facetIn = facetRank > 0 && facetRank <= RecallCutoff;
             var combinedIn = combinedRank > 0 && combinedRank <= RecallCutoff;
+            var fusedIn = fusedRank > 0 && fusedRank <= RecallCutoff;
 
             if (singleIn) singleHits++;
             if (facetIn) facetHits++;
             if (combinedIn) combinedHits++;
+            if (fusedIn) fusedHits++;
 
-            if (!singleIn && combinedIn)
+            // Reported for the fusion variant, since that is the one under consideration.
+            if (!singleIn && fusedIn)
             {
-                rescued.Add($"  RESCUED | {item.ExpectedSourceId} | \"{item.Query}\" | single=#{singleRank} -> combined=#{combinedRank}");
+                rescued.Add($"  RESCUED | {item.ExpectedSourceId} | \"{item.Query}\" | single=#{singleRank} -> fused=#{fusedRank}");
             }
-            else if (singleIn && !combinedIn)
+            else if (singleIn && !fusedIn)
             {
-                lost.Add($"  LOST | {item.ExpectedSourceId} | \"{item.Query}\" | single=#{singleRank} -> combined=#{combinedRank}");
+                lost.Add($"  LOST | {item.ExpectedSourceId} | \"{item.Query}\" | single=#{singleRank} -> fused=#{fusedRank}");
             }
         }
 
@@ -254,11 +272,36 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
         TestContext.WriteLine($"  recall@{RecallCutoff} single vector (today):   {singleHits}/{golden.Count} = {(double)singleHits / golden.Count:P1}");
         TestContext.WriteLine($"  recall@{RecallCutoff} phrase facets only:     {facetHits}/{golden.Count} = {(double)facetHits / golden.Count:P1}");
         TestContext.WriteLine($"  recall@{RecallCutoff} both (max per skill):   {combinedHits}/{golden.Count} = {(double)combinedHits / golden.Count:P1}");
-        TestContext.WriteLine($"  net change: {combinedHits - singleHits:+#;-#;0} cases");
+        TestContext.WriteLine($"  recall@{RecallCutoff} RRF fusion (k={KnowledgeIndexConstants.ReciprocalRankFusionK}):    {fusedHits}/{golden.Count} = {(double)fusedHits / golden.Count:P1}");
+        TestContext.WriteLine($"  net change (max):    {combinedHits - singleHits:+#;-#;0} cases");
+        TestContext.WriteLine($"  net change (fusion): {fusedHits - singleHits:+#;-#;0} cases");
 
         foreach (var line in rescued) TestContext.WriteLine(line);
         foreach (var line in lost) TestContext.WriteLine(line);
     }
+
+    /// <summary>
+    /// One-based rank per skill for a scored universe, so two rankings can be fused by position
+    /// instead of by score — raw scores from a whole-text vector and from a short phrase are not on
+    /// a comparable scale, which is precisely why taking their maximum misbehaves.
+    /// </summary>
+    private static Dictionary<string, int> RankMap(IEnumerable<(string SourceId, float Score)> scored)
+    {
+        var ordered = scored.OrderByDescending(s => s.Score).ToList();
+        var map = new Dictionary<string, int>(ordered.Count, StringComparer.Ordinal);
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            map.TryAdd(ordered[i].SourceId, i + 1);
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// Reciprocal rank contribution of one list, using the same constant as production fusion.
+    /// </summary>
+    private static float ReciprocalRank(int rank) =>
+        1f / (KnowledgeIndexConstants.ReciprocalRankFusionK + rank);
 
     /// <summary>
     /// One-based rank of the expected skill in a scored universe; 0 when it is absent.
