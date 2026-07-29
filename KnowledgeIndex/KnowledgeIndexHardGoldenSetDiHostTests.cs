@@ -183,15 +183,27 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
         var sweepHits = new int[CutoffSweep.Length];
         var perLanguageHits = new Dictionary<string, int>();
         var perLanguageTotal = new Dictionary<string, int>();
+        var perLanguagePreHits = new Dictionary<string, int>();
+        var perLanguagePreTotal = new Dictionary<string, int>();
 
         foreach (var item in golden)
         {
             var queryVec = await embeddingProvider.EmbedQueryAsync(item.Query, CancellationToken.None);
             var preRerankCandidates = await repository.FindNearestAsync(
                 queryVec, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, CancellationToken.None);
-            if (preRerankCandidates.Any(c => item.Accepts(c.SourceId)))
+            var preRerankHit = preRerankCandidates.Any(c => item.Accepts(c.SourceId));
+            if (preRerankHit)
             {
                 preRerankRecallHits++;
+            }
+
+            // Pre-rerank recall is the sensitive figure for anything that changes the embedded text:
+            // it measures the vector search alone. Toolset recall is capped by it and, after the floor
+            // fix, sits close enough to that cap that a real improvement could hide inside the ceiling.
+            perLanguagePreTotal[item.Lang] = perLanguagePreTotal.GetValueOrDefault(item.Lang) + 1;
+            if (preRerankHit)
+            {
+                perLanguagePreHits[item.Lang] = perLanguagePreHits.GetValueOrDefault(item.Lang) + 1;
             }
 
             // The production toolset is DefaultTopK entries wide, not one: the model receives the whole
@@ -327,6 +339,16 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             var hits = perLanguageHits.GetValueOrDefault(lang);
             TestContext.WriteLine(
                 $"  {lang}: {hits}/{perLanguageTotal[lang]} = {(double)hits / perLanguageTotal[lang]:P1}");
+        }
+
+        TestContext.WriteLine(
+            $"--- Pre-rerank recall@{KnowledgeIndexConstants.MaxRerankerCandidates} per query language " +
+            $"(vector search alone) ---");
+        foreach (var lang in perLanguagePreTotal.Keys.OrderBy(k => k))
+        {
+            var hits = perLanguagePreHits.GetValueOrDefault(lang);
+            TestContext.WriteLine(
+                $"  {lang}: {hits}/{perLanguagePreTotal[lang]} = {(double)hits / perLanguagePreTotal[lang]:P1}");
         }
 
         TestContext.WriteLine($"--- Toolset recall@{KnowledgeIndexConstants.DefaultTopK} per score cutoff ---");
