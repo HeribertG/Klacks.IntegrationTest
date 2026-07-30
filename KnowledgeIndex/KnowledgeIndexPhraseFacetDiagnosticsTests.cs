@@ -59,6 +59,13 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
     // drowning the report: the question is what wins, not the full ordering.
     private const int TopNeighboursShown = 6;
 
+    private const string GermanLanguageTag = "de";
+
+    // The labels the synchronizer writes; the rebuilt text has to reproduce them exactly, otherwise
+    // the comparison measures a formatting change instead of the language filter.
+    private const string KeywordsSectionLabel = "Keywords: ";
+    private const string SynonymsSectionLabel = "Synonyms: ";
+
     private static readonly string GoldenSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard.json");
 
@@ -198,6 +205,118 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
 
         core.Count.ShouldBeGreaterThan(0);
         extended.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// Measures what the language grouping was actually built for. Today every index text carries the
+    /// phrases of all five languages at once — `search_shifts` holds 6 German phrases next to roughly
+    /// 25 English, French, Italian and Polish ones — and mean pooling averages them into one vector.
+    /// A German query is therefore matched against a point that is four fifths determined by languages
+    /// it will never use.
+    ///
+    /// This rebuilds each entry's text with only the query language plus the language-neutral `mul`
+    /// phrases, and re-measures the 79 German cases against it. Unlike the phrase-facet variants, this
+    /// does not add competition — it removes what is provably irrelevant for the query at hand, which
+    /// is the opposite operation and the reason it is worth measuring separately.
+    ///
+    /// German only, deliberately: the golden sets label everything else merely as "other", and
+    /// inventing a language detector for a diagnostic would measure the detector, not the idea.
+    /// </summary>
+    [Test]
+    public async Task LanguageFilteredIndexText_VersusMixedLanguage_ForGermanCases()
+    {
+        var ct = CancellationToken.None;
+        using var scope = _factory.Services.CreateScope();
+        var embedding = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+        var phraseRepository = scope.ServiceProvider.GetRequiredService<ISkillPhraseRepository>();
+
+        TestContext.WriteLine($"Active embedding space: {embedding.EmbeddingSpaceId}");
+
+        var hashes = await repository.GetAllHashesAsync(ct);
+        var entries = await repository.GetByKeysAsync(hashes.Keys.ToList(), ct);
+        var phrases = (await phraseRepository.GetAllActiveAsync(ct))
+            .Where(p => !string.IsNullOrWhiteSpace(p.Phrase))
+            .ToList();
+
+        // Language IS NULL is the storage form of "mul" — identical in every language, so it stays.
+        var keptByOwner = phrases
+            .Where(p => p.Language is null || string.Equals(p.Language, GermanLanguageTag, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(p => p.OwnerName, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+
+        var rebuilt = new List<string>(entries.Count);
+        var sourceIds = new List<string>(entries.Count);
+        foreach (var entry in entries)
+        {
+            var cut = entry.Text.IndexOf(KeywordsSectionLabel, StringComparison.Ordinal);
+            var basis = cut >= 0 ? entry.Text[..cut] : entry.Text;
+            keptByOwner.TryGetValue(entry.SourceId, out var kept);
+
+            var keywords = kept?.Where(p => p.Kind == SkillPhraseKinds.Keyword).Select(p => p.Phrase) ?? [];
+            var synonyms = kept?.Where(p => p.Kind == SkillPhraseKinds.Synonym).Select(p => p.Phrase) ?? [];
+            rebuilt.Add($"{basis}{KeywordsSectionLabel}{string.Join(", ", keywords)}\n{SynonymsSectionLabel}{string.Join(", ", synonyms)}");
+            sourceIds.Add(entry.SourceId);
+        }
+
+        var before = entries.Sum(e => e.Text.Length);
+        var after = rebuilt.Sum(t => t.Length);
+        TestContext.WriteLine(
+            $"Index text rebuilt for {rebuilt.Count} entries: {before} -> {after} characters " +
+            $"({(double)(before - after) / before:P1} removed by dropping foreign-language phrases)");
+
+        var filteredVectors = new List<(string SourceId, float[] Vector)>(rebuilt.Count);
+        for (var start = 0; start < rebuilt.Count; start += EmbedChunkSize)
+        {
+            var chunk = rebuilt.Skip(start).Take(EmbedChunkSize).ToList();
+            var embedded = await embedding.EmbedBatchAsync(chunk, ct);
+            for (var i = 0; i < embedded.Length; i++)
+            {
+                filteredVectors.Add((sourceIds[start + i], Normalize(embedded[i])));
+            }
+
+            TestContext.WriteLine($"  embedded {filteredVectors.Count}/{rebuilt.Count} rebuilt texts");
+        }
+
+        var storedVectors = entries
+            .Where(e => e.Embedding.Length > 0)
+            .Select(e => (e.SourceId, Vector: Normalize(e.Embedding)))
+            .ToList();
+
+        foreach (var (label, path) in new[] { ("CORE", GoldenSetPath), ("EXTENDED", ExtendedGoldenSetPath) })
+        {
+            var german = LoadGolden(path)
+                .Where(i => string.Equals(i.Lang, GermanLanguageTag, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            var mixedHits = 0;
+            var filteredHits = 0;
+            var moves = new List<string>();
+
+            foreach (var item in german)
+            {
+                var queryVector = Normalize(await embedding.EmbedQueryAsync(item.Query, ct));
+                var mixedRank = RankOf(item.ExpectedSourceId, storedVectors.Select(v => (v.SourceId, Dot(queryVector, v.Vector))));
+                var filteredRank = RankOf(item.ExpectedSourceId, filteredVectors.Select(v => (v.SourceId, Dot(queryVector, v.Vector))));
+
+                var mixedIn = mixedRank > 0 && mixedRank <= RecallCutoff;
+                var filteredIn = filteredRank > 0 && filteredRank <= RecallCutoff;
+                if (mixedIn) mixedHits++;
+                if (filteredIn) filteredHits++;
+
+                if (mixedIn != filteredIn)
+                {
+                    var tag = filteredIn ? "RESCUED" : "LOST";
+                    moves.Add($"  {tag} | {item.ExpectedSourceId} | \"{item.Query}\" | mixed=#{mixedRank} -> filtered=#{filteredRank}");
+                }
+            }
+
+            TestContext.WriteLine($"=== {label}: {german.Count} German cases ===");
+            TestContext.WriteLine($"  recall@{RecallCutoff} mixed-language index (today): {mixedHits}/{german.Count} = {(double)mixedHits / german.Count:P1}");
+            TestContext.WriteLine($"  recall@{RecallCutoff} German + mul only:           {filteredHits}/{german.Count} = {(double)filteredHits / german.Count:P1}");
+            TestContext.WriteLine($"  net change: {filteredHits - mixedHits:+#;-#;0} cases");
+            foreach (var line in moves) TestContext.WriteLine(line);
+        }
     }
 
     /// <summary>
