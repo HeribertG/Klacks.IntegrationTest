@@ -55,6 +55,10 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
 
     private const int ProgressEvery = 2000;
 
+    // Enough of the head of the list to judge whether the neighbourhood is plausible, without
+    // drowning the report: the question is what wins, not the full ordering.
+    private const int TopNeighboursShown = 6;
+
     private static readonly string GoldenSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard.json");
 
@@ -142,12 +146,19 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
         TestContext.WriteLine($"Active embedding space: {embedding.EmbeddingSpaceId}");
 
         var hashes = await repository.GetAllHashesAsync(ct);
-        var skillKeys = hashes.Keys.Where(k => k.Kind == KnowledgeEntryKind.Skill).ToList();
+
+        // Every kind, not just skills: 8 of the 104 core cases expect a recipe, and restricting the
+        // universe to KnowledgeEntryKind.Skill made those unreachable by construction — they showed up
+        // as "target absent" and were counted as retrieval failures they never were.
+        var skillKeys = hashes.Keys.ToList();
         var skillEntries = await repository.GetByKeysAsync(skillKeys, ct);
-        TestContext.WriteLine($"Skills in the index: {skillEntries.Count}");
+        TestContext.WriteLine(
+            $"Index entries in the universe: {skillEntries.Count} " +
+            $"({skillEntries.Count(e => e.Kind == KnowledgeEntryKind.Skill)} skills, " +
+            $"{skillEntries.Count(e => e.Kind == KnowledgeEntryKind.Recipe)} recipes)");
 
         var phrases = (await phraseRepository.GetAllActiveAsync(ct))
-            .Where(p => p.OwnerKind == SkillPhraseOwnerKinds.Skill)
+            .Where(p => p.OwnerKind is SkillPhraseOwnerKinds.Skill or SkillPhraseOwnerKinds.Recipe)
             .Where(p => !string.IsNullOrWhiteSpace(p.Phrase))
             .DistinctBy(p => (p.OwnerName, p.Kind, p.Phrase))
             .ToList();
@@ -187,6 +198,69 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
 
         core.Count.ShouldBeGreaterThan(0);
         extended.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// Shows what the vector search actually returns for the cases it currently fails, which decides
+    /// whether the ceiling is the model or the catalogue. If the top of the list is plausible — near
+    /// misses from the same subject area — the model understands the query and the target is merely
+    /// outranked by siblings. If the same few skills crowd the top of every failing query, or the
+    /// entries are unrelated, the problem is not one of degree and a bigger model will not fix it.
+    /// Uses the stored vectors and embeds only the queries, so it costs minutes, not hours.
+    /// </summary>
+    [Test]
+    public async Task NearestNeighbours_ForFailingCases_ViaStoredVectors()
+    {
+        var ct = CancellationToken.None;
+        using var scope = _factory.Services.CreateScope();
+        var embedding = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+
+        TestContext.WriteLine($"Active embedding space: {embedding.EmbeddingSpaceId}");
+
+        var hashes = await repository.GetAllHashesAsync(ct);
+
+        // Every kind, not just skills: 8 of the 104 core cases expect a recipe, and restricting the
+        // universe to KnowledgeEntryKind.Skill made those unreachable by construction — they showed up
+        // as "target absent" and were counted as retrieval failures they never were.
+        var skillKeys = hashes.Keys.ToList();
+        var entries = await repository.GetByKeysAsync(skillKeys, ct);
+        var vectors = entries
+            .Where(e => e.Embedding.Length > 0)
+            .Select(e => (e.SourceId, Vector: Normalize(e.Embedding)))
+            .ToList();
+
+        foreach (var (label, golden) in new[]
+                 {
+                     ("CORE", LoadGolden(GoldenSetPath)),
+                     ("EXTENDED", LoadGolden(ExtendedGoldenSetPath)),
+                 })
+        {
+            TestContext.WriteLine($"=== {label}: neighbourhood of the failing cases ===");
+            var failing = 0;
+
+            foreach (var item in golden)
+            {
+                var queryVector = Normalize(await embedding.EmbedQueryAsync(item.Query, ct));
+                var ranked = vectors
+                    .Select(v => (v.SourceId, Score: Dot(queryVector, v.Vector)))
+                    .OrderByDescending(x => x.Score)
+                    .ToList();
+
+                var rank = ranked.FindIndex(x => string.Equals(x.SourceId, item.ExpectedSourceId, StringComparison.Ordinal)) + 1;
+                if (rank > 0 && rank <= RecallCutoff)
+                {
+                    continue;
+                }
+
+                failing++;
+                var top = string.Join(", ", ranked.Take(TopNeighboursShown).Select((x, i) => $"{i + 1}.{x.SourceId}({x.Score:F3})"));
+                TestContext.WriteLine($"  MISS {item.ExpectedSourceId} (rank {(rank == 0 ? "absent" : "#" + rank)}) | \"{item.Query}\"");
+                TestContext.WriteLine($"       top: {top}");
+            }
+
+            TestContext.WriteLine($"  {failing} failing cases in {label}");
+        }
     }
 
     /// <summary>
