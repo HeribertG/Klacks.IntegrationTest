@@ -208,6 +208,134 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
     }
 
     /// <summary>
+    /// Separates the two ways a candidate can be lost after the search found it, which the end-to-end
+    /// figure cannot distinguish. Either the target arrives at the reranker already badly placed — then
+    /// the search is at fault and a deeper candidate pool would help — or it arrives near the top and
+    /// the reranker pushes it down, in which case no candidate depth repairs anything and the reranker
+    /// itself is the defect. Prints the vector rank, the reranker score and the reranker rank side by
+    /// side for the cases the pipeline currently drops, with two passing cases as a control.
+    ///
+    /// Caveat: uses the semantic leg alone, while production fuses it with the lexical one. The
+    /// vector rank here is therefore not the exact rank the reranker sees in production — but the
+    /// reranker's own verdict on each candidate is, and that is what this measures.
+    /// </summary>
+    [Test]
+    public async Task Reranker_Isolated_ForCasesLostAfterRetrieval()
+    {
+        var ct = CancellationToken.None;
+        using var scope = _factory.Services.CreateScope();
+        var embedding = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+        var reranker = scope.ServiceProvider.GetRequiredService<IRerankerProvider>();
+
+        TestContext.WriteLine($"Active embedding space: {embedding.EmbeddingSpaceId}");
+        TestContext.WriteLine($"Cutoff: {KnowledgeIndexConstants.DefaultScoreCutoff}, TopK: {KnowledgeIndexConstants.DefaultTopK}");
+
+        var probes = new (string Target, string Query, string Note)[]
+        {
+            ("add_client_to_group_by_name", "füge Herrn Baumann der Gruppe Zürich hinzu", "dropped"),
+            ("set_user_group_scope", "restrict this user to the eastern region only", "dropped"),
+            ("get_system_info", "how much memory is this server using", "dropped"),
+            ("close_period", "zapamiętaj, że okres rozliczeniowy lipca trzeba ostatecznie zamknąć", "control, arrives #1"),
+            ("confirm_work", "bestätige die geleistete Arbeitszeit von Frau Vogt", "control, arrives #6"),
+        };
+
+        foreach (var probe in probes)
+        {
+            var queryVector = await embedding.EmbedQueryAsync(probe.Query, ct);
+            var candidates = await repository.FindNearestAsync(
+                queryVector, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, ct);
+
+            var vectorRank = candidates.ToList().FindIndex(c => string.Equals(c.SourceId, probe.Target, StringComparison.Ordinal)) + 1;
+            var scores = await reranker.ScoreAsync(probe.Query, candidates.Select(c => c.Text).ToList(), ct);
+
+            var scored = candidates
+                .Select((c, i) => (c.SourceId, Score: scores[i], VectorRank: i + 1))
+                .OrderByDescending(x => x.Score)
+                .ToList();
+
+            var rerankRank = scored.FindIndex(x => string.Equals(x.SourceId, probe.Target, StringComparison.Ordinal)) + 1;
+            var targetScore = rerankRank > 0 ? scored[rerankRank - 1].Score : double.NaN;
+
+            TestContext.WriteLine($"--- {probe.Target} ({probe.Note}) | \"{probe.Query}\"");
+            if (vectorRank == 0)
+            {
+                TestContext.WriteLine("    not among the semantic candidates at all");
+                continue;
+            }
+
+            TestContext.WriteLine(
+                $"    vector rank #{vectorRank} -> reranker rank #{rerankRank}, score {targetScore:F6} " +
+                $"(cutoff {KnowledgeIndexConstants.DefaultScoreCutoff}, survives: {targetScore >= KnowledgeIndexConstants.DefaultScoreCutoff})");
+            TestContext.WriteLine(
+                "    reranker top 5: " +
+                string.Join(", ", scored.Take(5).Select(x => $"{x.SourceId}({x.Score:F4}, was #{x.VectorRank})")));
+        }
+    }
+
+    /// <summary>
+    /// Answers the one question the model swap leaves open, without paying for the full run. The
+    /// candidate stage improved from 160/173 to 168/173 with e5-base, but candidates only matter if
+    /// they survive reranking and the score floor. Measuring all 173 cases through the cross-encoder
+    /// costs ~2.5 hours; measuring only the cases the swap actually moved costs minutes and answers
+    /// the same thing — do the newly found targets reach the model?
+    ///
+    /// Deliberately narrow: this cannot detect a regression among cases that were already passing.
+    /// The full run stays necessary before anything ships, it just does not belong in a working day.
+    /// </summary>
+    [Test]
+    public async Task ChangedCases_ThroughFullPipeline_AfterModelSwap()
+    {
+        var ct = CancellationToken.None;
+        using var scope = _factory.Services.CreateScope();
+        var embedding = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var retrieval = scope.ServiceProvider.GetRequiredService<IKnowledgeRetrievalService>();
+
+        TestContext.WriteLine($"Active embedding space: {embedding.EmbeddingSpaceId}");
+        TestContext.WriteLine($"Cutoff: {KnowledgeIndexConstants.DefaultScoreCutoff}, TopK: {KnowledgeIndexConstants.DefaultTopK}");
+
+        var watched = new HashSet<string>(StringComparer.Ordinal)
+        {
+            // Were retriever misses with e5-small, are found with e5-base — do they arrive?
+            "add_client_to_group_by_name", "close_period", "read_email", "update_client",
+            "create_shift", "find_split_shift_candidates", "set_user_group_scope", "confirm_work",
+            "get_system_info",
+            // Still missing after the swap, or newly missing.
+            "start_wizard2", "search_shifts", "set_client_qualification", "add_ai_memory",
+            "start_company_rule"
+        };
+
+        var cases = LoadGolden(GoldenSetPath).Concat(LoadGolden(ExtendedGoldenSetPath))
+            .Where(i => watched.Contains(i.ExpectedSourceId))
+            .ToList();
+
+        TestContext.WriteLine($"=== {cases.Count} watched cases through the real pipeline ===");
+        var hits = 0;
+
+        foreach (var item in cases)
+        {
+            var result = await retrieval.RetrieveAsync(
+                item.Query, [], isAdmin: true, KnowledgeIndexConstants.DefaultTopK, currentRoute: null, ct);
+
+            var names = result.Candidates.Select(c => c.Entry.SourceId).ToList();
+            var position = names.FindIndex(n => string.Equals(n, item.ExpectedSourceId, StringComparison.Ordinal));
+            if (position >= 0)
+            {
+                hits++;
+                TestContext.WriteLine($"  HIT  #{position + 1,-2} | {item.ExpectedSourceId} | \"{item.Query}\"");
+            }
+            else
+            {
+                TestContext.WriteLine($"  MISS     | {item.ExpectedSourceId} | \"{item.Query}\"");
+                TestContext.WriteLine($"           delivered: {string.Join(", ", names.Take(6))}");
+            }
+        }
+
+        TestContext.WriteLine($"=== {hits}/{cases.Count} watched cases reach the model ===");
+        cases.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
     /// Measures what the language grouping was actually built for. Today every index text carries the
     /// phrases of all five languages at once — `search_shifts` holds 6 German phrases next to roughly
     /// 25 English, French, Italian and Polish ones — and mean pooling averages them into one vector.
