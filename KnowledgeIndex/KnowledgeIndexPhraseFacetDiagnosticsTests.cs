@@ -536,6 +536,89 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
     }
 
     /// <summary>
+    /// Tests reranking without a reranker: a second view on a DIFFERENT text projection of the same
+    /// entries, fused by rank. The vector search scores the full index text including the phrase
+    /// block — 53 % of it is phrases. A second pass over the description alone is a genuinely
+    /// different signal from the same model, and rank fusion can only add evidence, never overwrite
+    /// the first list's verdict.
+    ///
+    /// The single-variant numbers are already known from PhraseMaterial_PerLanguage (full text
+    /// 577/625, description only 557/625). What is NOT known is whether fusing them beats either —
+    /// which is the whole question: phrase material demonstrably helps finding the candidate, but it
+    /// may blur the fine ordering, and that is exactly the job a reranker would do.
+    ///
+    /// Costs no new model, no licence, no ONNX export: 368 description embeddings plus the queries.
+    /// </summary>
+    [Test]
+    public async Task DescriptionProjection_RankFusion_VersusFullText()
+    {
+        var ct = CancellationToken.None;
+        using var scope = _factory.Services.CreateScope();
+        var embedding = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+
+        TestContext.WriteLine($"Active embedding space: {embedding.EmbeddingSpaceId}");
+
+        var hashes = await repository.GetAllHashesAsync(ct);
+        var entries = await repository.GetByKeysAsync(hashes.Keys.ToList(), ct);
+
+        var fullText = entries
+            .Where(e => e.Embedding.Length > 0)
+            .Select(e => (e.SourceId, Vector: Normalize(e.Embedding)))
+            .ToList();
+
+        // Same entries, phrase block removed — RebuildText with an empty phrase set keeps the head
+        // and any trailing recipe steps intact.
+        var descriptionOnly = await BuildVariantVectorsAsync(embedding, entries, [], _ => false, ct);
+        TestContext.WriteLine($"Full-text vectors: {fullText.Count}, description-only vectors: {descriptionOnly.Count}");
+
+        foreach (var (label, path) in new[]
+                 {
+                     ("CORE", GoldenSetPath),
+                     ("EXTENDED", ExtendedGoldenSetPath),
+                     ("25 LANGUAGES", LanguageGoldenSetPath),
+                 })
+        {
+            var cases = LoadGolden(path);
+            int hitsFull = 0, hitsDesc = 0, hitsFused = 0;
+            int rescued = 0, lost = 0;
+
+            foreach (var item in cases)
+            {
+                var q = Normalize(await embedding.EmbedQueryAsync(item.Query, ct));
+
+                var rankFull = RankMap(fullText.Select(v => (v.SourceId, Dot(q, v.Vector))));
+                var rankDesc = RankMap(descriptionOnly.Select(v => (v.SourceId, Dot(q, v.Vector))));
+
+                var fused = RankOf(
+                    item.ExpectedSourceId,
+                    rankFull.Select(kv => (
+                        kv.Key,
+                        Score: ReciprocalRank(kv.Value) +
+                               (rankDesc.TryGetValue(kv.Key, out var rd) ? ReciprocalRank(rd) : 0f))));
+
+                var rFull = rankFull.TryGetValue(item.ExpectedSourceId, out var a) ? a : 0;
+                var rDesc = rankDesc.TryGetValue(item.ExpectedSourceId, out var b) ? b : 0;
+
+                bool In(int r) => r > 0 && r <= RecallCutoff;
+                if (In(rFull)) hitsFull++;
+                if (In(rDesc)) hitsDesc++;
+                if (In(fused)) hitsFused++;
+                if (!In(rFull) && In(fused)) rescued++;
+                if (In(rFull) && !In(fused)) lost++;
+            }
+
+            TestContext.WriteLine($"=== {label} ({cases.Count} cases), recall@{RecallCutoff} ===");
+            TestContext.WriteLine($"  full text (today):        {hitsFull}/{cases.Count} = {(double)hitsFull / cases.Count:P1}");
+            TestContext.WriteLine($"  description only:         {hitsDesc}/{cases.Count} = {(double)hitsDesc / cases.Count:P1}");
+            TestContext.WriteLine($"  RRF fusion of both:       {hitsFused}/{cases.Count} = {(double)hitsFused / cases.Count:P1}");
+            TestContext.WriteLine($"  net vs today: {hitsFused - hitsFull:+#;-#;0}  (rescued {rescued}, lost {lost})");
+        }
+
+        fullText.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
     /// Tests whether the reranker should run on every turn at all. Measured 2026-07-31: mmarco is
     /// WORSE than no reranker (84,1 % against 92,8 %) — and not only in languages it was never
     /// trained on. It loses in English (84,2 against 94,7), French (63,6 against 90,9) and Italian
