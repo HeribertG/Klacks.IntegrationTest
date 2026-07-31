@@ -1,0 +1,1502 @@
+[
+  {
+    "query": "zadej prosím nové mobilní číslo pana Freie",
+    "expectedSourceId": "add_client_phone",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "příjmení této osoby je napsáno špatně, oprav ho",
+    "expectedSourceId": "update_client",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "které směny jsou tento týden ještě neobsazené",
+    "expectedSourceId": "search_shifts",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "rozděl tuto dlouhou směnu na dva samostatné bloky",
+    "expectedSourceId": "cut_shift",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "vytvoř novou směnu na pondělí ráno",
+    "expectedSourceId": "create_shift",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "kolik hodin má tým Basel celkem tento měsíc",
+    "expectedSourceId": "get_group_hours_balance",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "kdo patří do skupiny Lugano",
+    "expectedSourceId": "list_group_members",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "zkontroluj jestli funguje spojení se serverem příchozí pošty",
+    "expectedSourceId": "test_imap_connection",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "jaké složky jsou ve schránce",
+    "expectedSourceId": "list_email_folders",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "kteří poskytovatelé umělé inteligence jsou v systému nastaveni",
+    "expectedSourceId": "list_llm_providers",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "která zúčtovací období ještě nejsou uzavřená",
+    "expectedSourceId": "list_open_periods",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "schval včerejší den pro tohoto zaměstnance",
+    "expectedSourceId": "approve_day",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "zůstávají v tomto plánu ještě nějaké konflikty",
+    "expectedSourceId": "detect_conflicts",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "jaké kvalifikace u nás existují",
+    "expectedSourceId": "list_qualifications",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "tato směna má vyžadovat zdravotnický diplom",
+    "expectedSourceId": "set_shift_required_qualification",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "jaká práva má tento uživatel momentálně",
+    "expectedSourceId": "get_user_permissions",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "okamžitě zruš tento přístupový token",
+    "expectedSourceId": "revoke_personal_access_token",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "vysvětli k čemu slouží stránka doručené pošty",
+    "expectedSourceId": "explain_page_inbox",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "kolik je u nás právě hodin",
+    "expectedSourceId": "get_current_time",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "označ tuto zprávu jako přečtenou",
+    "expectedSourceId": "mark_email_read",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "které svátky spadají do tohoto období",
+    "expectedSourceId": "list_holidays_for_period",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "ukaž mi všechny výdaje zaúčtované tento měsíc",
+    "expectedSourceId": "list_expenses",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "vrať zpět moji poslední změnu",
+    "expectedSourceId": "rollback_my_last_change",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "spusť teď import ze skladového systému",
+    "expectedSourceId": "trigger_erp_import_run",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "potvrď odpracovanou dobu paní Vogtové",
+    "expectedSourceId": "confirm_work",
+    "lang": "other",
+    "langCode": "cs"
+  },
+  {
+    "query": "indtast venligst hr. Freis nye mobilnummer",
+    "expectedSourceId": "add_client_phone",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "denne persons efternavn er stavet forkert, ret det",
+    "expectedSourceId": "update_client",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "hvilke vagter er stadig ubesatte i denne uge",
+    "expectedSourceId": "search_shifts",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "del denne lange vagt op i to separate blokke",
+    "expectedSourceId": "cut_shift",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "opret en ny vagt til mandag morgen",
+    "expectedSourceId": "create_shift",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "hvor mange timer har team Basel i alt denne måned",
+    "expectedSourceId": "get_group_hours_balance",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "hvem hører til gruppen Lugano",
+    "expectedSourceId": "list_group_members",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "tjek om forbindelsen til indgående mailserver virker",
+    "expectedSourceId": "test_imap_connection",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "hvilke mapper findes der i postkassen",
+    "expectedSourceId": "list_email_folders",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "hvilke AI-leverandører er konfigureret i systemet",
+    "expectedSourceId": "list_llm_providers",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "hvilke afregningsperioder er endnu ikke afsluttet",
+    "expectedSourceId": "list_open_periods",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "godkend gårsdagen for denne medarbejder",
+    "expectedSourceId": "approve_day",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "er der stadig planlægningskonflikter i denne plan",
+    "expectedSourceId": "detect_conflicts",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "hvilke kvalifikationer har vi",
+    "expectedSourceId": "list_qualifications",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "denne vagt skal kræve et plejediplom",
+    "expectedSourceId": "set_shift_required_qualification",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "hvilke rettigheder har denne bruger lige nu",
+    "expectedSourceId": "get_user_permissions",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "tilbagekald straks den API-token",
+    "expectedSourceId": "revoke_personal_access_token",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "forklar hvad indbakkesiden er til",
+    "expectedSourceId": "explain_page_inbox",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "hvad er klokken hos os lige nu",
+    "expectedSourceId": "get_current_time",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "marker denne besked som læst",
+    "expectedSourceId": "mark_email_read",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "hvilke helligdage falder i denne periode",
+    "expectedSourceId": "list_holidays_for_period",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "vis mig alle udgifter bogført denne måned",
+    "expectedSourceId": "list_expenses",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "fortryd min sidste ændring",
+    "expectedSourceId": "rollback_my_last_change",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "start importen fra varestyringssystemet nu",
+    "expectedSourceId": "trigger_erp_import_run",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "bekræft fru Vogts registrerede arbejdstid",
+    "expectedSourceId": "confirm_work",
+    "lang": "other",
+    "langCode": "da"
+  },
+  {
+    "query": "syötä herra Frein uusi matkapuhelinnumero",
+    "expectedSourceId": "add_client_phone",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "tämän henkilön sukunimi on kirjoitettu väärin, korjaa se",
+    "expectedSourceId": "update_client",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "mitkä vuorot ovat tällä viikolla vielä täyttämättä",
+    "expectedSourceId": "search_shifts",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "jaa tämä pitkä vuoro kahteen erilliseen osaan",
+    "expectedSourceId": "cut_shift",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "luo uusi vuoro maanantaiaamuksi",
+    "expectedSourceId": "create_shift",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "kuinka monta tuntia Basel-tiimillä on yhteensä tässä kuussa",
+    "expectedSourceId": "get_group_hours_balance",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "ketkä kuuluvat Lugano-ryhmään",
+    "expectedSourceId": "list_group_members",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "tarkista toimiiko yhteys saapuvan postin palvelimeen",
+    "expectedSourceId": "test_imap_connection",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "mitä kansioita postilaatikossa on",
+    "expectedSourceId": "list_email_folders",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "mitkä tekoälytoimittajat on määritetty tähän järjestelmään",
+    "expectedSourceId": "list_llm_providers",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "mitkä laskutuskaudet ovat vielä sulkematta",
+    "expectedSourceId": "list_open_periods",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "hyväksy eilinen päivä tälle työntekijälle",
+    "expectedSourceId": "approve_day",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "onko tässä suunnitelmassa vielä ristiriitoja",
+    "expectedSourceId": "detect_conflicts",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "mitä pätevyyksiä meillä on",
+    "expectedSourceId": "list_qualifications",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "tämä vuoro vaatii hoitajan tutkinnon",
+    "expectedSourceId": "set_shift_required_qualification",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "mitkä oikeudet tällä käyttäjällä on tällä hetkellä",
+    "expectedSourceId": "get_user_permissions",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "peruuta tämä API-tunnus välittömästi",
+    "expectedSourceId": "revoke_personal_access_token",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "selitä mihin saapuneet-sivua käytetään",
+    "expectedSourceId": "explain_page_inbox",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "paljonko kello on meillä juuri nyt",
+    "expectedSourceId": "get_current_time",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "merkitse tämä viesti luetuksi",
+    "expectedSourceId": "mark_email_read",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "mitkä juhlapyhät osuvat tälle ajanjaksolle",
+    "expectedSourceId": "list_holidays_for_period",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "näytä kaikki tässä kuussa kirjatut kulut",
+    "expectedSourceId": "list_expenses",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "kumoa viimeisin muutokseni",
+    "expectedSourceId": "rollback_my_last_change",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "käynnistä tuonti toiminnanohjausjärjestelmästä nyt",
+    "expectedSourceId": "trigger_erp_import_run",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "vahvista rouva Vogtin tehdyt työtunnit",
+    "expectedSourceId": "confirm_work",
+    "lang": "other",
+    "langCode": "fi"
+  },
+  {
+    "query": "legg inn det nye mobilnummeret til herr Frei",
+    "expectedSourceId": "add_client_phone",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "etternavnet til denne personen er feilstavet, rett det",
+    "expectedSourceId": "update_client",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "hvilke vakter er fortsatt ubesatte denne uken",
+    "expectedSourceId": "search_shifts",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "del denne lange vakten i to separate blokker",
+    "expectedSourceId": "cut_shift",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "opprett en ny vakt til mandag morgen",
+    "expectedSourceId": "create_shift",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "hvor mange timer har team Basel totalt denne måneden",
+    "expectedSourceId": "get_group_hours_balance",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "hvem hører til gruppen Lugano",
+    "expectedSourceId": "list_group_members",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "sjekk om forbindelsen til innkommende e-postserver fungerer",
+    "expectedSourceId": "test_imap_connection",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "hvilke mapper finnes i postkassen",
+    "expectedSourceId": "list_email_folders",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "hvilke KI-leverandører er satt opp i dette systemet",
+    "expectedSourceId": "list_llm_providers",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "hvilke avregningsperioder er ennå ikke avsluttet",
+    "expectedSourceId": "list_open_periods",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "godkjenn gårsdagen for denne medarbeideren",
+    "expectedSourceId": "approve_day",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "er det fortsatt planleggingskonflikter i denne planen",
+    "expectedSourceId": "detect_conflicts",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "hvilke kvalifikasjoner har vi",
+    "expectedSourceId": "list_qualifications",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "denne vakten skal kreve et pleiediplom",
+    "expectedSourceId": "set_shift_required_qualification",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "hvilke rettigheter har denne brukeren akkurat nå",
+    "expectedSourceId": "get_user_permissions",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "trekk tilbake dette API-tokenet umiddelbart",
+    "expectedSourceId": "revoke_personal_access_token",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "forklar hva innboks-siden er til for",
+    "expectedSourceId": "explain_page_inbox",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "hva er klokken hos oss akkurat nå",
+    "expectedSourceId": "get_current_time",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "merk denne meldingen som lest",
+    "expectedSourceId": "mark_email_read",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "hvilke helligdager faller i denne perioden",
+    "expectedSourceId": "list_holidays_for_period",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "vis meg alle utgifter bokført denne måneden",
+    "expectedSourceId": "list_expenses",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "angre den siste endringen min",
+    "expectedSourceId": "rollback_my_last_change",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "start importen fra varehandelssystemet nå",
+    "expectedSourceId": "trigger_erp_import_run",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "bekreft arbeidstiden til fru Vogt",
+    "expectedSourceId": "confirm_work",
+    "lang": "other",
+    "langCode": "nb"
+  },
+  {
+    "query": "wpisz proszę nowy numer komórkowy pana Freia",
+    "expectedSourceId": "add_client_phone",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "nazwisko tej osoby jest źle napisane, popraw je",
+    "expectedSourceId": "update_client",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "które zmiany są w tym tygodniu jeszcze nieobsadzone",
+    "expectedSourceId": "search_shifts",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "podziel tę długą zmianę na dwa osobne bloki",
+    "expectedSourceId": "cut_shift",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "utwórz nową zmianę na poniedziałek rano",
+    "expectedSourceId": "create_shift",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "ile godzin ma zespół Basel łącznie w tym miesiącu",
+    "expectedSourceId": "get_group_hours_balance",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "kto należy do grupy Lugano",
+    "expectedSourceId": "list_group_members",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "sprawdź czy połączenie z serwerem poczty przychodzącej działa",
+    "expectedSourceId": "test_imap_connection",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "jakie foldery są w skrzynce pocztowej",
+    "expectedSourceId": "list_email_folders",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "którzy dostawcy sztucznej inteligencji są skonfigurowani w tym systemie",
+    "expectedSourceId": "list_llm_providers",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "które okresy rozliczeniowe nie są jeszcze zamknięte",
+    "expectedSourceId": "list_open_periods",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "zatwierdź wczorajszy dzień dla tego pracownika",
+    "expectedSourceId": "approve_day",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "czy w tym planie są jeszcze konflikty",
+    "expectedSourceId": "detect_conflicts",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "jakie kwalifikacje u nas istnieją",
+    "expectedSourceId": "list_qualifications",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "ta zmiana ma wymagać dyplomu pielęgniarskiego",
+    "expectedSourceId": "set_shift_required_qualification",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "jakie uprawnienia ma obecnie ten użytkownik",
+    "expectedSourceId": "get_user_permissions",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "natychmiast unieważnij ten token dostępu",
+    "expectedSourceId": "revoke_personal_access_token",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "wyjaśnij do czego służy strona skrzynki odbiorczej",
+    "expectedSourceId": "explain_page_inbox",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "która jest u nas teraz godzina",
+    "expectedSourceId": "get_current_time",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "oznacz tę wiadomość jako przeczytaną",
+    "expectedSourceId": "mark_email_read",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "które święta przypadają w tym okresie",
+    "expectedSourceId": "list_holidays_for_period",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "pokaż mi wszystkie wydatki zaksięgowane w tym miesiącu",
+    "expectedSourceId": "list_expenses",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "cofnij moją ostatnią zmianę",
+    "expectedSourceId": "rollback_my_last_change",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "uruchom teraz import z systemu magazynowego",
+    "expectedSourceId": "trigger_erp_import_run",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "potwierdź przepracowany czas pani Vogt",
+    "expectedSourceId": "confirm_work",
+    "lang": "other",
+    "langCode": "pl"
+  },
+  {
+    "query": "introdu te rog noul număr de mobil al domnului Frei",
+    "expectedSourceId": "add_client_phone",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "numele de familie al acestei persoane este scris greșit, corectează-l",
+    "expectedSourceId": "update_client",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "care ture sunt încă neocupate săptămâna aceasta",
+    "expectedSourceId": "search_shifts",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "împarte această tură lungă în două blocuri separate",
+    "expectedSourceId": "cut_shift",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "creează o tură nouă pentru luni dimineață",
+    "expectedSourceId": "create_shift",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "câte ore are echipa Basel în total luna aceasta",
+    "expectedSourceId": "get_group_hours_balance",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "cine face parte din grupul Lugano",
+    "expectedSourceId": "list_group_members",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "verifică dacă funcționează conexiunea la serverul de poștă primită",
+    "expectedSourceId": "test_imap_connection",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "ce foldere există în căsuța poștală",
+    "expectedSourceId": "list_email_folders",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "care furnizori de inteligență artificială sunt configurați în sistem",
+    "expectedSourceId": "list_llm_providers",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "care perioade de decontare nu sunt încă închise",
+    "expectedSourceId": "list_open_periods",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "aprobă ziua de ieri pentru acest angajat",
+    "expectedSourceId": "approve_day",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "mai există conflicte de planificare în acest plan",
+    "expectedSourceId": "detect_conflicts",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "ce calificări avem la noi",
+    "expectedSourceId": "list_qualifications",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "această tură trebuie să necesite o diplomă de îngrijire",
+    "expectedSourceId": "set_shift_required_qualification",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "ce drepturi are acest utilizator în prezent",
+    "expectedSourceId": "get_user_permissions",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "revocă imediat acest token de acces",
+    "expectedSourceId": "revoke_personal_access_token",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "explică la ce servește pagina de mesaje primite",
+    "expectedSourceId": "explain_page_inbox",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "cât este ceasul la noi acum",
+    "expectedSourceId": "get_current_time",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "marchează acest mesaj ca citit",
+    "expectedSourceId": "mark_email_read",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "ce sărbători cad în această perioadă",
+    "expectedSourceId": "list_holidays_for_period",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "arată-mi toate cheltuielile înregistrate luna aceasta",
+    "expectedSourceId": "list_expenses",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "anulează ultima mea modificare",
+    "expectedSourceId": "rollback_my_last_change",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "pornește acum importul din sistemul de gestiune a mărfurilor",
+    "expectedSourceId": "trigger_erp_import_run",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "confirmă timpul de lucru prestat de doamna Vogt",
+    "expectedSourceId": "confirm_work",
+    "lang": "other",
+    "langCode": "ro"
+  },
+  {
+    "query": "lägg in herr Freis nya mobilnummer",
+    "expectedSourceId": "add_client_phone",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "efternamnet på den här personen är felstavat, rätta det",
+    "expectedSourceId": "update_client",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "vilka pass är fortfarande obemannade den här veckan",
+    "expectedSourceId": "search_shifts",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "dela upp det här långa passet i två separata block",
+    "expectedSourceId": "cut_shift",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "skapa ett nytt pass till måndag morgon",
+    "expectedSourceId": "create_shift",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "hur många timmar har team Basel totalt den här månaden",
+    "expectedSourceId": "get_group_hours_balance",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "vilka tillhör gruppen Lugano",
+    "expectedSourceId": "list_group_members",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "kontrollera om anslutningen till inkommande e-postserver fungerar",
+    "expectedSourceId": "test_imap_connection",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "vilka mappar finns i brevlådan",
+    "expectedSourceId": "list_email_folders",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "vilka AI-leverantörer är konfigurerade i det här systemet",
+    "expectedSourceId": "list_llm_providers",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "vilka avräkningsperioder är ännu inte avslutade",
+    "expectedSourceId": "list_open_periods",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "godkänn gårdagen för den här medarbetaren",
+    "expectedSourceId": "approve_day",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "finns det fortfarande planeringskonflikter i den här planen",
+    "expectedSourceId": "detect_conflicts",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "vilka kvalifikationer har vi",
+    "expectedSourceId": "list_qualifications",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "det här passet ska kräva ett vårddiplom",
+    "expectedSourceId": "set_shift_required_qualification",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "vilka rättigheter har den här användaren just nu",
+    "expectedSourceId": "get_user_permissions",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "återkalla den här API-token omedelbart",
+    "expectedSourceId": "revoke_personal_access_token",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "förklara vad inkorgssidan är till för",
+    "expectedSourceId": "explain_page_inbox",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "vad är klockan hos oss just nu",
+    "expectedSourceId": "get_current_time",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "markera det här meddelandet som läst",
+    "expectedSourceId": "mark_email_read",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "vilka helgdagar infaller under den här perioden",
+    "expectedSourceId": "list_holidays_for_period",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "visa mig alla utlägg bokförda den här månaden",
+    "expectedSourceId": "list_expenses",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "ångra min senaste ändring",
+    "expectedSourceId": "rollback_my_last_change",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "starta importen från varuhanteringssystemet nu",
+    "expectedSourceId": "trigger_erp_import_run",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "bekräfta fru Vogts arbetade tid",
+    "expectedSourceId": "confirm_work",
+    "lang": "other",
+    "langCode": "sv"
+  },
+  {
+    "query": "sila masukkan nombor telefon bimbit baharu Encik Frei",
+    "expectedSourceId": "add_client_phone",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "nama keluarga orang ini salah eja, tolong betulkan",
+    "expectedSourceId": "update_client",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "syif mana yang masih kosong minggu ini",
+    "expectedSourceId": "search_shifts",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "bahagikan syif panjang ini kepada dua blok berasingan",
+    "expectedSourceId": "cut_shift",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "cipta syif baharu untuk pagi Isnin",
+    "expectedSourceId": "create_shift",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "berapa jumlah jam pasukan Basel bulan ini",
+    "expectedSourceId": "get_group_hours_balance",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "siapa ahli kumpulan Lugano",
+    "expectedSourceId": "list_group_members",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "periksa sama ada sambungan ke pelayan mel masuk berfungsi",
+    "expectedSourceId": "test_imap_connection",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "folder apa yang ada dalam peti mel",
+    "expectedSourceId": "list_email_folders",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "pembekal kecerdasan buatan mana yang dikonfigurasi dalam sistem ini",
+    "expectedSourceId": "list_llm_providers",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "tempoh penyelesaian mana yang belum ditutup",
+    "expectedSourceId": "list_open_periods",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "luluskan hari semalam untuk pekerja ini",
+    "expectedSourceId": "approve_day",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "adakah masih ada konflik penjadualan dalam pelan ini",
+    "expectedSourceId": "detect_conflicts",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "kelayakan apa yang ada pada kami",
+    "expectedSourceId": "list_qualifications",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "syif ini perlu memerlukan diploma kejururawatan",
+    "expectedSourceId": "set_shift_required_qualification",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "apakah kebenaran pengguna ini pada masa ini",
+    "expectedSourceId": "get_user_permissions",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "batalkan token akses itu dengan segera",
+    "expectedSourceId": "revoke_personal_access_token",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "terangkan untuk apa halaman peti masuk",
+    "expectedSourceId": "explain_page_inbox",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "pukul berapa sekarang di tempat kami",
+    "expectedSourceId": "get_current_time",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "tandakan mesej ini sebagai telah dibaca",
+    "expectedSourceId": "mark_email_read",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "cuti umum mana yang jatuh dalam tempoh ini",
+    "expectedSourceId": "list_holidays_for_period",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "tunjukkan semua perbelanjaan yang direkodkan bulan ini",
+    "expectedSourceId": "list_expenses",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "batalkan perubahan terakhir saya",
+    "expectedSourceId": "rollback_my_last_change",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "mulakan import dari sistem pengurusan barangan sekarang",
+    "expectedSourceId": "trigger_erp_import_run",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "sahkan masa kerja Puan Vogt",
+    "expectedSourceId": "confirm_work",
+    "lang": "other",
+    "langCode": "ms"
+  },
+  {
+    "query": "trag mir bitte die neue Mobilnummer von Herrn Frei ein",
+    "expectedSourceId": "add_client_phone",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "der Nachname dieser Person ist falsch geschrieben, korrigiere ihn",
+    "expectedSourceId": "update_client",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "welche Schichten sind diese Woche noch unbesetzt",
+    "expectedSourceId": "search_shifts",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "teile diese lange Schicht in zwei separate Blöcke",
+    "expectedSourceId": "cut_shift",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "erstelle eine neue Schicht für Montagmorgen",
+    "expectedSourceId": "create_shift",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "wie viele Stunden hat das Team Basel diesen Monat insgesamt",
+    "expectedSourceId": "get_group_hours_balance",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "wer gehört zur Gruppe Lugano",
+    "expectedSourceId": "list_group_members",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "prüfe ob die Verbindung zum Posteingangsserver funktioniert",
+    "expectedSourceId": "test_imap_connection",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "welche Ordner gibt es im Postfach",
+    "expectedSourceId": "list_email_folders",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "welche KI-Anbieter sind in diesem System eingerichtet",
+    "expectedSourceId": "list_llm_providers",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "welche Abrechnungsperioden sind noch nicht abgeschlossen",
+    "expectedSourceId": "list_open_periods",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "genehmige den gestrigen Tag für diesen Mitarbeiter",
+    "expectedSourceId": "approve_day",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "gibt es noch Planungskonflikte in diesem Plan",
+    "expectedSourceId": "detect_conflicts",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "welche Qualifikationen gibt es bei uns",
+    "expectedSourceId": "list_qualifications",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "diese Schicht soll ein Pflegediplom erfordern",
+    "expectedSourceId": "set_shift_required_qualification",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "welche Rechte hat dieser Benutzer aktuell",
+    "expectedSourceId": "get_user_permissions",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "widerrufe diesen Zugriffstoken sofort",
+    "expectedSourceId": "revoke_personal_access_token",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "erkläre wofür die Posteingangsseite da ist",
+    "expectedSourceId": "explain_page_inbox",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "wie spät ist es gerade bei uns",
+    "expectedSourceId": "get_current_time",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "markiere diese Nachricht als gelesen",
+    "expectedSourceId": "mark_email_read",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "welche Feiertage fallen in diesen Zeitraum",
+    "expectedSourceId": "list_holidays_for_period",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "zeige mir alle Spesen die diesen Monat gebucht wurden",
+    "expectedSourceId": "list_expenses",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "mach meine letzte Änderung wieder rückgängig",
+    "expectedSourceId": "rollback_my_last_change",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "starte den Import aus dem Warenwirtschaftssystem jetzt",
+    "expectedSourceId": "trigger_erp_import_run",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "bestätige die geleistete Arbeitszeit von Frau Vogt",
+    "expectedSourceId": "confirm_work",
+    "lang": "de",
+    "langCode": "de"
+  },
+  {
+    "query": "please enter Mr Frei's new mobile number",
+    "expectedSourceId": "add_client_phone",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "this person's surname is misspelled, correct it",
+    "expectedSourceId": "update_client",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "which shifts are still unfilled this week",
+    "expectedSourceId": "search_shifts",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "split this long shift into two separate blocks",
+    "expectedSourceId": "cut_shift",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "create a new shift for Monday morning",
+    "expectedSourceId": "create_shift",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "how many hours does team Basel have in total this month",
+    "expectedSourceId": "get_group_hours_balance",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "who belongs to the Lugano group",
+    "expectedSourceId": "list_group_members",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "check whether the connection to the incoming mail server works",
+    "expectedSourceId": "test_imap_connection",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "which folders are in the mailbox",
+    "expectedSourceId": "list_email_folders",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "which AI vendors are configured in this system",
+    "expectedSourceId": "list_llm_providers",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "which billing periods are not yet closed",
+    "expectedSourceId": "list_open_periods",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "approve yesterday for this employee",
+    "expectedSourceId": "approve_day",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "are there any planning conflicts left in this plan",
+    "expectedSourceId": "detect_conflicts",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "what qualifications do we have",
+    "expectedSourceId": "list_qualifications",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "this shift should require a nursing diploma",
+    "expectedSourceId": "set_shift_required_qualification",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "what permissions does this user currently have",
+    "expectedSourceId": "get_user_permissions",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "revoke this access token immediately",
+    "expectedSourceId": "revoke_personal_access_token",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "explain what the inbox page is for",
+    "expectedSourceId": "explain_page_inbox",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "what time is it here right now",
+    "expectedSourceId": "get_current_time",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "mark this message as read",
+    "expectedSourceId": "mark_email_read",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "which public holidays fall within this period",
+    "expectedSourceId": "list_holidays_for_period",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "show me all expenses booked this month",
+    "expectedSourceId": "list_expenses",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "undo my last change",
+    "expectedSourceId": "rollback_my_last_change",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "start the import from the merchandise management system now",
+    "expectedSourceId": "trigger_erp_import_run",
+    "lang": "other",
+    "langCode": "en"
+  },
+  {
+    "query": "confirm Mrs Vogt's worked hours",
+    "expectedSourceId": "confirm_work",
+    "lang": "other",
+    "langCode": "en"
+  }
+]

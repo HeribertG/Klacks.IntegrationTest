@@ -49,6 +49,9 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
     private static readonly string ExtendedGoldenSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard-ext.json");
 
+    private static readonly string LanguageCoverageSetPath =
+        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard-langs.json");
+
     private static readonly string OffTopicPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-offtopic.json");
 
@@ -181,6 +184,122 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
 
         core.Count.ShouldBeGreaterThan(0);
         extended.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// Coverage check across languages the golden set never contained. Klacks ships 25 languages, but
+    /// mmarco-mMiniLMv2 declares only 14 training languages - cs, da, el, fi, he, ko, ms, nb, pl, ro,
+    /// sv, th and zh-TW were never among them, and the reranker already costs recall in languages it
+    /// does know. This set covers the eight untrained ones written in Latin script, where the
+    /// translations can be verified; the other scripts need a native speaker before they are worth
+    /// measuring.
+    /// "none" scores the raw KNN order and takes seconds; "current" and a model name run the
+    /// cross-encoder and take hours, which is why this belongs in the nightly run.
+    /// </summary>
+    // Explicit TestName per case: the default name carries the parameter in parentheses, which the
+    // dotnet test filter cannot parse, so single cases could not be selected for a nightly run.
+    [TestCase("none", TestName = "LanguageCoverage_VectorOnly")]
+    [TestCase("current", TestName = "LanguageCoverage_CurrentReranker")]
+    [TestCase("bge-reranker-v2-m3", TestName = "LanguageCoverage_BgeV2M3")]
+    public async Task HardGoldenSet_LanguageCoverage(string variant)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var embeddingProvider = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+
+        IRerankerProvider? reranker = null;
+        OnnxRerankerProvider? owned = null;
+        if (variant == "current")
+        {
+            reranker = scope.ServiceProvider.GetRequiredService<IRerankerProvider>();
+        }
+        else if (variant != "none")
+        {
+            var dir = Path.Combine(
+                AppContext.BaseDirectory, KnowledgeIndexConstants.ModelsCacheSubdirectory, variant);
+            if (!File.Exists(Path.Combine(dir, KnowledgeIndexConstants.RerankerModelFileName)))
+            {
+                Assert.Ignore($"No model file in {dir} - download it first.");
+            }
+
+            owned = new OnnxRerankerProvider(
+                scope.ServiceProvider.GetRequiredService<ModelLoader>(), dir,
+                modelUrl: string.Empty, modelSha256: string.Empty,
+                tokenizerUrl: string.Empty, tokenizerSha256: string.Empty);
+            reranker = owned;
+        }
+
+        try
+        {
+            TestContext.WriteLine($"=== LANGUAGE COVERAGE [{variant}] ===");
+            TestContext.WriteLine($"Active embedding space: {embeddingProvider.EmbeddingSpaceId}");
+
+            var cases = HardGoldenSetItem.Load(LanguageCoverageSetPath);
+            var hits = new Dictionary<string, int>();
+            var total = new Dictionary<string, int>();
+            var started = DateTime.UtcNow;
+
+            foreach (var item in cases)
+            {
+                total[item.LangCode] = total.GetValueOrDefault(item.LangCode) + 1;
+
+                var queryVec = await embeddingProvider.EmbedQueryAsync(item.Query, CancellationToken.None);
+                var candidates = await repository.FindNearestAsync(
+                    queryVec, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, CancellationToken.None);
+
+                var wrappedEndpoints = candidates
+                    .Where(c => c.Kind == KnowledgeEntryKind.Skill && c.ExposedEndpointKey is not null)
+                    .Select(c => c.ExposedEndpointKey!)
+                    .ToHashSet();
+
+                var filtered = candidates
+                    .Where(c => c.Kind == KnowledgeEntryKind.Skill || !wrappedEndpoints.Contains(c.SourceId))
+                    .ToList();
+
+                bool found;
+                if (reranker is null)
+                {
+                    var rank = filtered.FindIndex(c => item.Accepts(c.SourceId));
+                    found = rank >= 0 && rank < KnowledgeIndexConstants.DefaultTopK;
+                }
+                else
+                {
+                    var scores = await reranker.ScoreAsync(
+                        item.Query, filtered.Select(f => f.Text).ToList(), CancellationToken.None);
+                    found = filtered
+                        .Zip(scores, (entry, score) => (Entry: entry, Score: score))
+                        .OrderByDescending(p => p.Score)
+                        .Take(KnowledgeIndexConstants.DefaultTopK)
+                        .Any(p => item.Accepts(p.Entry.SourceId));
+                }
+
+                if (found)
+                {
+                    hits[item.LangCode] = hits.GetValueOrDefault(item.LangCode) + 1;
+                }
+            }
+
+            foreach (var lang in total.Keys.OrderBy(k => k, StringComparer.Ordinal))
+            {
+                var h = hits.GetValueOrDefault(lang);
+                TestContext.WriteLine(
+                    $"  [{variant}] {lang}: {h,3}/{total[lang],-3} = {(double)h / total[lang]:P1}");
+            }
+
+            var tot = hits.Values.Sum();
+            TestContext.WriteLine(
+                $"  [{variant}] GESAMT: {tot}/{cases.Count} = {(double)tot / cases.Count:P1} " +
+                $"({(DateTime.UtcNow - started).TotalMinutes:F1} min)");
+
+            cases.Count.ShouldBeGreaterThan(0);
+        }
+        finally
+        {
+            if (owned is not null)
+            {
+                await owned.DisposeAsync();
+            }
+        }
     }
 
     /// <summary>

@@ -39,6 +39,9 @@
 		<None Update="KnowledgeIndex\knowledge-index-golden-hard-ext.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
+		<None Update="KnowledgeIndex\knowledge-index-golden-hard-langs.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
 		<None Update="KnowledgeIndex\knowledge-index-offtopic.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
