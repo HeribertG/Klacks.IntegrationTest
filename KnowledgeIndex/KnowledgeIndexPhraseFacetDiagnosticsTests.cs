@@ -536,6 +536,110 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
     }
 
     /// <summary>
+    /// Tests whether the reranker should run on every turn at all. Measured 2026-07-31: mmarco is
+    /// WORSE than no reranker (84,1 % against 92,8 %) — and not only in languages it was never
+    /// trained on. It loses in English (84,2 against 94,7), French (63,6 against 90,9) and Italian
+    /// (87,5 against 100), all of which are among its 14 training languages. So the defect is not
+    /// coverage, it is that a passage-ranking model judges "does this text answer the question",
+    /// which is the wrong question for a tool description.
+    ///
+    /// The idea under test: skip the reranker when the vector stage already decides clearly. If the
+    /// gap between rank 1 and rank 2 is wide, the reranker can only do damage; where the field is
+    /// tight, it may still earn its cost. Sweeps that margin threshold and reports, for each value,
+    /// both the recall and the share of turns that would still pay for a cross-encoder.
+    ///
+    /// Reports the two extremes as reference points: threshold 0 equals today (always rerank),
+    /// an infinite threshold equals pure vector order (never rerank).
+    /// </summary>
+    [Test]
+    public async Task AdaptiveReranking_MarginThresholdSweep()
+    {
+        var ct = CancellationToken.None;
+        using var scope = _factory.Services.CreateScope();
+        var embedding = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+        var reranker = scope.ServiceProvider.GetRequiredService<IRerankerProvider>();
+
+        TestContext.WriteLine($"Active embedding space: {embedding.EmbeddingSpaceId}");
+
+        var hashes = await repository.GetAllHashesAsync(ct);
+        var entries = await repository.GetByKeysAsync(hashes.Keys.ToList(), ct);
+        var universe = entries
+            .Where(e => e.Embedding.Length > 0)
+            .Select(e => (e.SourceId, e.Text, Vector: Normalize(e.Embedding)))
+            .ToList();
+
+        var cases = LoadGolden(GoldenSetPath).Concat(LoadGolden(ExtendedGoldenSetPath)).ToList();
+        TestContext.WriteLine($"Universe: {universe.Count} entries, cases: {cases.Count}");
+
+        // Per case: how clearly the vector stage decided, and where the target landed in each ordering.
+        var probes = new List<(double Margin, int VectorRank, int RerankRank)>(cases.Count);
+
+        foreach (var item in cases)
+        {
+            var queryVector = Normalize(await embedding.EmbedQueryAsync(item.Query, ct));
+
+            var scored = universe
+                .Select(u => (u.SourceId, u.Text, Score: Dot(queryVector, u.Vector)))
+                .OrderByDescending(x => x.Score)
+                .Take(KnowledgeIndexConstants.MaxRerankerCandidates)
+                .ToList();
+
+            var margin = scored.Count > 1 ? scored[0].Score - scored[1].Score : 1.0;
+
+            var vectorRank = scored.FindIndex(x => string.Equals(x.SourceId, item.ExpectedSourceId, StringComparison.Ordinal)) + 1;
+
+            var rerankScores = await reranker.ScoreAsync(item.Query, scored.Select(s => s.Text).ToList(), ct);
+            var rerankOrder = scored
+                .Zip(rerankScores, (s, r) => (s.SourceId, Score: r))
+                .OrderByDescending(x => x.Score)
+                .ToList();
+            var rerankRank = rerankOrder.FindIndex(x => string.Equals(x.SourceId, item.ExpectedSourceId, StringComparison.Ordinal)) + 1;
+
+            probes.Add((margin, vectorRank, rerankRank));
+        }
+
+        const int TopK = KnowledgeIndexConstants.DefaultTopK;
+        static bool Hit(int rank) => rank > 0 && rank <= TopK;
+
+        var alwaysRerank = probes.Count(p => Hit(p.RerankRank));
+        var neverRerank = probes.Count(p => Hit(p.VectorRank));
+
+        TestContext.WriteLine($"=== reference points (recall@{TopK}, {probes.Count} cases) ===");
+        TestContext.WriteLine($"  always rerank (today):   {alwaysRerank}/{probes.Count} = {(double)alwaysRerank / probes.Count:P1}");
+        TestContext.WriteLine($"  never rerank (vector):   {neverRerank}/{probes.Count} = {(double)neverRerank / probes.Count:P1}");
+
+        double[] thresholds = [0.00, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.10, 0.15];
+
+        TestContext.WriteLine($"=== margin sweep: rerank only when margin < threshold ===");
+        TestContext.WriteLine($"  {"threshold",-10} {"recall@" + TopK,-14} {"reranked share",-16} cases reranked");
+        foreach (var t in thresholds)
+        {
+            var hits = probes.Count(p => Hit(p.Margin < t ? p.RerankRank : p.VectorRank));
+            var reranked = probes.Count(p => p.Margin < t);
+            TestContext.WriteLine(
+                $"  {t,-10:F2} {hits + "/" + probes.Count,-14} {(double)reranked / probes.Count,-16:P1} {reranked}");
+        }
+
+        // Where the reranker actually earns its cost versus where it destroys a correct vector order.
+        var rescued = probes.Count(p => !Hit(p.VectorRank) && Hit(p.RerankRank));
+        var destroyed = probes.Count(p => Hit(p.VectorRank) && !Hit(p.RerankRank));
+        TestContext.WriteLine($"=== what the reranker does ===");
+        TestContext.WriteLine($"  rescues (vector missed, reranker found): {rescued}");
+        TestContext.WriteLine($"  destroys (vector had it, reranker lost): {destroyed}");
+        TestContext.WriteLine($"  net: {rescued - destroyed:+#;-#;0}");
+
+        var marginsOfDestroyed = probes.Where(p => Hit(p.VectorRank) && !Hit(p.RerankRank)).Select(p => p.Margin).OrderBy(m => m).ToList();
+        var marginsOfRescued = probes.Where(p => !Hit(p.VectorRank) && Hit(p.RerankRank)).Select(p => p.Margin).OrderBy(m => m).ToList();
+        if (marginsOfDestroyed.Count > 0)
+            TestContext.WriteLine($"  margins where it destroyed: min {marginsOfDestroyed[0]:F4}, median {marginsOfDestroyed[marginsOfDestroyed.Count / 2]:F4}, max {marginsOfDestroyed[^1]:F4}");
+        if (marginsOfRescued.Count > 0)
+            TestContext.WriteLine($"  margins where it rescued:   min {marginsOfRescued[0]:F4}, median {marginsOfRescued[marginsOfRescued.Count / 2]:F4}, max {marginsOfRescued[^1]:F4}");
+
+        probes.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
     /// Decides whether the candidate pool is too shallow before anyone touches a model. The vector
     /// stage reaches recall@25 = 97,1 %, but nobody has ever asked where the missing cases sit: just
     /// outside the pool at rank 26-50, or nowhere near it. The answer changes what to do next — a
