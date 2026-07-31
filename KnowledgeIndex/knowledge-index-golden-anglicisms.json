@@ -1,0 +1,46 @@
+[
+  { "query": "zeig mir das Dashboard", "expectedSourceId": "get_dashboard_summary", "lang": "de", "langCode": "de" },
+  { "query": "ich brauche einen neuen Token für den MCP-Zugriff", "expectedSourceId": "create_personal_access_token", "lang": "de", "langCode": "de" },
+  { "query": "welche LLM-Provider sind eingerichtet?", "expectedSourceId": "list_llm_providers", "lang": "de", "langCode": "de" },
+  { "query": "starte den Wizard für die Planung", "expectedSourceId": "start_autowizard", "lang": "de", "langCode": "de" },
+  { "query": "zeig mir die Container-Templates", "expectedSourceId": "list_container_template", "lang": "de", "langCode": "de" },
+  { "query": "wie ist der Status vom ERP-Import?", "expectedSourceId": "get_erp_import_status", "lang": "de", "langCode": "de" },
+  { "query": "meine Account-Daten ändern", "expectedSourceId": "update_my_account", "lang": "de", "langCode": "de" },
+  { "query": "die Speech-to-Text Settings bitte", "expectedSourceId": "get_speech_settings", "lang": "de", "langCode": "de" },
+
+  { "query": "montre-moi le dashboard", "expectedSourceId": "get_dashboard_summary", "lang": "other", "langCode": "fr" },
+  { "query": "j'ai besoin d'un nouveau token d'accès", "expectedSourceId": "create_personal_access_token", "lang": "other", "langCode": "fr" },
+  { "query": "quels providers LLM sont configurés ?", "expectedSourceId": "list_llm_providers", "lang": "other", "langCode": "fr" },
+  { "query": "lance le wizard de planification", "expectedSourceId": "start_autowizard", "lang": "other", "langCode": "fr" },
+  { "query": "où en est l'import ERP ?", "expectedSourceId": "get_erp_import_status", "lang": "other", "langCode": "fr" },
+
+  { "query": "mostrami la dashboard", "expectedSourceId": "get_dashboard_summary", "lang": "other", "langCode": "it" },
+  { "query": "mi serve un nuovo token di accesso", "expectedSourceId": "create_personal_access_token", "lang": "other", "langCode": "it" },
+  { "query": "quali provider LLM sono configurati?", "expectedSourceId": "list_llm_providers", "lang": "other", "langCode": "it" },
+  { "query": "avvia il wizard di pianificazione", "expectedSourceId": "start_autowizard", "lang": "other", "langCode": "it" },
+  { "query": "a che punto è l'import ERP?", "expectedSourceId": "get_erp_import_status", "lang": "other", "langCode": "it" },
+
+  { "query": "muéstrame el dashboard", "expectedSourceId": "get_dashboard_summary", "lang": "other", "langCode": "es" },
+  { "query": "necesito un nuevo token de acceso", "expectedSourceId": "create_personal_access_token", "lang": "other", "langCode": "es" },
+  { "query": "¿qué providers de LLM están configurados?", "expectedSourceId": "list_llm_providers", "lang": "other", "langCode": "es" },
+  { "query": "lanza el wizard de planificación", "expectedSourceId": "start_autowizard", "lang": "other", "langCode": "es" },
+  { "query": "¿cómo va el import de ERP?", "expectedSourceId": "get_erp_import_status", "lang": "other", "langCode": "es" },
+
+  { "query": "laat me het dashboard zien", "expectedSourceId": "get_dashboard_summary", "lang": "other", "langCode": "nl" },
+  { "query": "ik heb een nieuwe access token nodig", "expectedSourceId": "create_personal_access_token", "lang": "other", "langCode": "nl" },
+  { "query": "welke LLM providers zijn ingesteld?", "expectedSourceId": "list_llm_providers", "lang": "other", "langCode": "nl" },
+  { "query": "start de wizard voor de planning", "expectedSourceId": "start_autowizard", "lang": "other", "langCode": "nl" },
+  { "query": "wat is de status van de ERP import?", "expectedSourceId": "get_erp_import_status", "lang": "other", "langCode": "nl" },
+
+  { "query": "mostra-me o dashboard", "expectedSourceId": "get_dashboard_summary", "lang": "other", "langCode": "pt" },
+  { "query": "preciso de um novo token de acesso", "expectedSourceId": "create_personal_access_token", "lang": "other", "langCode": "pt" },
+  { "query": "que providers de LLM estão configurados?", "expectedSourceId": "list_llm_providers", "lang": "other", "langCode": "pt" },
+  { "query": "inicia o wizard de planeamento", "expectedSourceId": "start_autowizard", "lang": "other", "langCode": "pt" },
+  { "query": "como está o import do ERP?", "expectedSourceId": "get_erp_import_status", "lang": "other", "langCode": "pt" },
+
+  { "query": "show me the dashboard", "expectedSourceId": "get_dashboard_summary", "lang": "other", "langCode": "en" },
+  { "query": "I need a new access token", "expectedSourceId": "create_personal_access_token", "lang": "other", "langCode": "en" },
+  { "query": "which LLM providers are configured?", "expectedSourceId": "list_llm_providers", "lang": "other", "langCode": "en" },
+  { "query": "start the planning wizard", "expectedSourceId": "start_autowizard", "lang": "other", "langCode": "en" },
+  { "query": "what is the ERP import status?", "expectedSourceId": "get_erp_import_status", "lang": "other", "langCode": "en" }
+]

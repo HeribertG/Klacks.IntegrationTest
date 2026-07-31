@@ -25,6 +25,7 @@
 /// instrument for the recall figures in the handoff and is not worth touching for a diagnostic.
 /// </summary>
 
+using System.Text;
 using System.Text.Json;
 using Klacks.Api.Application.Interfaces.Settings;
 using Klacks.Api.Domain.Constants;
@@ -32,6 +33,7 @@ using Klacks.Api.Domain.Interfaces.Assistant;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.KnowledgeIndex.Application.Constants;
 using Klacks.Api.KnowledgeIndex.Application.Interfaces;
+using Klacks.Api.KnowledgeIndex.Application.Services;
 using Klacks.Api.KnowledgeIndex.Domain;
 using Klacks.IntegrationTest.SignalR;
 using Microsoft.AspNetCore.Hosting;
@@ -71,6 +73,25 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
 
     private static readonly string ExtendedGoldenSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard-ext.json");
+
+    private static readonly string LanguageGoldenSetPath =
+        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard-langs.json");
+
+    private static readonly string AnglicismGoldenSetPath =
+        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-anglicisms.json");
+
+    // The section labels carry their leading newline here, unlike the constants above. Cutting on the
+    // bare label finds a match inside a phrase that happens to contain the word, and an entry whose
+    // keyword list is empty starts its phrase block with the synonym label instead - both produce a
+    // silently wrong basis text.
+    private const string KeywordsSectionStart = "\nKeywords: ";
+    private const string SynonymsSectionStart = "\nSynonyms: ";
+
+    // Recipes append their step list AFTER the phrase sections, so a rebuild that cuts at the phrase
+    // block and stops there drops the steps and measures a shortened recipe instead of a filtered one.
+    private const string StepsSectionStart = "\nSteps: ";
+
+    private const string UntaggedLanguageLabel = "(untagged)";
 
     private sealed class NoOpUiControlRepository : IUiControlRepository
     {
@@ -129,6 +150,10 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
         public string Query { get; set; } = string.Empty;
         public string ExpectedSourceId { get; set; } = string.Empty;
         public string Lang { get; set; } = string.Empty;
+
+        // Only the 25-language set carries this; the older sets label everything as de/other and
+        // deserialize it as empty, which is why they cannot be grouped by real language.
+        public string LangCode { get; set; } = string.Empty;
     }
 
     private DiagnosticsBypassFactory _factory = null!;
@@ -508,6 +533,367 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
 
             TestContext.WriteLine($"  {failing} failing cases in {label}");
         }
+    }
+
+    /// <summary>
+    /// Decides whether the candidate pool is too shallow before anyone touches a model. The vector
+    /// stage reaches recall@25 = 97,1 %, but nobody has ever asked where the missing cases sit: just
+    /// outside the pool at rank 26-50, or nowhere near it. The answer changes what to do next — a
+    /// deeper pool is a one-constant change, a different embedding model is a re-index.
+    ///
+    /// Measures the RANK of every target once and derives every depth from it, so all thresholds cost
+    /// a single pass. Uses the stored vectors and embeds only the queries: no cross-encoder, no
+    /// rebuild, minutes instead of hours.
+    /// </summary>
+    [Test]
+    public async Task CandidateDepth_RecallAtVariousDepths()
+    {
+        var ct = CancellationToken.None;
+        using var scope = _factory.Services.CreateScope();
+        var embedding = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+
+        TestContext.WriteLine($"Active embedding space: {embedding.EmbeddingSpaceId}");
+        TestContext.WriteLine($"Production pool: {KnowledgeIndexConstants.MaxRerankerCandidates}");
+
+        var hashes = await repository.GetAllHashesAsync(ct);
+        var entries = await repository.GetByKeysAsync(hashes.Keys.ToList(), ct);
+        var vectors = entries
+            .Where(e => e.Embedding.Length > 0)
+            .Select(e => (e.SourceId, Vector: Normalize(e.Embedding)))
+            .ToList();
+
+        TestContext.WriteLine($"Universe: {vectors.Count} entries");
+
+        int[] depths = [12, 25, 50, 100, 200, vectors.Count];
+
+        foreach (var (label, path) in new[]
+                 {
+                     ("CORE", GoldenSetPath),
+                     ("EXTENDED", ExtendedGoldenSetPath),
+                     ("25 LANGUAGES", LanguageGoldenSetPath),
+                 })
+        {
+            var cases = LoadGolden(path);
+            var ranks = new List<(string Target, int Rank, string Lang)>(cases.Count);
+
+            foreach (var item in cases)
+            {
+                var queryVector = Normalize(await embedding.EmbedQueryAsync(item.Query, ct));
+                var rank = RankOf(item.ExpectedSourceId, vectors.Select(v => (v.SourceId, Dot(queryVector, v.Vector))));
+                ranks.Add((item.ExpectedSourceId, rank, string.IsNullOrEmpty(item.LangCode) ? item.Lang : item.LangCode));
+            }
+
+            TestContext.WriteLine($"=== {label} ({cases.Count} cases) ===");
+            foreach (var d in depths)
+            {
+                var hits = ranks.Count(r => r.Rank > 0 && r.Rank <= d);
+                var marker = d == KnowledgeIndexConstants.MaxRerankerCandidates ? "  <- production" : string.Empty;
+                TestContext.WriteLine($"  recall@{d,-4} {hits,4}/{cases.Count} = {(double)hits / cases.Count:P1}{marker}");
+            }
+
+            // The decisive number: what a deeper pool would actually buy over today's setting.
+            var beyond = ranks
+                .Where(r => r.Rank > KnowledgeIndexConstants.MaxRerankerCandidates)
+                .OrderBy(r => r.Rank)
+                .ToList();
+
+            TestContext.WriteLine($"  cases outside the production pool: {beyond.Count}");
+            foreach (var r in beyond.Take(25))
+            {
+                TestContext.WriteLine($"    rank {(r.Rank == 0 ? "absent" : "#" + r.Rank),-8} {r.Lang,-6} {r.Target}");
+            }
+        }
+
+        vectors.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// Answers whether anglicisms are a blind spot. Western users say "Dashboard", "Token", "Wizard"
+    /// even when their language has a native word, and the catalogue carries those terms only as
+    /// language-neutral keywords — 78 of 108 of which are not global at all but western. The existing
+    /// 625-case set cannot decide this: only 26 of its cases (4,2 %) contain an English term, because
+    /// whoever wrote them did not use any. That is a property of the test set, not of real users.
+    ///
+    /// Same skills, same intent, but phrased with the anglicism a real user would type. A drop against
+    /// the regular set means the catalogue misses the register; equal results mean the concern is
+    /// unfounded and no material needs to be added.
+    ///
+    /// Seven languages only — de en fr it es nl pt. Nordic and Slavic languages are deliberately
+    /// absent: judging whether a Finn says "wizard" or "ohjattu toiminto" in the office needs a native
+    /// speaker, and guessing it would measure the guess.
+    /// </summary>
+    [Test]
+    public async Task Anglicisms_ThroughFullPipeline_PerLanguage()
+    {
+        var ct = CancellationToken.None;
+        using var scope = _factory.Services.CreateScope();
+        var embedding = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var retrieval = scope.ServiceProvider.GetRequiredService<IKnowledgeRetrievalService>();
+
+        TestContext.WriteLine($"Active embedding space: {embedding.EmbeddingSpaceId}");
+        TestContext.WriteLine($"Cutoff: {KnowledgeIndexConstants.DefaultScoreCutoff}, TopK: {KnowledgeIndexConstants.DefaultTopK}");
+
+        var cases = LoadGolden(AnglicismGoldenSetPath);
+        var perLanguage = new Dictionary<string, (int Hits, int Total)>(StringComparer.OrdinalIgnoreCase);
+        var misses = new List<string>();
+
+        foreach (var item in cases)
+        {
+            var result = await retrieval.RetrieveAsync(
+                item.Query, [], isAdmin: true, KnowledgeIndexConstants.DefaultTopK, currentRoute: null, ct);
+
+            var names = result.Candidates.Select(c => c.Entry.SourceId).ToList();
+            var position = names.FindIndex(n => string.Equals(n, item.ExpectedSourceId, StringComparison.Ordinal));
+
+            var (hits, total) = perLanguage.TryGetValue(item.LangCode, out var acc) ? acc : (0, 0);
+            perLanguage[item.LangCode] = (hits + (position >= 0 ? 1 : 0), total + 1);
+
+            if (position < 0)
+            {
+                misses.Add($"  MISS | {item.LangCode} | {item.ExpectedSourceId} | \"{item.Query}\"");
+                misses.Add($"       delivered: {string.Join(", ", names.Take(5))}");
+            }
+        }
+
+        var totalHits = perLanguage.Values.Sum(v => v.Hits);
+        TestContext.WriteLine($"=== anglicism recall@{KnowledgeIndexConstants.DefaultTopK}: {totalHits}/{cases.Count} ===");
+        foreach (var (lang, v) in perLanguage.OrderBy(p => p.Key, StringComparer.Ordinal))
+        {
+            TestContext.WriteLine($"  {lang,-6} {v.Hits}/{v.Total}");
+        }
+
+        foreach (var line in misses) TestContext.WriteLine(line);
+
+        cases.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// Measures what the keyword and synonym material actually contributes, per language, across all
+    /// 25 shipped languages. The existing language-filter diagnostic answers this for German only,
+    /// because the older golden sets label every non-German case merely as "other"; the 25-language
+    /// set carries a real langCode and makes the same question answerable everywhere.
+    ///
+    /// Four variants per language, all at the candidate stage and without the cross-encoder, so the
+    /// figure isolates the search from the reranker that the handoff already identified as the
+    /// bottleneck:
+    ///   A today      - the stored vectors, phrases of every language mixed into one text
+    ///   B own+untag  - only phrases tagged with the query language, plus the untagged ones
+    ///   C own only   - only phrases tagged with the query language
+    ///   D no phrases - description and parameters alone
+    /// A minus D is the total contribution of the phrase material to that language. B and C differ
+    /// only by the untagged phrases, which is the point: they are stored as language-neutral but are
+    /// demonstrably not (selectionn, gruppo, abschliess are language-specific stems).
+    ///
+    /// Cost is kept low by exploiting that the variants collapse for languages that own no phrases at
+    /// all: for those, B is the untagged-only text - identical for all of them, embedded once - and C
+    /// is D. Only the languages present in skill_phrase need their own rebuild.
+    /// </summary>
+    [Test]
+    public async Task PhraseMaterial_PerLanguage_AcrossAllShippedLanguages()
+    {
+        var ct = CancellationToken.None;
+        using var scope = _factory.Services.CreateScope();
+        var embedding = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+        var phraseRepository = scope.ServiceProvider.GetRequiredService<ISkillPhraseRepository>();
+
+        TestContext.WriteLine($"Active embedding space: {embedding.EmbeddingSpaceId}");
+
+        var hashes = await repository.GetAllHashesAsync(ct);
+        var entries = await repository.GetByKeysAsync(hashes.Keys.ToList(), ct);
+        var phrases = (await phraseRepository.GetAllActiveAsync(ct))
+            .Where(p => !string.IsNullOrWhiteSpace(p.Phrase))
+            .ToList();
+
+        var phraseLanguages = phrases
+            .Select(p => p.Language)
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .Select(l => l!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        TestContext.WriteLine(
+            $"Phrase material present for: {string.Join(", ", phraseLanguages.OrderBy(l => l, StringComparer.Ordinal))} " +
+            $"| untagged rows: {phrases.Count(p => p.Language is null)}");
+
+        var golden = LoadGolden(LanguageGoldenSetPath);
+        var byLanguage = golden
+            .Where(i => !string.IsNullOrWhiteSpace(i.LangCode))
+            .GroupBy(i => i.LangCode, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .ToList();
+
+        TestContext.WriteLine($"Golden cases: {golden.Count} in {byLanguage.Count} languages");
+
+        var storedVectors = entries
+            .Where(e => e.Embedding.Length > 0)
+            .Select(e => (e.SourceId, Vector: Normalize(e.Embedding)))
+            .ToList();
+
+        // Every rebuild the run needs, embedded once and reused across the languages that share it.
+        var variantCache = new Dictionary<string, List<(string SourceId, float[] Vector)>>(StringComparer.Ordinal);
+
+        async Task<List<(string SourceId, float[] Vector)>> VariantAsync(string cacheKey, Func<SkillPhrase, bool> keep)
+        {
+            if (variantCache.TryGetValue(cacheKey, out var cached))
+            {
+                return cached;
+            }
+
+            var built = await BuildVariantVectorsAsync(embedding, entries, phrases, keep, ct);
+            variantCache[cacheKey] = built;
+            TestContext.WriteLine($"  variant '{cacheKey}' embedded ({built.Count} entries)");
+            return built;
+        }
+
+        TestContext.WriteLine("Building index variants:");
+        var noPhrases = await VariantAsync("no phrases", _ => false);
+        var untaggedOnly = await VariantAsync(UntaggedLanguageLabel, p => p.Language is null);
+
+        var rows = new List<string>();
+        var header =
+            $"{"lang",-6} {"n",3}  {"A today",8} {"B own+untag",12} {"C own only",11} {"D no phrases",13}   own phrases";
+        rows.Add(header);
+        rows.Add(new string('-', header.Length));
+
+        foreach (var group in byLanguage)
+        {
+            var language = group.Key;
+            var cases = group.ToList();
+            var owns = phraseLanguages.Contains(language);
+
+            var ownPlusUntagged = owns
+                ? await VariantAsync(
+                    $"{language}+untagged",
+                    p => p.Language is null || string.Equals(p.Language, language, StringComparison.OrdinalIgnoreCase))
+                : untaggedOnly;
+
+            var ownOnly = owns
+                ? await VariantAsync(
+                    $"{language} only",
+                    p => string.Equals(p.Language, language, StringComparison.OrdinalIgnoreCase))
+                : noPhrases;
+
+            var hitsToday = 0;
+            var hitsOwnPlusUntagged = 0;
+            var hitsOwnOnly = 0;
+            var hitsNoPhrases = 0;
+
+            foreach (var item in cases)
+            {
+                var queryVector = Normalize(await embedding.EmbedQueryAsync(item.Query, ct));
+
+                if (IsRecalled(item.ExpectedSourceId, queryVector, storedVectors)) hitsToday++;
+                if (IsRecalled(item.ExpectedSourceId, queryVector, ownPlusUntagged)) hitsOwnPlusUntagged++;
+                if (IsRecalled(item.ExpectedSourceId, queryVector, ownOnly)) hitsOwnOnly++;
+                if (IsRecalled(item.ExpectedSourceId, queryVector, noPhrases)) hitsNoPhrases++;
+            }
+
+            rows.Add(
+                $"{language,-6} {cases.Count,3}  {hitsToday,8} {hitsOwnPlusUntagged,12} {hitsOwnOnly,11} {hitsNoPhrases,13}   " +
+                (owns ? "yes" : "no"));
+
+            TestContext.WriteLine(
+                $"  {language}: today {hitsToday}/{cases.Count}, own+untagged {hitsOwnPlusUntagged}, " +
+                $"own only {hitsOwnOnly}, no phrases {hitsNoPhrases}");
+        }
+
+        TestContext.WriteLine($"=== recall@{RecallCutoff} per language, candidate stage, no cross-encoder ===");
+        foreach (var row in rows) TestContext.WriteLine(row);
+
+        golden.Count.ShouldBeGreaterThan(0);
+        byLanguage.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// Rebuilds every index text with only the phrases the predicate keeps and embeds the result.
+    /// Reuses <see cref="SkillPhraseGrouper"/> rather than reimplementing the order and deduplication
+    /// rules, so a variant differs from production in the filter alone.
+    /// </summary>
+    /// <param name="entries">Stored index entries, supplying the non-phrase part of each text.</param>
+    /// <param name="phrases">All active phrases, filtered by <paramref name="keep"/> before grouping.</param>
+    /// <param name="keep">Decides which phrases survive into the rebuilt text.</param>
+    private static async Task<List<(string SourceId, float[] Vector)>> BuildVariantVectorsAsync(
+        IEmbeddingProvider embedding,
+        IReadOnlyList<KnowledgeEntry> entries,
+        IReadOnlyList<SkillPhrase> phrases,
+        Func<SkillPhrase, bool> keep,
+        CancellationToken ct)
+    {
+        var kept = SkillPhraseGrouper.Group(phrases.Where(keep).ToList());
+
+        var texts = new List<string>(entries.Count);
+        var sourceIds = new List<string>(entries.Count);
+        foreach (var entry in entries)
+        {
+            var ownerKind = entry.Kind == KnowledgeEntryKind.Recipe
+                ? SkillPhraseOwnerKinds.Recipe
+                : SkillPhraseOwnerKinds.Skill;
+
+            var set = kept.TryGetValue((ownerKind, entry.SourceId), out var found) ? found : IndexPhraseSet.Empty;
+            texts.Add(RebuildText(entry.Text, set));
+            sourceIds.Add(entry.SourceId);
+        }
+
+        var vectors = new List<(string SourceId, float[] Vector)>(texts.Count);
+        for (var start = 0; start < texts.Count; start += EmbedChunkSize)
+        {
+            var chunk = texts.Skip(start).Take(EmbedChunkSize).ToList();
+            var embedded = await embedding.EmbedBatchAsync(chunk, ct);
+            for (var i = 0; i < embedded.Length; i++)
+            {
+                vectors.Add((sourceIds[start + i], Normalize(embedded[i])));
+            }
+        }
+
+        return vectors;
+    }
+
+    /// <summary>
+    /// Replaces the phrase block of a stored index text, keeping the head and any trailing recipe
+    /// steps intact, and reproduces the synchronizer's section format exactly - an empty list emits
+    /// no section at all, and a phrase that is both keyword and synonym appears only as a keyword.
+    /// </summary>
+    private static string RebuildText(string storedText, IndexPhraseSet phrases)
+    {
+        var keywordPos = storedText.IndexOf(KeywordsSectionStart, StringComparison.Ordinal);
+        var synonymPos = storedText.IndexOf(SynonymsSectionStart, StringComparison.Ordinal);
+        var stepsPos = storedText.IndexOf(StepsSectionStart, StringComparison.Ordinal);
+
+        var blockStart = new[] { keywordPos, synonymPos }
+            .Where(p => p >= 0)
+            .DefaultIfEmpty(stepsPos >= 0 ? stepsPos : storedText.Length)
+            .Min();
+
+        var head = storedText[..blockStart];
+        var tail = stepsPos >= 0 ? storedText[stepsPos..] : string.Empty;
+
+        var sb = new StringBuilder(head);
+        if (phrases.Keywords.Count > 0)
+        {
+            sb.Append(KeywordsSectionStart);
+            sb.Append(string.Join(", ", phrases.Keywords));
+        }
+
+        var keywordSet = phrases.Keywords.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var synonyms = phrases.Synonyms.Where(s => !keywordSet.Contains(s)).ToList();
+        if (synonyms.Count > 0)
+        {
+            sb.Append(SynonymsSectionStart);
+            sb.Append(string.Join(", ", synonyms));
+        }
+
+        sb.Append(tail);
+        return sb.ToString();
+    }
+
+    private static bool IsRecalled(
+        string expected,
+        float[] queryVector,
+        IReadOnlyList<(string SourceId, float[] Vector)> universe)
+    {
+        var rank = RankOf(expected, universe.Select(v => (v.SourceId, Dot(queryVector, v.Vector))));
+        return rank > 0 && rank <= RecallCutoff;
     }
 
     /// <summary>
