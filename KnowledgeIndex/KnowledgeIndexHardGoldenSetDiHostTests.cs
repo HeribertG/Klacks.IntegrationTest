@@ -148,6 +148,138 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
     }
 
     /// <summary>
+    /// Ablation: what would the toolset contain if the cross-encoder were removed and the KNN order
+    /// used as-is? The full report measures the reranker against itself and can therefore not answer
+    /// whether the reranker helps at all - the 2026-07-30 isolation found it moving targets both up
+    /// (#17 to #6) and down (#10 to #16), with no net figure either way.
+    /// Runs in a couple of minutes because it never calls the reranker, which is where essentially all
+    /// of the full report's runtime goes. Compare its recall@DefaultTopK against the full report's.
+    /// </summary>
+    [Test]
+    public async Task HardGoldenSet_RerankerAblation_VectorOrderOnly()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var embeddingProvider = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+
+        TestContext.WriteLine($"Active embedding space: {embeddingProvider.EmbeddingSpaceId}");
+        TestContext.WriteLine("=== RERANKER ABLATION (pure KNN order, no cross-encoder) ===");
+
+        var core = LoadGoldenSet();
+        var extended = LoadExtendedGoldenSet();
+
+        var coreHits = await MeasureVectorOrderAsync("CORE", core, embeddingProvider, repository);
+        var extHits = await MeasureVectorOrderAsync("EXTENDED", extended, embeddingProvider, repository);
+
+        var total = core.Count + extended.Count;
+        var hits = coreHits + extHits;
+        TestContext.WriteLine(
+            $"=== COMBINED ({total} cases) === vector-order recall@{KnowledgeIndexConstants.DefaultTopK}: " +
+            $"{hits}/{total} = {(double)hits / total:P1}");
+
+        core.Count.ShouldBeGreaterThan(0);
+        extended.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// Recall of the raw KNN order at every candidate width. Mirrors the production path except for the
+    /// cross-encoder: same candidate count, same wrapped-endpoint filter, so the only difference to the
+    /// full report is the ordering. Reports the whole curve because the cost of doing so is one extra
+    /// comparison per case, and it locates the best DefaultTopK directly instead of by guessing.
+    /// </summary>
+    private static async Task<int> MeasureVectorOrderAsync(
+        string label,
+        List<HardGoldenSetItem> golden,
+        IEmbeddingProvider embeddingProvider,
+        IKnowledgeIndexRepository repository)
+    {
+        var hitsAtWidth = new int[AblationWidths.Length];
+        var candidateHits = 0;
+        var rankSum = 0;
+        var ranked = 0;
+        // Counted separately rather than read out of hitsAtWidth: DefaultTopK is the value this whole
+        // exercise is about changing, and it need not stay one of the sampled widths.
+        var hitsAtDefaultTopK = 0;
+        var perLanguageHits = new Dictionary<string, int>();
+        var perLanguageTotal = new Dictionary<string, int>();
+
+        foreach (var item in golden)
+        {
+            var queryVec = await embeddingProvider.EmbedQueryAsync(item.Query, CancellationToken.None);
+            var candidates = await repository.FindNearestAsync(
+                queryVec, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, CancellationToken.None);
+
+            var wrappedEndpoints = candidates
+                .Where(c => c.Kind == KnowledgeEntryKind.Skill && c.ExposedEndpointKey is not null)
+                .Select(c => c.ExposedEndpointKey!)
+                .ToHashSet();
+
+            var filtered = candidates
+                .Where(c => c.Kind == KnowledgeEntryKind.Skill || !wrappedEndpoints.Contains(c.SourceId))
+                .ToList();
+
+            var rank = filtered.FindIndex(c => item.Accepts(c.SourceId));
+
+            // Counted before the miss shortcut, so the per-language denominators stay comparable to the
+            // full report's - there the language split covers every case, hit or not.
+            perLanguageTotal[item.Lang] = perLanguageTotal.GetValueOrDefault(item.Lang) + 1;
+
+            if (rank < 0)
+            {
+                continue;
+            }
+
+            candidateHits++;
+            rankSum += rank + 1;
+            ranked++;
+
+            if (rank < KnowledgeIndexConstants.DefaultTopK)
+            {
+                hitsAtDefaultTopK++;
+                perLanguageHits[item.Lang] = perLanguageHits.GetValueOrDefault(item.Lang) + 1;
+            }
+
+            for (var w = 0; w < AblationWidths.Length; w++)
+            {
+                if (rank < AblationWidths[w])
+                {
+                    hitsAtWidth[w]++;
+                }
+            }
+        }
+
+        TestContext.WriteLine($"--- {label} ({golden.Count} cases), vector order only ---");
+        TestContext.WriteLine(
+            $"  in candidate set at all: {candidateHits}/{golden.Count} = {(double)candidateHits / golden.Count:P1}");
+        if (ranked > 0)
+        {
+            TestContext.WriteLine($"  mean rank of the target when present: {(double)rankSum / ranked:F1}");
+        }
+
+        for (var w = 0; w < AblationWidths.Length; w++)
+        {
+            var marker = AblationWidths[w] == KnowledgeIndexConstants.DefaultTopK ? "  <- DefaultTopK" : string.Empty;
+            TestContext.WriteLine(
+                $"  vector-order recall@{AblationWidths[w],2}: {hitsAtWidth[w]}/{golden.Count} = " +
+                $"{(double)hitsAtWidth[w] / golden.Count:P1}{marker}");
+        }
+
+        // Same split as the full report writes, so the two can be put side by side: the reranker helps
+        // on CORE and hurts on EXTENDED, and language is the standing suspect for that sign flip.
+        TestContext.WriteLine(
+            $"  --- vector-order recall@{KnowledgeIndexConstants.DefaultTopK} per query language ---");
+        foreach (var lang in perLanguageTotal.Keys.OrderBy(k => k, StringComparer.Ordinal))
+        {
+            var langHits = perLanguageHits.GetValueOrDefault(lang);
+            TestContext.WriteLine(
+                $"    {lang}: {langHits}/{perLanguageTotal[lang]} = " +
+                $"{(double)langHits / perLanguageTotal[lang]:P1}");
+        }
+
+        return hitsAtDefaultTopK;
+    }
+
+    /// <summary>
     /// Measures one golden set and writes its full report. Returns the toolset recall hit count so the
     /// caller can aggregate across sets without re-running the cross-encoder.
     /// </summary>
@@ -444,6 +576,10 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
     // lives in that interval. Sweeping only 0.001 -> 0.0 forces a choice between keeping the losses
     // and handing an off-topic question the full toolset, with nothing measured in between.
     private static readonly double[] CutoffSweep = [0.05, 0.02, 0.01, 0.005, 0.001, 0.0005, 0.0002, 0.0001, 0.0];
+
+    // Must contain DefaultTopK (the figure comparable to the full report) and end at
+    // MaxRerankerCandidates, the widest toolset the candidate pass can ever supply.
+    private static readonly int[] AblationWidths = [1, 3, 5, 8, 12, 15, 20, 25];
 
     /// <summary>
     /// Whether the target would reach the toolset at the given cutoff. Mirrors production order:
