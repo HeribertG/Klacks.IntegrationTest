@@ -16,7 +16,8 @@ internal sealed record HardGoldenSetItem(
     string Query,
     string ExpectedSourceId,
     IReadOnlyList<string> AlsoAcceptedSourceIds,
-    string Lang)
+    string Lang,
+    string LangCode)
 {
     public bool Accepts(string sourceId) =>
         sourceId.Equals(ExpectedSourceId, StringComparison.OrdinalIgnoreCase)
@@ -36,7 +37,10 @@ internal sealed record HardGoldenSetItem(
             e.TryGetProperty("alsoAcceptedSourceIds", out var also)
                 ? also.EnumerateArray().Select(a => a.GetString()!).ToList()
                 : [],
-            e.TryGetProperty("lang", out var lang) ? lang.GetString()! : "unknown"))
+            e.TryGetProperty("lang", out var lang) ? lang.GetString()! : "unknown",
+            // "lang" only distinguishes de from other. "langCode" carries the actual language, which
+            // matters because the reranker's behaviour differs sharply between them.
+            e.TryGetProperty("langCode", out var langCode) ? langCode.GetString()! : "unknown"))
             .ToList();
     }
 }

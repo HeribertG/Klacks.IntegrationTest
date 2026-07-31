@@ -2,521 +2,625 @@
   {
     "query": "ricordati che questo cliente odia i turni di notte",
     "expectedSourceId": "add_ai_memory",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "what do you remember about our team so far",
     "expectedSourceId": "get_ai_memories",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "quelle est ta personnalité, comment dois-je t'imaginer",
     "expectedSourceId": "get_ai_soul",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "quali regole segui attualmente nel tuo comportamento",
     "expectedSourceId": "get_ai_guidelines",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "auf welcher Seite bin ich gerade und wer bin ich im System",
     "expectedSourceId": "get_user_context",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "peux-tu enregistrer une absence maladie pour Julien à partir de demain",
     "expectedSourceId": "add_break",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "please book a single sick day for James starting tomorrow",
     "expectedSourceId": "add_break",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "trage für die ganze Gruppe Nord morgen einen Schulungstag ein",
     "expectedSourceId": "bulk_add_absence_for_group",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "add a training day for every member of the North team tomorrow, preview first",
     "expectedSourceId": "bulk_add_absence_for_group",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "Frau Huber ist heute überraschend krank geworden, wer kann sie kurzfristig ersetzen",
     "expectedSourceId": "cover_absence",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "an employee just called in sick for today, find someone to cover their shift",
     "expectedSourceId": "cover_absence",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "gibt es Überschneidungen, bevor ich für Herrn Vogel eine Abwesenheit vom 5. bis 9. eintrage",
     "expectedSourceId": "check_absence_conflicts",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "check for overlapping bookings before I place this absence for the client",
     "expectedSourceId": "check_absence_conflicts",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "welche Abwesenheitsarten gibt es überhaupt im System",
     "expectedSourceId": "list_absence_types",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "verschiebe die geplante Abwesenheit von Frau Lang auf die nächste Woche",
     "expectedSourceId": "move-absence-for-employee",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "remove the absence placeholder I just placed for that employee",
     "expectedSourceId": "remove-absence-for-employee",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "füge Herrn Baumann der Gruppe Zürich hinzu",
     "expectedSourceId": "add_client_to_group_by_name",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "add Mrs Keller to the Zurich team by name",
     "expectedSourceId": "add_client_to_group_by_name",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "weise diesen neuen Kunden automatisch der geografisch nächstgelegenen Gruppe zu",
     "expectedSourceId": "add_client_to_nearest_group",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "aggiungi il signor Rossi al gruppo geograficamente più vicino automaticamente",
     "expectedSourceId": "add_client_to_nearest_group",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "füge die von mir markierten Mitarbeiter in der Liste der Gruppe Bern hinzu",
     "expectedSourceId": "add_selected_clients_to_group",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "add the employees I ticked in this list to the Bern group in one go",
     "expectedSourceId": "add_selected_clients_to_group",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "fülle die Gruppe Zürich mit allen Mitarbeitenden mit Vollzeitvertrag aus dem Kanton Zürich",
     "expectedSourceId": "fill_group_by_criteria",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "remplis le groupe Zurich avec tous les employés à temps plein de ce canton, montre-moi un aperçu d'abord",
     "expectedSourceId": "fill_group_by_criteria",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "ordne alle noch gruppenlosen Mitarbeiter automatisch der Gruppe zu, die wie ihre Wohnstadt heisst",
     "expectedSourceId": "group_ungrouped_by_city_name",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "assign every ungrouped employee to the group whose name matches their home city",
     "expectedSourceId": "group_ungrouped_by_city_name",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "verteil wirklich sämtliche Kunden neu auf ihre jeweils nächstgelegene Gruppe",
     "expectedSourceId": "bulk-add-customers-to-nearest-group",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "reassign every single customer to their nearest group again, in bulk",
     "expectedSourceId": "bulk-add-customers-to-nearest-group",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "verknüpfe den Dienst Nachtschicht mit der Gruppe Ost",
     "expectedSourceId": "add_shift_to_group",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "add every shift whose name matches 'cleaning' to the Service group in one step",
     "expectedSourceId": "bulk_add_shifts_to_group",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "löse die Verknüpfung dieses Dienstes von der Gruppe Ost wieder",
     "expectedSourceId": "remove_shift_from_group",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "weise Herrn Meyer den Vertrag Vollzeit 100% direkt namentlich zu",
     "expectedSourceId": "assign_contract_by_name",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "create a brand-new contract template with these guaranteed hours and rates",
     "expectedSourceId": "create_contract",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "quali contratti stanno per scadere nei prossimi 90 giorni",
     "expectedSourceId": "list_expiring_contracts",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "zeig mir alle Details zum Vertrag Teilzeit 60 Prozent",
     "expectedSourceId": "get_contract_details",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "zapamiętaj, że okres rozliczeniowy lipca trzeba ostatecznie zamknąć",
     "expectedSourceId": "close_period",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "pl"
   },
   {
     "query": "reopen that already sealed period again",
     "expectedSourceId": "reopen_period",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "guide me through closing this payroll period with a pre-flight check and my confirmation first",
     "expectedSourceId": "close-payroll-period",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "welche Probleme gibt es aktuell in der noch offenen Periode",
     "expectedSourceId": "list_period_issues",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "wie viele Stunden hat Frau Kunz in diesem Zeitraum im Vergleich zu ihrem Vertragssoll",
     "expectedSourceId": "get_period_hours",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "split this shift order into pieces at that calendar date",
     "expectedSourceId": "cut_shift_by_date",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "füge alle Teilstücke dieses Dienstes wieder zu einem einzigen zusammen",
     "expectedSourceId": "reset_shift_cuts",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "sigilla definitivamente questo ordine così diventa immutabile",
     "expectedSourceId": "seal_shift",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "create a brand-new sealed shift order for this customer end to end, ready to plan",
     "expectedSourceId": "create-shift-order",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "welche versiegelten Aufträge sind bereit für den Export",
     "expectedSourceId": "list_sealed_orders",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "ich möchte eine neue Firmenregel definieren: maximal drei Nachtschichten pro Woche",
     "expectedSourceId": "start_company_rule",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "let's set up a brand-new company rule about weekend surcharge rates",
     "expectedSourceId": "start_company_rule",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "pokaż podgląd tej reguły zanim ją zastosuję na stałe",
     "expectedSourceId": "preview_company_rule",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "pl"
   },
   {
     "query": "show me a full comparison of what this draft rule would change before I apply it",
     "expectedSourceId": "preview_company_rule",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "wende den Regel-Entwurf jetzt endgültig fest an",
     "expectedSourceId": "apply_company_rule",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "apply this rule draft now, make it permanent",
     "expectedSourceId": "apply_company_rule",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "annulla la bozza di regola che ho iniziato, non la voglio più",
     "expectedSourceId": "cancel_company_rule",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "annule le brouillon de règle que j'ai commencé, je n'en veux plus",
     "expectedSourceId": "cancel_company_rule",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "mach die vor zwei Wochen angewendete Zuschlagsregel wieder rückgängig",
     "expectedSourceId": "revert_company_rule",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "revert that surcharge rule we applied two weeks ago back to how it was",
     "expectedSourceId": "revert_company_rule",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "welche Firmenregeln sind aktuell aktiv im Register hinterlegt",
     "expectedSourceId": "list_company_rules",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "start setting up a custom planning profile for our industry from scratch",
     "expectedSourceId": "start_planning_profile_setup",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "zeig mir, welche Regeln beim Anwenden dieses Planungsprofils übernommen würden",
     "expectedSourceId": "preview_planning_profile",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "übernimm das vorbereitete Planungsprofil jetzt fest ins System",
     "expectedSourceId": "apply_planning_profile",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "brich die Einrichtung des Planungsprofils ab, ich fang nochmal neu an",
     "expectedSourceId": "cancel_planning_profile_setup",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "avvia solo il piano di copertura iniziale senza alcuna levigatura",
     "expectedSourceId": "start_wizard1",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "lance uniquement la répartition de base sans aucun lissage pour ce groupe",
     "expectedSourceId": "start_wizard1",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "glätte den bestehenden Plan, ohne die Besetzung neu zu entscheiden",
     "expectedSourceId": "start_wizard2",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "smooth the existing plan without touching any coverage decisions",
     "expectedSourceId": "start_wizard2",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "fülle den kompletten Plan für diese Gruppe und Periode automatisch von Anfang bis Ende",
     "expectedSourceId": "start_autowizard",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "auto-fill the entire schedule for this group and period end to end in one go",
     "expectedSourceId": "start_autowizard",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "stoppe den laufenden Planungslauf sofort",
     "expectedSourceId": "cancel_wizard_job",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "de"
   },
   {
     "query": "wie weit ist mein letzter Mehrschritt-Plan schon gekommen",
     "expectedSourceId": "get_plan_status",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "mark this employee as available Monday morning from 8 to noon",
     "expectedSourceId": "set_client_availability",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "lösche alle Verfügbarkeitseinträge von Herrn Zimmermann für diesen Monat wieder",
     "expectedSourceId": "clear_client_availability",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "ist Frau Egli am Donnerstagnachmittag überhaupt einsetzbar",
     "expectedSourceId": "check_client_availability",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "qui est globalement disponible vendredi matin",
     "expectedSourceId": "get_availability_overview",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "create a brand-new employee record with address and contact info, just the person",
     "expectedSourceId": "create_employee",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "onboard this new hire end to end including their contract and group assignment",
     "expectedSourceId": "onboard-employee",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "der Mitarbeiter verlässt uns Ende Monat, bitte den Austritt sauber und vollständig erfassen",
     "expectedSourceId": "offboard-employee",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "setz einfach das Enddatum der Mitgliedschaft dieses Mitarbeiters, ohne UUID",
     "expectedSourceId": "end_client_membership",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "wie funktioniert eigentlich die Abwesenheitskalender-Seite",
     "expectedSourceId": "explain_page_absence",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "how does the absence calendar page actually work",
     "expectedSourceId": "explain_page_absence",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "erklär mir den Einsatzplan und seine Werkzeugleiste",
     "expectedSourceId": "explain_page_schedule",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "explain the main scheduling board and its toolbar to me",
     "expectedSourceId": "explain_page_schedule",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "was kann ich alles auf der Dienste-Seite machen",
     "expectedSourceId": "explain_page_shifts",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "what can I actually do on the services page",
     "expectedSourceId": "explain_page_shifts",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "wie verwalte ich Teams auf der Gruppen-Seite",
     "expectedSourceId": "explain_page_groups",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "how do I manage teams on the groups page",
     "expectedSourceId": "explain_page_groups",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "erklär mir das Verfügbarkeitsraster auf dieser Seite",
     "expectedSourceId": "explain_page_availability",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "explique-moi la grille de disponibilité sur cette page",
     "expectedSourceId": "explain_page_availability",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "wie läuft der Periodenabschluss auf dieser Seite konkret ab",
     "expectedSourceId": "explain_page_period_closing",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "come funziona esattamente la pagina di chiusura del periodo",
     "expectedSourceId": "explain_page_period_closing",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "how should I meaningfully sort these clients into groups, I don't have a criterion yet",
     "expectedSourceId": "analyze_group_semantics",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "zeig mir unverbindlich, wie die Kunden auf ihre Standortgruppen verteilt würden",
     "expectedSourceId": "propose_grouping",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "verschiebe jetzt wirklich alle Kunden fest in ihre Standortgruppen",
     "expectedSourceId": "apply_grouping",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "de"
   },
   {
     "query": "ermittle für alle Standortgruppen automatisch die Koordinaten",
     "expectedSourceId": "geocode_location_groups",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "accepte le scénario proposé par l'AutoWizard dans le planning réel",
     "expectedSourceId": "accept_scenario",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "discard this scenario proposal, it's not good enough",
     "expectedSourceId": "reject_scenario",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "prüf, ob dieses Szenario überhaupt regelkonform ist, bevor ich mich entscheide",
     "expectedSourceId": "evaluate_scenario",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "quali scenari sono attualmente disponibili per questo gruppo",
     "expectedSourceId": "list_scenarios",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "fetch new emails right now instead of waiting for the next background poll",
     "expectedSourceId": "fetch_new_emails",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "zeig mir den vollständigen Inhalt dieser einen E-Mail",
     "expectedSourceId": "read_email",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "move this email into the junk folder",
     "expectedSourceId": "move_email_to_folder",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "übersetz mir diese eingegangene E-Mail ins Deutsche",
     "expectedSourceId": "translate_email",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "was hat die automatische Analyse bei dieser Mail als Absicht erkannt",
     "expectedSourceId": "get_email_analysis",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "bring mich direkt zu den Einstellungen",
     "expectedSourceId": "navigate_to",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "find this specific customer and open their record directly",
     "expectedSourceId": "search_and_navigate",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "welche Sucheingaben konnte die Navigation zuletzt nicht zuordnen",
     "expectedSourceId": "list_navigation_feedback",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   }
 ]

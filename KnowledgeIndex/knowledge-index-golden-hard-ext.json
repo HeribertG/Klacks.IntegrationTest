@@ -2,346 +2,415 @@
   {
     "query": "trag mir bitte die neue Mobilnummer von Herrn Frei ein",
     "expectedSourceId": "add_client_phone",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "add a second email address for Mrs Widmer",
     "expectedSourceId": "add_client_email",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "note quelque chose sur ce collaborateur pour plus tard",
     "expectedSourceId": "add_client_note",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "il cognome di questa persona è scritto male, correggilo",
     "expectedSourceId": "update_client",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "das Geburtsdatum von Frau Locher stimmt nicht",
     "expectedSourceId": "update_client_birthdate",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "welche Schichten sind diese Woche noch unbesetzt",
     "expectedSourceId": "search_shifts",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "split this long shift into two separate blocks",
     "expectedSourceId": "cut_shift",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "montre-moi les détails de ce service précis",
     "expectedSourceId": "get_shift_details",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "crea un nuovo turno per lunedì mattina",
     "expectedSourceId": "create_shift",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "welche Schnitte wurden an den Schichten schon vorgenommen",
     "expectedSourceId": "list_shift_cuts",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "wie viele Stunden hat das Team Basel diesen Monat insgesamt",
     "expectedSourceId": "get_group_hours_balance",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "are there overlapping absences inside the Bern team",
     "expectedSourceId": "get_group_absence_overlap",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "affiche la structure complète des groupes en arborescence",
     "expectedSourceId": "list_groups_hierarchical",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "chi fa parte del gruppo Lugano",
     "expectedSourceId": "list_group_members",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "verschiebe die Gruppe Winterthur unter die Region Ost",
     "expectedSourceId": "move_group",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "prüfe ob die Verbindung zum Posteingangsserver funktioniert",
     "expectedSourceId": "test_imap_connection",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "check whether outgoing mail actually works",
     "expectedSourceId": "test_smtp_connection",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "quels sont les réglages actuels de la boîte de réception",
     "expectedSourceId": "get_imap_settings",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "cambia le impostazioni del filtro antispam",
     "expectedSourceId": "update_spam_filter_settings",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "welche Ordner gibt es im Postfach",
     "expectedSourceId": "list_email_folders",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "welche Sprachmodelle sind bei uns überhaupt eingerichtet",
     "expectedSourceId": "list_llm_models",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "which AI vendors are configured in this system",
     "expectedSourceId": "list_llm_providers",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "ajoute un nouveau modèle de langue à la configuration",
     "expectedSourceId": "create_llm_model",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "rimuovi questo fornitore di intelligenza artificiale",
     "expectedSourceId": "delete_llm_provider",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "welche Abrechnungsperioden sind noch nicht abgeschlossen",
     "expectedSourceId": "list_open_periods",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "give me a written summary of the closed period",
     "expectedSourceId": "generate_period_summary",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "qui a modifié quoi pendant cette période",
     "expectedSourceId": "list_period_audit_log",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "approva la giornata di ieri per questo collaboratore",
     "expectedSourceId": "approve_day",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "ich muss die Tagesfreigabe von gestern zurücknehmen",
     "expectedSourceId": "revoke_day_approval",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "wer könnte diese Doppelschicht aufteilen und übernehmen",
     "expectedSourceId": "find_split_shift_candidates",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "are there any scheduling conflicts left in this plan",
     "expectedSourceId": "detect_conflicts",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "quels clients potentiels se trouvent près de cette adresse",
     "expectedSourceId": "find_customer_candidates",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "welche Qualifikationen gibt es bei uns",
     "expectedSourceId": "list_qualifications",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "this shift should require a nursing certificate",
     "expectedSourceId": "set_shift_required_qualification",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "attribue le brevet de secourisme à Madame Roux",
     "expectedSourceId": "set_client_qualification",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "questa qualifica non serve più per questo turno",
     "expectedSourceId": "remove_shift_required_qualification",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "welche Rechte hat dieser Benutzer aktuell",
     "expectedSourceId": "get_user_permissions",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "restrict this user to the eastern region only",
     "expectedSourceId": "set_user_group_scope",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "donne les droits d'administration à ce compte",
     "expectedSourceId": "assign_user_permissions",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "erstelle mir einen Zugriffstoken für die Schnittstelle",
     "expectedSourceId": "create_personal_access_token",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "revoke that API token immediately",
     "expectedSourceId": "revoke_personal_access_token",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "was kann ich auf der Mitarbeiterseite alles machen",
     "expectedSourceId": "explain_page_employees",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "explain what the inbox page is for",
     "expectedSourceId": "explain_page_inbox",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "à quoi sert l'éditeur de macros",
     "expectedSourceId": "explain_macro_editor",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "spiegami come funziona il contenitore dei turni",
     "expectedSourceId": "explain_shift_container",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "it"
   },
   {
     "query": "was ist der Unterschied bei sporadischen Schichten",
     "expectedSourceId": "explain_shift_sporadic",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "wie spät ist es gerade bei uns",
     "expectedSourceId": "get_current_time",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "how much memory is this server using",
     "expectedSourceId": "get_system_info",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "markiere diese Nachricht als gelesen",
     "expectedSourceId": "mark_email_read",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "put that deleted message back",
     "expectedSourceId": "restore_email",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "welche Feiertage fallen in diesen Zeitraum",
     "expectedSourceId": "list_holidays_for_period",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "check this holiday rule before I save it",
     "expectedSourceId": "validate_calendar_rule",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "importe les règles de jours fériés depuis le fichier",
     "expectedSourceId": "import_calendar_rules",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "fr"
   },
   {
     "query": "erfasse die Spesen von Herrn Meier für letzte Woche",
     "expectedSourceId": "add_expense",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "show me all expenses booked this month",
     "expectedSourceId": "list_expenses",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "installiere bitte das niederländische Sprachpaket",
     "expectedSourceId": "install_language_pack",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "how far along are the translations",
     "expectedSourceId": "get_translation_status",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "mach meine letzte Änderung wieder rückgängig",
     "expectedSourceId": "rollback_my_last_change",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "did my previous action actually go through",
     "expectedSourceId": "verify_my_last_action",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "wie selbstständig darfst du gerade handeln",
     "expectedSourceId": "get_autonomy_level",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "du darfst ab jetzt mehr selbst entscheiden",
     "expectedSourceId": "set_autonomy_level",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "merk dir diese Notiz für die Schicht am Freitag",
     "expectedSourceId": "add_schedule_note",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "welche Notizen sind noch nicht zugestellt worden",
     "expectedSourceId": "manage_pending_notes",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "starte den Import aus dem Warenwirtschaftssystem jetzt",
     "expectedSourceId": "trigger_erp_import_run",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "did the last ERP import run succeed",
     "expectedSourceId": "get_erp_import_status",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "bestätige die geleistete Arbeitszeit von Frau Vogt",
     "expectedSourceId": "confirm_work",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "I need to undo that time confirmation",
     "expectedSourceId": "unconfirm_work",
-    "lang": "other"
+    "lang": "other",
+    "langCode": "en"
   },
   {
     "query": "prüfe ob diese Adresse überhaupt existiert",
     "expectedSourceId": "validate_address",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   },
   {
     "query": "welche Adresse ist als Firmensitz hinterlegt",
     "expectedSourceId": "get_owner_address",
-    "lang": "de"
+    "lang": "de",
+    "langCode": "de"
   }
 ]

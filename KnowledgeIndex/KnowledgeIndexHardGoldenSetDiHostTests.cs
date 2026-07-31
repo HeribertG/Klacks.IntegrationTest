@@ -13,11 +13,12 @@
 /// every row as "changed" (ComputeTextHash folds EmbeddingSpaceId into the stored hash) and
 /// re-embed + overwrite all of them at startup — a write this module is not permitted to make on
 /// the shared dev DB.
-/// Verified 2026-07-28 by recomputing the stored hashes in SQL: all knowledge_index rows carry the
-/// "onnx:multilingual-e5-small@384" space. Since the synchronizer is neutralized, nothing realigns
-/// the vectors at runtime — so the "Active embedding space" line this test writes MUST report that
-/// same id. Any other value means the KNN pass compares vectors across incompatible spaces and every
-/// recall figure below is meaningless rather than merely weak.
+/// The stored rows carry a single embedding space, and since the synchronizer is neutralized nothing
+/// realigns the vectors at runtime — so the "Active embedding space" line this test writes MUST match
+/// it. Any other value means the KNN pass compares vectors across incompatible spaces and every recall
+/// figure below is meaningless rather than merely weak. Since 2026-07-30 the expected id is
+/// "onnx:multilingual-e5-base@768" (was "-small@384", verified 2026-07-28 by recomputing the stored
+/// hashes in SQL).
 /// </summary>
 
 using System.Text.Json;
@@ -27,6 +28,7 @@ using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.KnowledgeIndex.Application.Constants;
 using Klacks.Api.KnowledgeIndex.Application.Interfaces;
 using Klacks.Api.KnowledgeIndex.Domain;
+using Klacks.Api.KnowledgeIndex.Infrastructure.Onnx;
 using Klacks.IntegrationTest.SignalR;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -182,6 +184,175 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
     }
 
     /// <summary>
+    /// Benchmarks an alternative cross-encoder against the current one on EXTENDED, where the reranker
+    /// demonstrably loses cases. The model files must already sit in Cache/Models/&lt;name&gt;; empty url and
+    /// hash tell the loader to use them as they are instead of downloading the configured reranker over
+    /// them. Split into separate test cases per model so the first result is available without waiting
+    /// for the second - the cross-encoder pass is the entire runtime.
+    /// </summary>
+    [TestCase("bge-reranker-base")]
+    [TestCase("bge-reranker-v2-m3")]
+    public async Task HardGoldenSet_AlternativeReranker_Extended(string modelName)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var embeddingProvider = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+        var loader = scope.ServiceProvider.GetRequiredService<ModelLoader>();
+
+        var modelDir = Path.Combine(
+            AppContext.BaseDirectory, KnowledgeIndexConstants.ModelsCacheSubdirectory, modelName);
+        if (!File.Exists(Path.Combine(modelDir, KnowledgeIndexConstants.RerankerModelFileName)))
+        {
+            Assert.Ignore($"No model file in {modelDir} - download it first.");
+        }
+
+        await using var alternative = new OnnxRerankerProvider(
+            loader, modelDir, modelUrl: string.Empty, modelSha256: string.Empty,
+            tokenizerUrl: string.Empty, tokenizerSha256: string.Empty);
+
+        TestContext.WriteLine($"=== ALTERNATIVE RERANKER: {modelName} (EXTENDED) ===");
+        TestContext.WriteLine($"Active embedding space: {embeddingProvider.EmbeddingSpaceId}");
+
+        var extended = LoadExtendedGoldenSet();
+        var hits = new Dictionary<string, int>();
+        var total = new Dictionary<string, int>();
+        var started = DateTime.UtcNow;
+
+        foreach (var item in extended)
+        {
+            total[item.LangCode] = total.GetValueOrDefault(item.LangCode) + 1;
+
+            var queryVec = await embeddingProvider.EmbedQueryAsync(item.Query, CancellationToken.None);
+            var candidates = await repository.FindNearestAsync(
+                queryVec, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, CancellationToken.None);
+
+            var wrappedEndpoints = candidates
+                .Where(c => c.Kind == KnowledgeEntryKind.Skill && c.ExposedEndpointKey is not null)
+                .Select(c => c.ExposedEndpointKey!)
+                .ToHashSet();
+
+            var filtered = candidates
+                .Where(c => c.Kind == KnowledgeEntryKind.Skill || !wrappedEndpoints.Contains(c.SourceId))
+                .ToList();
+
+            var scores = await alternative.ScoreAsync(
+                item.Query, filtered.Select(f => f.Text).ToList(), CancellationToken.None);
+
+            // No score cutoff: it was calibrated against the current model's distribution and would
+            // measure that calibration rather than this model's ordering.
+            var ranked = filtered
+                .Zip(scores, (entry, score) => (Entry: entry, Score: score))
+                .OrderByDescending(p => p.Score)
+                .Take(KnowledgeIndexConstants.DefaultTopK)
+                .ToList();
+
+            if (ranked.Any(p => item.Accepts(p.Entry.SourceId)))
+            {
+                hits[item.LangCode] = hits.GetValueOrDefault(item.LangCode) + 1;
+            }
+        }
+
+        var elapsed = (DateTime.UtcNow - started).TotalMinutes;
+        foreach (var lang in total.Keys.OrderBy(k => k, StringComparer.Ordinal))
+        {
+            var h = hits.GetValueOrDefault(lang);
+            TestContext.WriteLine(
+                $"  {modelName} {lang,-4}: {h,3}/{total[lang],-3} = {(double)h / total[lang]:P1}");
+        }
+
+        var tot = hits.Values.Sum();
+        TestContext.WriteLine(
+            $"  {modelName} GESAMT: {tot}/{extended.Count} = {(double)tot / extended.Count:P1} " +
+            $"(Laufzeit {elapsed:F1} min, ohne Cutoff)");
+
+        extended.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// Scores the EXTENDED set both ways - reranked and in raw KNN order - from the same candidate set,
+    /// and splits the result by actual language. The full report only distinguishes de from other, which
+    /// is too coarse: the ablation showed the reranker losing 6 cases in EXTENDED/other while being
+    /// harmless on German, and whether that is one language or all of them decides between tuning a few
+    /// skills and replacing the model.
+    /// Restricted to EXTENDED because that is where the loss sits, and because the cross-encoder is the
+    /// entire cost: 69 cases run in minutes where all 173 take hours.
+    /// </summary>
+    [Test]
+    public async Task HardGoldenSet_RerankerByLanguage_Extended()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var embeddingProvider = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+        var reranker = scope.ServiceProvider.GetRequiredService<IRerankerProvider>();
+
+        TestContext.WriteLine($"Active embedding space: {embeddingProvider.EmbeddingSpaceId}");
+        TestContext.WriteLine("=== RERANKER BY LANGUAGE (EXTENDED, both orderings, same candidates) ===");
+
+        var extended = LoadExtendedGoldenSet();
+        var withReranker = new Dictionary<string, int>();
+        var vectorOnly = new Dictionary<string, int>();
+        var total = new Dictionary<string, int>();
+
+        foreach (var item in extended)
+        {
+            total[item.LangCode] = total.GetValueOrDefault(item.LangCode) + 1;
+
+            var queryVec = await embeddingProvider.EmbedQueryAsync(item.Query, CancellationToken.None);
+            var candidates = await repository.FindNearestAsync(
+                queryVec, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, CancellationToken.None);
+
+            var wrappedEndpoints = candidates
+                .Where(c => c.Kind == KnowledgeEntryKind.Skill && c.ExposedEndpointKey is not null)
+                .Select(c => c.ExposedEndpointKey!)
+                .ToHashSet();
+
+            var filtered = candidates
+                .Where(c => c.Kind == KnowledgeEntryKind.Skill || !wrappedEndpoints.Contains(c.SourceId))
+                .ToList();
+
+            var vectorRank = filtered.FindIndex(c => item.Accepts(c.SourceId));
+            if (vectorRank >= 0 && vectorRank < KnowledgeIndexConstants.DefaultTopK)
+            {
+                vectorOnly[item.LangCode] = vectorOnly.GetValueOrDefault(item.LangCode) + 1;
+            }
+
+            // Mirrors production: cutoff on the raw score, then order, then take.
+            var scores = await reranker.ScoreAsync(
+                item.Query, filtered.Select(f => f.Text).ToList(), CancellationToken.None);
+
+            var reranked = filtered
+                .Zip(scores, (entry, score) => (Entry: entry, Score: score))
+                .Where(p => p.Score >= KnowledgeIndexConstants.DefaultScoreCutoff)
+                .OrderByDescending(p => p.Score)
+                .Take(KnowledgeIndexConstants.DefaultTopK)
+                .ToList();
+
+            if (reranked.Any(p => item.Accepts(p.Entry.SourceId)))
+            {
+                withReranker[item.LangCode] = withReranker.GetValueOrDefault(item.LangCode) + 1;
+            }
+        }
+
+        TestContext.WriteLine($"  {"lang",-6} {"n",3}  {"mit Gewichter",14}  {"ohne (Vektor)",14}  delta");
+        foreach (var lang in total.Keys.OrderBy(k => k, StringComparer.Ordinal))
+        {
+            var n = total[lang];
+            var w = withReranker.GetValueOrDefault(lang);
+            var v = vectorOnly.GetValueOrDefault(lang);
+            TestContext.WriteLine(
+                $"  {lang,-6} {n,3}  {w,3}/{n,-3} = {(double)w / n,6:P1}  {v,3}/{n,-3} = {(double)v / n,6:P1}  {w - v,+3}");
+        }
+
+        var totW = withReranker.Values.Sum();
+        var totV = vectorOnly.Values.Sum();
+        TestContext.WriteLine(
+            $"  GESAMT {extended.Count,3}  {totW,3} = {(double)totW / extended.Count:P1}  " +
+            $"{totV,3} = {(double)totV / extended.Count:P1}  netto {totW - totV:+0;-0;0}");
+
+        extended.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
     /// Recall of the raw KNN order at every candidate width. Mirrors the production path except for the
     /// cross-encoder: same candidate count, same wrapped-endpoint filter, so the only difference to the
     /// full report is the ordering. Reports the whole curve because the cost of doing so is one extra
@@ -222,7 +393,7 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
 
             // Counted before the miss shortcut, so the per-language denominators stay comparable to the
             // full report's - there the language split covers every case, hit or not.
-            perLanguageTotal[item.Lang] = perLanguageTotal.GetValueOrDefault(item.Lang) + 1;
+            perLanguageTotal[item.LangCode] = perLanguageTotal.GetValueOrDefault(item.LangCode) + 1;
 
             if (rank < 0)
             {
@@ -236,7 +407,7 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             if (rank < KnowledgeIndexConstants.DefaultTopK)
             {
                 hitsAtDefaultTopK++;
-                perLanguageHits[item.Lang] = perLanguageHits.GetValueOrDefault(item.Lang) + 1;
+                perLanguageHits[item.LangCode] = perLanguageHits.GetValueOrDefault(item.LangCode) + 1;
             }
 
             for (var w = 0; w < AblationWidths.Length; w++)
@@ -356,10 +527,10 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             // Split by language so a single-language index can be compared against the mixed one on the
             // questions it is supposed to serve. Without this split, building the index from one
             // language would help German questions and hurt the rest, and the total would hide both.
-            perLanguageTotal[item.Lang] = perLanguageTotal.GetValueOrDefault(item.Lang) + 1;
+            perLanguageTotal[item.LangCode] = perLanguageTotal.GetValueOrDefault(item.LangCode) + 1;
             if (toolsetHit)
             {
-                perLanguageHits[item.Lang] = perLanguageHits.GetValueOrDefault(item.Lang) + 1;
+                perLanguageHits[item.LangCode] = perLanguageHits.GetValueOrDefault(item.LangCode) + 1;
             }
 
             // Ranked for EVERY case, not just the failures: the "recall if the cutoff were removed"
