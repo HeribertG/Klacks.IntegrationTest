@@ -12,7 +12,7 @@
     "langCode": "cs"
   },
   {
-    "query": "které směny jsou tento týden ještě neobsazené",
+    "query": "jaké noční směny u nás máme",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "cs"
@@ -162,7 +162,7 @@
     "langCode": "da"
   },
   {
-    "query": "hvilke vagter er stadig ubesatte i denne uge",
+    "query": "hvilke nattevagter har vi",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "da"
@@ -312,7 +312,7 @@
     "langCode": "fi"
   },
   {
-    "query": "mitkä vuorot ovat tällä viikolla vielä täyttämättä",
+    "query": "mitä yövuoroja meillä on",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "fi"
@@ -462,7 +462,7 @@
     "langCode": "nb"
   },
   {
-    "query": "hvilke vakter er fortsatt ubesatte denne uken",
+    "query": "hvilke nattevakter har vi",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "nb"
@@ -612,7 +612,7 @@
     "langCode": "pl"
   },
   {
-    "query": "które zmiany są w tym tygodniu jeszcze nieobsadzone",
+    "query": "jakie zmiany nocne u nas są",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "pl"
@@ -762,7 +762,7 @@
     "langCode": "ro"
   },
   {
-    "query": "care ture sunt încă neocupate săptămâna aceasta",
+    "query": "ce ture de noapte avem",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "ro"
@@ -912,7 +912,7 @@
     "langCode": "sv"
   },
   {
-    "query": "vilka pass är fortfarande obemannade den här veckan",
+    "query": "vilka nattpass har vi",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "sv"
@@ -1062,7 +1062,7 @@
     "langCode": "ms"
   },
   {
-    "query": "syif mana yang masih kosong minggu ini",
+    "query": "syif malam apa yang ada",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "ms"
@@ -1212,7 +1212,7 @@
     "langCode": "de"
   },
   {
-    "query": "welche Schichten sind diese Woche noch unbesetzt",
+    "query": "welche Nachtschichten gibt es bei uns",
     "expectedSourceId": "search_shifts",
     "lang": "de",
     "langCode": "de"
@@ -1362,7 +1362,7 @@
     "langCode": "en"
   },
   {
-    "query": "which shifts are still unfilled this week",
+    "query": "which night shifts do we have",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "en"
@@ -1512,7 +1512,7 @@
     "langCode": "ar"
   },
   {
-    "query": "ما هي المناوبات الشاغرة هذا الأسبوع",
+    "query": "ما هي المناوبات الليلية الموجودة لدينا",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "ar"
@@ -1662,7 +1662,7 @@
     "langCode": "he"
   },
   {
-    "query": "אילו משמרות עדיין לא מאוישות השבוע",
+    "query": "אילו משמרות לילה יש לנו",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "he"
@@ -1812,7 +1812,7 @@
     "langCode": "el"
   },
   {
-    "query": "Ποιες βάρδιες είναι ακόμα ακάλυπτες αυτή την εβδομάδα",
+    "query": "Ποιες νυχτερινές βάρδιες έχουμε",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "el"
@@ -1962,7 +1962,7 @@
     "langCode": "zh-CN"
   },
   {
-    "query": "这周还有哪些班次没排上人",
+    "query": "我们有哪些夜班",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "zh-CN"
@@ -2112,7 +2112,7 @@
     "langCode": "zh-TW"
   },
   {
-    "query": "這禮拜還有哪些班沒排到人",
+    "query": "我們有哪些夜班",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "zh-TW"
@@ -2262,7 +2262,7 @@
     "langCode": "ja"
   },
   {
-    "query": "今週まだ埋まっていないシフトはどれ",
+    "query": "うちにはどんな夜勤シフトがある",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "ja"
@@ -2412,7 +2412,7 @@
     "langCode": "ko"
   },
   {
-    "query": "이번 주에 아직 안 채워진 근무는 뭐가 있어",
+    "query": "우리 회사에 야간 근무는 어떤 게 있어",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "ko"
@@ -2562,7 +2562,7 @@
     "langCode": "th"
   },
   {
-    "query": "สัปดาห์นี้มีกะไหนที่ยังไม่มีคนทำบ้าง",
+    "query": "เรามีกะกลางคืนอะไรบ้าง",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "th"
@@ -2712,7 +2712,7 @@
     "langCode": "id"
   },
   {
-    "query": "shift mana saja yang masih belum terisi minggu ini",
+    "query": "shift malam apa saja yang ada",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "id"
@@ -2862,7 +2862,7 @@
     "langCode": "nl"
   },
   {
-    "query": "welke diensten zijn deze week nog niet ingevuld",
+    "query": "welke nachtdiensten hebben we",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "nl"
@@ -3012,7 +3012,7 @@
     "langCode": "pt"
   },
   {
-    "query": "que turnos ainda estão por preencher esta semana",
+    "query": "que turnos noturnos temos",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "pt"
@@ -3162,7 +3162,7 @@
     "langCode": "es"
   },
   {
-    "query": "qué turnos quedan aún sin cubrir esta semana",
+    "query": "qué turnos de noche tenemos",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "es"
@@ -3312,7 +3312,7 @@
     "langCode": "vi"
   },
   {
-    "query": "những ca làm nào trong tuần này vẫn chưa có người nhận",
+    "query": "chúng ta có những ca đêm nào",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "vi"
@@ -3462,7 +3462,7 @@
     "langCode": "fr"
   },
   {
-    "query": "quelles gardes ne sont pas encore pourvues cette semaine",
+    "query": "quelles gardes de nuit avons-nous",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "fr"
@@ -3612,7 +3612,7 @@
     "langCode": "it"
   },
   {
-    "query": "quali turni sono ancora scoperti questa settimana",
+    "query": "quali turni notturni abbiamo",
     "expectedSourceId": "search_shifts",
     "lang": "other",
     "langCode": "it"

@@ -752,7 +752,7 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
 
         TestContext.WriteLine($"Universe: {vectors.Count} entries");
 
-        int[] depths = [12, 25, 50, 100, 200, vectors.Count];
+        int[] depths = [12, 16, 20, 25, 50, 100, 200, vectors.Count];
 
         foreach (var (label, path) in new[]
                  {
@@ -762,13 +762,17 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
                  })
         {
             var cases = LoadGolden(path);
-            var ranks = new List<(string Target, int Rank, string Lang)>(cases.Count);
+            var ranks = new List<(string Target, int Rank, string Lang, string Query, string Actual)>(cases.Count);
 
             foreach (var item in cases)
             {
                 var queryVector = Normalize(await embedding.EmbedQueryAsync(item.Query, ct));
-                var rank = RankOf(item.ExpectedSourceId, vectors.Select(v => (v.SourceId, Dot(queryVector, v.Vector))));
-                ranks.Add((item.ExpectedSourceId, rank, string.IsNullOrEmpty(item.LangCode) ? item.Lang : item.LangCode));
+                var scored = vectors.Select(v => (v.SourceId, Score: Dot(queryVector, v.Vector))).ToList();
+                var rank = RankOf(item.ExpectedSourceId, scored);
+                // What the search actually returns for a miss. Without it a miss cannot be told apart
+                // from a mis-annotated case, where the expected skill is simply the wrong answer.
+                var actual = string.Join(", ", scored.OrderByDescending(s => s.Score).Take(3).Select(s => s.SourceId));
+                ranks.Add((item.ExpectedSourceId, rank, string.IsNullOrEmpty(item.LangCode) ? item.Lang : item.LangCode, item.Query, actual));
             }
 
             TestContext.WriteLine($"=== {label} ({cases.Count} cases) ===");
@@ -786,9 +790,27 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
                 .ToList();
 
             TestContext.WriteLine($"  cases outside the production pool: {beyond.Count}");
-            foreach (var r in beyond.Take(25))
+            foreach (var r in beyond)
             {
                 TestContext.WriteLine($"    rank {(r.Rank == 0 ? "absent" : "#" + r.Rank),-8} {r.Lang,-6} {r.Target}");
+                TestContext.WriteLine($"      query: {r.Query}");
+                TestContext.WriteLine($"      top3:  {r.Actual}");
+            }
+
+            // A control sample of PASSING cases. The miss list is selected for failure, so it cannot
+            // say whether the annotation is sound where the set succeeds - a case can pass while a
+            // better-fitting skill sits above the expected one.
+            var passing = ranks
+                .Where(r => r.Rank is >= 1 and <= 3 && r.Lang is "de" or "en")
+                .Take(20)
+                .ToList();
+
+            TestContext.WriteLine($"  CONTROL - passing cases sampled: {passing.Count}");
+            foreach (var r in passing)
+            {
+                TestContext.WriteLine($"    ok   #{r.Rank,-7} {r.Lang,-6} {r.Target}");
+                TestContext.WriteLine($"      query: {r.Query}");
+                TestContext.WriteLine($"      top3:  {r.Actual}");
             }
         }
 
