@@ -818,6 +818,119 @@ public class KnowledgeIndexPhraseFacetDiagnosticsTests
     }
 
     /// <summary>
+    /// Decides whether a two-stage selection (pick the area first, then the skill inside it) could
+    /// replace the single-stage vector filter - BEFORE anything is rebuilt. Uses the same stored
+    /// vectors as production and measures three things:
+    ///
+    /// 1. How often the area is predictable at all from the query. If this is low, the approach is
+    ///    dead regardless of everything else - a wrong area loses the case outright, whereas today a
+    ///    target on rank 7 still wins.
+    /// 2. The ceiling: recall inside the CORRECT area (perfect oracle). No implementation can beat it.
+    /// 3. The realistic figure: recall inside the PREDICTED area, which is what a real two-stage
+    ///    pipeline would deliver.
+    ///
+    /// Compare all three against today's single-stage recall@20 printed by CandidateDepth.
+    /// </summary>
+    [Test]
+    public async Task TwoStageAreaSelection_UpperBoundAndRealistic()
+    {
+        var ct = CancellationToken.None;
+        using var scope = _factory.Services.CreateScope();
+        var embedding = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+
+        var areaMapPath = Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "skill-area-map.json");
+        var areaOf = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(areaMapPath))!;
+
+        var hashes = await repository.GetAllHashesAsync(ct);
+        var entries = await repository.GetByKeysAsync(hashes.Keys.ToList(), ct);
+        var vectors = entries
+            .Where(e => e.Embedding.Length > 0)
+            .Select(e => (e.SourceId, Vector: Normalize(e.Embedding)))
+            .ToList();
+
+        const int TopK = 20;
+        var cases = LoadGolden(LanguageGoldenSetPath);
+
+        int areaHitTop1 = 0, areaHitVote5 = 0, areaPresentTop5 = 0;
+        int oracleHits = 0, realisticHits = 0, singleStageHits = 0;
+        var lostByArea = new Dictionary<string, int>();
+
+        foreach (var item in cases)
+        {
+            if (!areaOf.TryGetValue(item.ExpectedSourceId, out var trueArea))
+            {
+                continue;
+            }
+
+            var queryVector = Normalize(await embedding.EmbedQueryAsync(item.Query, ct));
+            var ranked = vectors
+                .Select(v => (v.SourceId, Score: Dot(queryVector, v.Vector)))
+                .OrderByDescending(p => p.Score)
+                .ToList();
+
+            if (ranked.FindIndex(p => p.SourceId == item.ExpectedSourceId) is var globalRank && globalRank >= 0
+                && globalRank < TopK)
+            {
+                singleStageHits++;
+            }
+
+            // Stage 1: which area does the query point at?
+            var top1Area = ranked
+                .Select(p => areaOf.GetValueOrDefault(p.SourceId))
+                .FirstOrDefault(a => a is not null);
+
+            var top5Areas = ranked.Take(5)
+                .Select(p => areaOf.GetValueOrDefault(p.SourceId))
+                .Where(a => a is not null)
+                .ToList();
+
+            var voteArea = top5Areas
+                .GroupBy(a => a)
+                .OrderByDescending(g => g.Count())
+                .Select(g => g.Key)
+                .FirstOrDefault();
+
+            if (top1Area == trueArea) areaHitTop1++;
+            if (voteArea == trueArea) areaHitVote5++;
+            if (top5Areas.Contains(trueArea)) areaPresentTop5++;
+
+            // Stage 2 with a perfect oracle: rank inside the true area.
+            var inTrueArea = ranked.Where(p => areaOf.GetValueOrDefault(p.SourceId) == trueArea).ToList();
+            var oracleRank = inTrueArea.FindIndex(p => p.SourceId == item.ExpectedSourceId);
+            if (oracleRank >= 0 && oracleRank < TopK) oracleHits++;
+
+            // Stage 2 realistic: rank inside the predicted area.
+            if (voteArea == trueArea)
+            {
+                if (oracleRank >= 0 && oracleRank < TopK) realisticHits++;
+            }
+            else
+            {
+                lostByArea[trueArea] = lostByArea.GetValueOrDefault(trueArea) + 1;
+            }
+        }
+
+        var n = cases.Count;
+        TestContext.WriteLine($"=== TWO-STAGE AREA SELECTION ({n} cases, TopK={TopK}) ===");
+        TestContext.WriteLine($"  STAGE 1 - area predictable?");
+        TestContext.WriteLine($"    area of top-1 hit correct:      {areaHitTop1,4}/{n} = {(double)areaHitTop1 / n:P1}");
+        TestContext.WriteLine($"    majority area of top-5 correct: {areaHitVote5,4}/{n} = {(double)areaHitVote5 / n:P1}");
+        TestContext.WriteLine($"    true area present in top-5:     {areaPresentTop5,4}/{n} = {(double)areaPresentTop5 / n:P1}");
+        TestContext.WriteLine($"  STAGE 2 - recall@{TopK}");
+        TestContext.WriteLine($"    CEILING (perfect area oracle):  {oracleHits,4}/{n} = {(double)oracleHits / n:P1}");
+        TestContext.WriteLine($"    REALISTIC (predicted area):     {realisticHits,4}/{n} = {(double)realisticHits / n:P1}");
+        TestContext.WriteLine($"    TODAY (single stage):           {singleStageHits,4}/{n} = {(double)singleStageHits / n:P1}");
+        TestContext.WriteLine($"  cases lost purely to a wrong area: {lostByArea.Values.Sum()}");
+        foreach (var (area, lost) in lostByArea.OrderByDescending(p => p.Value))
+        {
+            TestContext.WriteLine($"    {area,-22} {lost,4}");
+        }
+
+        vectors.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
     /// Answers whether anglicisms are a blind spot. Western users say "Dashboard", "Token", "Wizard"
     /// even when their language has a native word, and the catalogue carries those terms only as
     /// language-neutral keywords — 78 of 108 of which are not global at all but western. The existing

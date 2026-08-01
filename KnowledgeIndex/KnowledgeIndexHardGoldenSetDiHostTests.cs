@@ -411,6 +411,7 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
         var withReranker = new Dictionary<string, int>();
         var vectorOnly = new Dictionary<string, int>();
         var total = new Dictionary<string, int>();
+        var hitsAtTopK = new int[TopKCurve.Length];
 
         foreach (var item in extended)
         {
@@ -443,13 +444,32 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
                 .Zip(scores, (entry, score) => (Entry: entry, Score: score))
                 .Where(p => p.Score >= KnowledgeIndexConstants.DefaultScoreCutoff)
                 .OrderByDescending(p => p.Score)
-                .Take(KnowledgeIndexConstants.DefaultTopK)
                 .ToList();
 
-            if (reranked.Any(p => item.Accepts(p.Entry.SourceId)))
+            // Rank once, derive every depth from it. Measuring DefaultTopK alone would need a separate
+            // full run per candidate value, and each costs ~19 minutes of cross-encoder time.
+            var rerankRank = reranked.FindIndex(p => item.Accepts(p.Entry.SourceId));
+            for (var d = 0; d < TopKCurve.Length; d++)
+            {
+                if (rerankRank >= 0 && rerankRank < TopKCurve[d])
+                {
+                    hitsAtTopK[d]++;
+                }
+            }
+
+            if (rerankRank >= 0 && rerankRank < KnowledgeIndexConstants.DefaultTopK)
             {
                 withReranker[item.LangCode] = withReranker.GetValueOrDefault(item.LangCode) + 1;
             }
+        }
+
+        TestContext.WriteLine($"  --- volle Kette, recall je TopK (DefaultTopK = {KnowledgeIndexConstants.DefaultTopK}) ---");
+        for (var d = 0; d < TopKCurve.Length; d++)
+        {
+            var marker = TopKCurve[d] == KnowledgeIndexConstants.DefaultTopK ? "  <- produktiv" : string.Empty;
+            TestContext.WriteLine(
+                $"  recall@{TopKCurve[d],-4} {hitsAtTopK[d],3}/{extended.Count} = " +
+                $"{(double)hitsAtTopK[d] / extended.Count:P1}{marker}");
         }
 
         TestContext.WriteLine($"  {"lang",-6} {"n",3}  {"mit Gewichter",14}  {"ohne (Vektor)",14}  delta");
@@ -870,6 +890,10 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
     // Must contain DefaultTopK (the figure comparable to the full report) and end at
     // MaxRerankerCandidates, the widest toolset the candidate pass can ever supply.
     private static readonly int[] AblationWidths = [1, 3, 5, 8, 12, 15, 20, 25];
+
+    // Candidate values for DefaultTopK, measured through the full chain in a single pass. 21 is the
+    // hard ceiling: MaxToolsForProviderCeiling (30) minus the 9 alwaysOn skills.
+    private static readonly int[] TopKCurve = [12, 16, 20, 21, 25];
 
     /// <summary>
     /// Whether the target would reach the toolset at the given cutoff. Mirrors production order:

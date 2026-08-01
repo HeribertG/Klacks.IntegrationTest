@@ -42,6 +42,9 @@
 		<None Update="KnowledgeIndex\knowledge-index-golden-anglicisms.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
+		<None Update="KnowledgeIndex\skill-area-map.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
 		<None Update="KnowledgeIndex\knowledge-index-golden-hard-langs.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
