@@ -203,6 +203,8 @@ public class WizardApplyDoublePromotionTests
             softeningRepo,
             Substitute.For<IWizardRunCaptureRepository>(),
             partitionService,
+            _context,
+            Substitute.For<IScheduleTimelineService>(),
             Substitute.For<ILogger<WizardApplyService>>());
     }
 
