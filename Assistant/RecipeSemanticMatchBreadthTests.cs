@@ -83,7 +83,7 @@ public class RecipeSemanticMatchBreadthTests
             RetrievalResult result;
             try
             {
-                result = await retrieval.RetrieveAsync(item.Message, [], isAdmin: false, SemanticTopK, currentRoute: null, CancellationToken.None);
+                result = await retrieval.RetrieveAsync(item.Message, [], isAdmin: false, SemanticTopK, currentRoute: null, CancellationToken.None, KnowledgeEntryKind.Recipe);
             }
             catch (InvalidOperationException ex)
             {
@@ -148,7 +148,7 @@ public class RecipeSemanticMatchBreadthTests
             RetrievalResult result;
             try
             {
-                result = await retrieval.RetrieveAsync(probe.Message, [], isAdmin: false, SemanticTopK, currentRoute: null, CancellationToken.None);
+                result = await retrieval.RetrieveAsync(probe.Message, [], isAdmin: false, SemanticTopK, currentRoute: null, CancellationToken.None, KnowledgeEntryKind.Recipe);
             }
             catch (InvalidOperationException ex)
             {
