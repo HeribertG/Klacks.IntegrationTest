@@ -16,6 +16,7 @@
 
 namespace Klacks.IntegrationTest.CalendarSelections;
 
+using Klacks.Api.Infrastructure.Services.Schedules;
 using Klacks.Api.Application.Commands;
 using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.Handlers.CalendarSelections;
@@ -199,7 +200,7 @@ public class CalendarSelectionOfficialOverridePersistenceTests
         var weekConfiguration = Substitute.For<IWeekConfiguration>();
         weekConfiguration.GetWeekendDaysAsync().Returns(new HashSet<DayOfWeek> { DayOfWeek.Saturday, DayOfWeek.Sunday });
 
-        var provider = new MacroDataProvider(context, cache, contractDataProvider, effectiveTimeService, weekConfiguration);
+        var provider = new MacroDataProvider(context, new ClientHolidayCalendarResolver(context, cache), contractDataProvider, effectiveTimeService, weekConfiguration);
 
         var work = new Work
         {

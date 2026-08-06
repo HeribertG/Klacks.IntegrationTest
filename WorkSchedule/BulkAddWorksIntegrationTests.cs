@@ -99,7 +99,7 @@ public class BulkAddWorksIntegrationTests
 
         var macroDataProvider = new MacroDataProvider(
             _context,
-            Substitute.For<IHolidayCalculatorCache>(),
+            Substitute.For<IClientHolidayCalendarResolver>(),
             contractDataProvider,
             Substitute.For<IWorkChangeEffectiveTimeService>(),
             CreateDefaultWeekConfiguration());
