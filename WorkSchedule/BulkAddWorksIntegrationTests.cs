@@ -1,7 +1,9 @@
 using Shouldly;
 using Klacks.Api.Application.Commands.Works;
 using Klacks.Api.Application.Handlers.Works;
+using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.Interfaces;
+using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Application.Mappers;
 using Klacks.Api.Domain.Common;
 using Klacks.Api.Domain.Enums;
@@ -153,6 +155,7 @@ public class BulkAddWorksIntegrationTests
             Substitute.For<IContainerWorkExpansionService>(),
             Substitute.For<IOvertimeCascadeService>(),
             Substitute.For<IDayLockService>(),
+            NonBlockingConflictChecker(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
 
         await SetupTestData();
@@ -599,6 +602,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
             Substitute.For<IContainerWorkExpansionService>(),
             Substitute.For<IOvertimeCascadeService>(),
             Substitute.For<IDayLockService>(),
+            NonBlockingConflictChecker(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
     }
 
@@ -645,5 +649,17 @@ OUTPUT 1, Round(TotalBonus, 2)",
                 return Task.FromResult(date.AddDays(-offset));
             });
         return mock;
+    }
+
+    /// <summary>
+    /// These tests exercise the bulk write itself, not the structural collision guard - that guard has
+    /// its own coverage in WriteGuardParityTests. A checker reporting nothing keeps them focused.
+    /// </summary>
+    private static IPreCommitConflictChecker NonBlockingConflictChecker()
+    {
+        var checker = Substitute.For<IPreCommitConflictChecker>();
+        checker.CheckAsync(Arg.Any<IReadOnlyList<PlannedWorkRow>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(PreCommitCheckResult.Empty);
+        return checker;
     }
 }

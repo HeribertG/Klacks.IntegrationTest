@@ -306,7 +306,7 @@ public class WriteGuardParityTests
     private static GuardPath SingleWorkPath() => new()
     {
         Name = "single-work (PostCommand<WorkResource>)",
-        EnforcesStructuralCollision = false,
+        EnforcesStructuralCollision = true,
         WriteDayLockProbe = async (mediator, ctx, ct) =>
             await mediator.Send(new PostCommand<WorkResource>(new WorkResource
             {
@@ -317,6 +317,33 @@ public class WriteGuardParityTests
                 EndTime = ShiftEnd,
                 WorkTime = SeedWorkTime,
             }), ct),
+        WriteCollisionProbe = async (mediator, ctx, ct) =>
+            await mediator.Send(new PostCommand<WorkResource>(new WorkResource
+            {
+                ClientId = ctx.ClientId,
+                ShiftId = ctx.ShiftId,
+                CurrentDate = ctx.Date,
+                StartTime = ShiftStart,
+                EndTime = ShiftEnd,
+                WorkTime = SeedWorkTime,
+            }), ct),
+        // The colliding precondition is the client's own overlapping work on the same day: the guard
+        // must refuse a second one, exactly like the replacement path does for the incoming client.
+        SeedCollisionPrecondition = async (ctx, db) =>
+        {
+            db.Work.Add(new Work
+            {
+                Id = Guid.NewGuid(),
+                ClientId = ctx.ClientId,
+                ShiftId = ctx.ShiftId,
+                CurrentDate = ctx.Date,
+                StartTime = ShiftStart,
+                EndTime = ShiftEnd,
+                WorkTime = SeedWorkTime,
+                IsDeleted = false,
+            });
+            await db.SaveChangesAsync();
+        },
         CountWrittenAsync = (ctx, db) => db.Work
             .AsNoTracking()
             .CountAsync(w => w.ClientId == ctx.ClientId && w.CurrentDate == ctx.Date && w.AnalyseToken == null),
@@ -325,7 +352,7 @@ public class WriteGuardParityTests
     private static GuardPath BulkWorksPath() => new()
     {
         Name = "bulk-works (BulkAddWorksCommand)",
-        EnforcesStructuralCollision = false,
+        EnforcesStructuralCollision = true,
         WriteDayLockProbe = async (mediator, ctx, ct) =>
             await mediator.Send(new BulkAddWorksCommand(new BulkAddWorksRequest
             {
@@ -344,6 +371,41 @@ public class WriteGuardParityTests
                     },
                 },
             }), ct),
+        WriteCollisionProbe = async (mediator, ctx, ct) =>
+            await mediator.Send(new BulkAddWorksCommand(new BulkAddWorksRequest
+            {
+                PeriodStart = ctx.Date,
+                PeriodEnd = ctx.Date,
+                Works = new List<BulkWorkItem>
+                {
+                    new()
+                    {
+                        ClientId = ctx.ClientId,
+                        ShiftId = ctx.ShiftId,
+                        CurrentDate = ctx.Date,
+                        StartTime = ShiftStart,
+                        EndTime = ShiftEnd,
+                        WorkTime = SeedWorkTime,
+                    },
+                },
+            }), ct),
+        // The colliding precondition is the client's own overlapping work on the same day: the guard
+        // must refuse a second one, exactly like the replacement path does for the incoming client.
+        SeedCollisionPrecondition = async (ctx, db) =>
+        {
+            db.Work.Add(new Work
+            {
+                Id = Guid.NewGuid(),
+                ClientId = ctx.ClientId,
+                ShiftId = ctx.ShiftId,
+                CurrentDate = ctx.Date,
+                StartTime = ShiftStart,
+                EndTime = ShiftEnd,
+                WorkTime = SeedWorkTime,
+                IsDeleted = false,
+            });
+            await db.SaveChangesAsync();
+        },
         CountWrittenAsync = (ctx, db) => db.Work
             .AsNoTracking()
             .CountAsync(w => w.ClientId == ctx.ClientId && w.CurrentDate == ctx.Date && w.AnalyseToken == null),
