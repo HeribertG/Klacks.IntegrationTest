@@ -88,7 +88,8 @@ public class EligibilityGuardrailTests
             _context,
             enforcementResolver);
 
-        _checker = new PreCommitConflictChecker(_context, timeline, resolver, new Klacks.Api.Application.Services.Schedules.ComplianceEscalationService(enforcementResolver), settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator, restrictedTimeWindowEvaluator);
+        _checker = new PreCommitConflictChecker(_context, timeline, resolver, new Klacks.Api.Application.Services.Schedules.ComplianceEscalationService(enforcementResolver), settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator, restrictedTimeWindowEvaluator,
+            NonReportingCompensatoryRestEvaluator());
     }
 
     [TearDown]
@@ -229,5 +230,18 @@ public class EligibilityGuardrailTests
 
         result.NewConflicts.ShouldContain(c =>
             c.Comment == QualificationValidationKeys.Expired && c.Type == ScheduleValidationType.Error);
+    }
+
+    /// <summary>
+    /// K12 reports persisted obligations, which these tests never seed - an evaluator reporting
+    /// nothing keeps them about the rule they were written for. CompensatoryRestEvaluatorTests and
+    /// the pre-commit K12 test cover the wiring itself.
+    /// </summary>
+    private static ICompensatoryRestEvaluator NonReportingCompensatoryRestEvaluator()
+    {
+        var evaluator = Substitute.For<ICompensatoryRestEvaluator>();
+        evaluator.EvaluateAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ScheduleValidationNotificationDto>());
+        return evaluator;
     }
 }

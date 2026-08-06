@@ -354,6 +354,10 @@ public class RuleEntityEffectivenessTests
         services.AddSingleton<ICounterRuleEvaluator, CounterRuleEvaluator>();
         services.AddSingleton<IRestrictedTimeWindowEvaluator, RestrictedTimeWindowEvaluator>();
         services.AddSingleton<IComplianceEscalationService, ComplianceEscalationService>();
+        // K12 reads persisted obligations, which this fixture never seeds; the real evaluator would
+        // report nothing anyway, but registering it keeps the dependency tree resolvable.
+        services.AddSingleton<ICompensatoryRestObligationRepository, CompensatoryRestObligationRepository>();
+        services.AddSingleton<ICompensatoryRestEvaluator, CompensatoryRestEvaluator>();
         services.AddSingleton<IPreCommitConflictChecker, PreCommitConflictChecker>();
         return services.BuildServiceProvider();
     }
