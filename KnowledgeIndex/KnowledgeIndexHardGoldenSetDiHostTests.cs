@@ -135,16 +135,30 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
 
         var core = LoadGoldenSet();
         var extended = LoadExtendedGoldenSet();
+        var alwaysOnNames = await LoadAlwaysOnSkillNamesAsync(scope);
+        TestContext.WriteLine(
+            $"Always-on skills in the catalogue ({alwaysOnNames.Count}): " +
+            $"{string.Join(", ", alwaysOnNames.OrderBy(n => n))}");
 
         // Reported per set, never merged into one figure: every number in the handoff refers to the
         // 104-case core set, and silently folding the extension in would break that comparison.
-        var coreHits = await MeasureSetAsync("CORE", core, embeddingProvider, repository, retrieval, reranker);
-        var extHits = await MeasureSetAsync("EXTENDED", extended, embeddingProvider, repository, retrieval, reranker);
+        var coreRecall = await MeasureSetAsync(
+            "CORE", core, embeddingProvider, repository, retrieval, reranker, alwaysOnNames);
+        var extRecall = await MeasureSetAsync(
+            "EXTENDED", extended, embeddingProvider, repository, retrieval, reranker, alwaysOnNames);
 
+        var combinedCases = core.Count + extended.Count;
+        var combinedRaw = coreRecall.Raw + extRecall.Raw;
+        var combinedAdjusted = coreRecall.Adjusted + extRecall.Adjusted;
         TestContext.WriteLine(
-            $"=== COMBINED ({core.Count + extended.Count} cases) === toolset recall@" +
-            $"{KnowledgeIndexConstants.DefaultTopK}: {coreHits + extHits}/{core.Count + extended.Count} = " +
-            $"{(double)(coreHits + extHits) / (core.Count + extended.Count):P1}");
+            $"=== COMBINED ({combinedCases} cases) === toolset recall@" +
+            $"{KnowledgeIndexConstants.DefaultTopK}: {combinedRaw}/{combinedCases} = " +
+            $"{(double)combinedRaw / combinedCases:P1}");
+        TestContext.WriteLine(
+            $"=== COMBINED ({combinedCases} cases) === toolset recall@" +
+            $"{KnowledgeIndexConstants.DefaultTopK} adjusted: {combinedAdjusted}/{combinedCases} = " +
+            $"{(double)combinedAdjusted / combinedCases:P1} " +
+            $"({coreRecall.AlwaysOnCases + extRecall.AlwaysOnCases} always-on cases in the sets)");
 
         await ReportOffTopicWidthAsync(retrieval, embeddingProvider, repository, reranker);
 
@@ -184,6 +198,140 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
 
         core.Count.ShouldBeGreaterThan(0);
         extended.Count.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// The question the ablation above cannot answer: is the cross-encoder worth keeping at all? The
+    /// ablation drops the reranker AND its score cutoff, which flatters the vector arm - the cutoff is
+    /// what keeps a question with no matching tool from being handed a full toolset, and recall
+    /// measured without it is recall bought with prompt width. A vector-only pipeline needs its own
+    /// gate, and the only quantity it has is the cosine distance pgvector already orders by
+    /// (DefaultScoreCutoff is a cross-encoder sigmoid score and has no meaning without the model).
+    /// So this sweeps distance thresholds and reports recall and off-topic width side by side, which
+    /// is the only way to compare the two arms at equal suppression rather than at equal names.
+    /// Decision rule, fixed with the owner on 2026-08-06 BEFORE the measurement: the cross-encoder is
+    /// removed if some threshold holds adjusted recall@DefaultTopK within one case of the full
+    /// pipeline AND keeps off-topic width at or below the full pipeline's plus two.
+    /// Runs in minutes: it never calls the reranker, which is where the full report's hours go.
+    /// </summary>
+    [Test]
+    public async Task HardGoldenSet_RerankerExistence_DistanceCutoffSweep()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var embeddingProvider = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
+        var repository = scope.ServiceProvider.GetRequiredService<IKnowledgeIndexRepository>();
+        var alwaysOnNames = await LoadAlwaysOnSkillNamesAsync(scope);
+
+        TestContext.WriteLine($"Active embedding space: {embeddingProvider.EmbeddingSpaceId}");
+        TestContext.WriteLine("=== RERANKER EXISTENCE (vector order + distance gate) ===");
+        TestContext.WriteLine(
+            "Compare against the full report in the same run: 'toolset recall@N adjusted' and " +
+            "'OFF-TOPIC ... entries handed to the model'.");
+
+        var cases = LoadGoldenSet().Concat(LoadExtendedGoldenSet()).ToList();
+        var hitsRaw = new int[DistanceCutoffSweep.Length];
+        var hitsAdjusted = new int[DistanceCutoffSweep.Length];
+        var targetDistances = new List<double>();
+        var alwaysOnCases = 0;
+        var targetInCandidates = 0;
+
+        // The price the skill pass pays for asking kind-blind: every recipe in the candidate set is a
+        // slot a skill could have used, and a recipe can never reach the toolset.
+        var nonSkillSlots = 0;
+        var casesWithNonSkill = 0;
+
+        foreach (var item in cases)
+        {
+            var isAlwaysOnCase = AcceptsAlwaysOn(item, alwaysOnNames);
+            if (isAlwaysOnCase)
+            {
+                alwaysOnCases++;
+            }
+
+            var queryVec = await embeddingProvider.EmbedQueryAsync(item.Query, CancellationToken.None);
+            var candidates = await repository.FindNearestAsync(
+                queryVec, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, CancellationToken.None);
+            var filtered = ApplyWrappedEndpointFilter(candidates);
+            var distances = filtered.Select(c => CosineDistance(queryVec, c.Embedding)).ToList();
+
+            var nonSkills = filtered.Count(c => c.Kind != KnowledgeEntryKind.Skill);
+            nonSkillSlots += nonSkills;
+            if (nonSkills > 0)
+            {
+                casesWithNonSkill++;
+            }
+
+            var rank = filtered.FindIndex(c => item.Accepts(c.SourceId));
+            if (rank >= 0)
+            {
+                targetInCandidates++;
+                targetDistances.Add(distances[rank]);
+            }
+
+            for (var t = 0; t < DistanceCutoffSweep.Length; t++)
+            {
+                if (SurvivesDistanceGate(filtered, distances, item, DistanceCutoffSweep[t]))
+                {
+                    hitsRaw[t]++;
+                    hitsAdjusted[t]++;
+                }
+                else if (isAlwaysOnCase)
+                {
+                    hitsAdjusted[t]++;
+                }
+            }
+        }
+
+        var offTopicQueries = JsonSerializer.Deserialize<string[]>(File.ReadAllText(OffTopicPath))!;
+        var offTopicWidth = new int[DistanceCutoffSweep.Length];
+        var offTopicNearest = new List<double>();
+
+        foreach (var query in offTopicQueries)
+        {
+            var queryVec = await embeddingProvider.EmbedQueryAsync(query, CancellationToken.None);
+            var candidates = await repository.FindNearestAsync(
+                queryVec, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, CancellationToken.None);
+            var filtered = ApplyWrappedEndpointFilter(candidates);
+            var distances = filtered.Select(c => CosineDistance(queryVec, c.Embedding)).ToList();
+
+            if (distances.Count > 0)
+            {
+                offTopicNearest.Add(distances.Min());
+            }
+
+            for (var t = 0; t < DistanceCutoffSweep.Length; t++)
+            {
+                offTopicWidth[t] += Math.Min(
+                    distances.Count(d => d <= DistanceCutoffSweep[t]), KnowledgeIndexConstants.DefaultTopK);
+            }
+        }
+
+        TestContext.WriteLine(
+            $"Target inside the {KnowledgeIndexConstants.MaxRerankerCandidates}-candidate set: " +
+            $"{targetInCandidates}/{cases.Count} - no threshold can beat this ceiling.");
+        TestContext.WriteLine(
+            $"Non-skill entries occupying candidate slots: {nonSkillSlots} across {cases.Count} cases " +
+            $"({(double)nonSkillSlots / cases.Count:F2} per case, {casesWithNonSkill} cases affected) - " +
+            $"this is what a kind filter on the skill pass would free up.");
+        TestContext.WriteLine($"Always-on cases in the sets: {alwaysOnCases}");
+        TestContext.WriteLine(
+            $"--- distance gate sweep (recall@{KnowledgeIndexConstants.DefaultTopK} vs off-topic width) ---");
+        for (var t = 0; t < DistanceCutoffSweep.Length; t++)
+        {
+            TestContext.WriteLine(
+                $"  distance <= {DistanceCutoffSweep[t]:F2}: raw {hitsRaw[t]}/{cases.Count} = " +
+                $"{(double)hitsRaw[t] / cases.Count:P1} | adjusted {hitsAdjusted[t]}/{cases.Count} = " +
+                $"{(double)hitsAdjusted[t] / cases.Count:P1} | off-topic entries " +
+                $"{(double)offTopicWidth[t] / offTopicQueries.Length:F1}");
+        }
+
+        // The two distributions are what a threshold has to separate. If they overlap, no threshold
+        // does the cutoff's job and the cross-encoder is buying something real.
+        WriteDistribution("Target distance (cases whose target is in the candidate set)", targetDistances);
+        WriteDistribution("Nearest-neighbour distance of off-topic questions", offTopicNearest);
+
+        cases.Count.ShouldBeGreaterThan(0);
+        offTopicQueries.Length.ShouldBeGreaterThan(0);
     }
 
     /// <summary>
@@ -590,16 +738,22 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
     }
 
     /// <summary>
-    /// Measures one golden set and writes its full report. Returns the toolset recall hit count so the
-    /// caller can aggregate across sets without re-running the cross-encoder.
+    /// Measures one golden set and writes its full report. Returns both hit counts so the caller can
+    /// aggregate across sets without re-running the cross-encoder.
     /// </summary>
-    private static async Task<int> MeasureSetAsync(
+    /// <param name="alwaysOnNames">
+    /// Skills the assembler adds to every toolset regardless of retrieval. A case whose target is one
+    /// of them can never fail in production, so a retrieval miss on it is an artefact of the probe.
+    /// Read from the catalogue instead of hard-coded so the adjustment follows the seed data.
+    /// </param>
+    private static async Task<SetRecall> MeasureSetAsync(
         string label,
         List<HardGoldenSetItem> golden,
         IEmbeddingProvider embeddingProvider,
         IKnowledgeIndexRepository repository,
         IKnowledgeRetrievalService retrieval,
-        IRerankerProvider reranker)
+        IRerankerProvider reranker,
+        IReadOnlySet<string> alwaysOnNames)
     {
         TestContext.WriteLine($"=== {label} ({golden.Count} cases) ===");
 
@@ -628,8 +782,19 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
         var perLanguagePreHits = new Dictionary<string, int>();
         var perLanguagePreTotal = new Dictionary<string, int>();
 
+        // Kept apart from the raw counters on purpose: the raw figure stays comparable with every
+        // number recorded since 2026-07-30, and the adjusted one says what production would deliver.
+        var alwaysOnCases = 0;
+        var alwaysOnMisses = new List<string>();
+
         foreach (var item in golden)
         {
+            var isAlwaysOnCase = AcceptsAlwaysOn(item, alwaysOnNames);
+            if (isAlwaysOnCase)
+            {
+                alwaysOnCases++;
+            }
+
             var queryVec = await embeddingProvider.EmbedQueryAsync(item.Query, CancellationToken.None);
             var preRerankCandidates = await repository.FindNearestAsync(
                 queryVec, [], adminBypass: true, KnowledgeIndexConstants.MaxRerankerCandidates, CancellationToken.None);
@@ -706,6 +871,11 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
 
             if (!toolsetHit)
             {
+                if (isAlwaysOnCase)
+                {
+                    alwaysOnMisses.Add($"ALWAYSON | expected={item.ExpectedDisplay} | query=\"{item.Query}\"");
+                }
+
                 switch (cause)
                 {
                     case ToolsetMissCause.RetrieverMiss: missRetriever++; break;
@@ -750,6 +920,21 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
         TestContext.WriteLine(
             $"Toolset recall@{KnowledgeIndexConstants.DefaultTopK} (what the model actually receives): " +
             $"{toolsetRecallHits}/{golden.Count} = {(double)toolsetRecallHits / golden.Count:P1}");
+
+        // The adjusted figure is the one to steer by; the raw one above stays for comparability with
+        // every measurement recorded since 2026-07-30. Never merged into a single number: an
+        // always-on case that stops being retrieved is invisible in the adjusted figure, so the gap
+        // between the two is itself a signal.
+        var adjustedHits = toolsetRecallHits + alwaysOnMisses.Count;
+        TestContext.WriteLine(
+            $"Toolset recall@{KnowledgeIndexConstants.DefaultTopK} adjusted (always-on targets counted " +
+            $"as reached, {alwaysOnCases} such cases, {alwaysOnMisses.Count} of them missed by retrieval): " +
+            $"{adjustedHits}/{golden.Count} = {(double)adjustedHits / golden.Count:P1}");
+        foreach (var miss in alwaysOnMisses)
+        {
+            TestContext.WriteLine(miss);
+        }
+
         TestContext.WriteLine($"Top-3 recall (full pipeline): {top3Hits}/{golden.Count} = {(double)top3Hits / golden.Count:P1}");
 
         TestContext.WriteLine(
@@ -826,8 +1011,23 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             TestContext.WriteLine(miss);
         }
 
-        return toolsetRecallHits;
+        return new SetRecall(toolsetRecallHits, adjustedHits, golden.Count, alwaysOnCases);
     }
+
+    /// <summary>
+    /// One set's two recall figures. Raw is what the retrieval pipeline delivers; adjusted counts
+    /// cases whose target is an always-on skill as reached, because the assembler adds those to every
+    /// toolset regardless of retrieval.
+    /// </summary>
+    private readonly record struct SetRecall(int Raw, int Adjusted, int Cases, int AlwaysOnCases);
+
+    /// <summary>
+    /// Whether a case can be satisfied by an always-on skill. Accepted targets count too: if any
+    /// accepted target is always on, the toolset carries it and the case cannot fail in production.
+    /// </summary>
+    private static bool AcceptsAlwaysOn(HardGoldenSetItem item, IReadOnlySet<string> alwaysOnNames) =>
+        alwaysOnNames.Contains(item.ExpectedSourceId)
+        || item.AlsoAcceptedSourceIds.Any(alwaysOnNames.Contains);
 
     /// <summary>
     /// Reports how many entries reach the model for questions the system has no tool for. This is the
@@ -879,6 +1079,99 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
                 $"  cutoff {CutoffSweep[c]:F4}: {(double)sweepWidths[c] / queries.Length:F1} entries{marker}");
         }
     }
+
+    /// <summary>
+    /// Production's wrapped-endpoint dedup: an endpoint entry is dropped when a skill in the same
+    /// candidate set already exposes it, because the toolset can only ever carry the skill.
+    /// </summary>
+    private static List<KnowledgeEntry> ApplyWrappedEndpointFilter(IReadOnlyList<KnowledgeEntry> candidates)
+    {
+        var wrappedEndpoints = candidates
+            .Where(c => c.Kind == KnowledgeEntryKind.Skill && c.ExposedEndpointKey is not null)
+            .Select(c => c.ExposedEndpointKey!)
+            .ToHashSet();
+
+        return candidates
+            .Where(c => c.Kind == KnowledgeEntryKind.Skill || !wrappedEndpoints.Contains(c.SourceId))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Whether the target reaches a vector-only toolset at the given distance gate. Mirrors the
+    /// production order: gate first, then Take(DefaultTopK) - so a target can be inside the gate and
+    /// still be pushed out by nearer entries, exactly as the score cutoff behaves today.
+    /// </summary>
+    private static bool SurvivesDistanceGate(
+        List<KnowledgeEntry> candidates,
+        List<double> distances,
+        HardGoldenSetItem item,
+        double maxDistance)
+    {
+        var survivors = 0;
+        for (var i = 0; i < candidates.Count && survivors < KnowledgeIndexConstants.DefaultTopK; i++)
+        {
+            if (distances[i] > maxDistance)
+            {
+                continue;
+            }
+
+            survivors++;
+            if (item.Accepts(candidates[i].SourceId))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Cosine distance, the quantity pgvector orders by (the &lt;=&gt; operator). Recomputed here
+    /// rather than selected from SQL so the sweep needs no change to the production query.
+    /// </summary>
+    private static double CosineDistance(float[] query, float[] entry)
+    {
+        if (entry.Length != query.Length || entry.Length == 0)
+        {
+            return 1.0;
+        }
+
+        double dot = 0, queryNorm = 0, entryNorm = 0;
+        for (var i = 0; i < query.Length; i++)
+        {
+            dot += (double)query[i] * entry[i];
+            queryNorm += (double)query[i] * query[i];
+            entryNorm += (double)entry[i] * entry[i];
+        }
+
+        if (queryNorm == 0 || entryNorm == 0)
+        {
+            return 1.0;
+        }
+
+        return 1.0 - (dot / (Math.Sqrt(queryNorm) * Math.Sqrt(entryNorm)));
+    }
+
+    private static void WriteDistribution(string label, List<double> values)
+    {
+        if (values.Count == 0)
+        {
+            TestContext.WriteLine($"--- {label}: no data ---");
+            return;
+        }
+
+        var sorted = values.OrderBy(v => v).ToList();
+        TestContext.WriteLine(
+            $"--- {label} (n={sorted.Count}) --- min={sorted[0]:F4} p10={sorted[sorted.Count / 10]:F4} " +
+            $"p25={sorted[sorted.Count / 4]:F4} median={sorted[sorted.Count / 2]:F4} " +
+            $"p75={sorted[sorted.Count * 3 / 4]:F4} p90={sorted[sorted.Count * 9 / 10]:F4} max={sorted[^1]:F4}");
+    }
+
+    // Cosine-distance gates for the vector-only arm. The range is wide on purpose: nothing is known
+    // yet about where the two distributions separate, and the run is cheap enough that measuring the
+    // whole span costs less than guessing a window and having to repeat the night.
+    private static readonly double[] DistanceCutoffSweep =
+        [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.60, 1.00];
 
     // Candidate score cutoffs, current production value first so every run reproduces the baseline
     // alongside the alternatives. The steps between 0.001 and 0.0 are not decoration: every target
@@ -983,6 +1276,20 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             $"score={targetScore:F4} (cutoff={KnowledgeIndexConstants.DefaultScoreCutoff}) | " +
             $"rank={rawRank + 1} of {ranked.Count} (topK={KnowledgeIndexConstants.DefaultTopK})",
             rawRank, targetScore, ranked);
+    }
+
+    /// <summary>
+    /// Names of the skills the assembler puts into every toolset. Taken from the live catalogue, so
+    /// the adjusted recall follows the seed data instead of a list that silently goes stale.
+    /// </summary>
+    private static async Task<IReadOnlySet<string>> LoadAlwaysOnSkillNamesAsync(IServiceScope scope)
+    {
+        var skillRepository = scope.ServiceProvider.GetRequiredService<IAgentSkillRepository>();
+        var skills = await skillRepository.GetAllEnabledAsync(CancellationToken.None);
+        return skills
+            .Where(s => s.AlwaysOn)
+            .Select(s => s.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private static List<HardGoldenSetItem> LoadGoldenSet() => HardGoldenSetItem.Load(GoldenSetPath);
