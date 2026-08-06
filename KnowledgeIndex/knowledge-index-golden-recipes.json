@@ -1,0 +1,506 @@
+[
+  {
+    "query": "Wir haben einen neuen Mitarbeiter eingestellt, der am ersten Oktober anfängt — kannst du den komplett aufnehmen?",
+    "expectedSourceId": "onboard-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "A new hire starts next month, please set him up completely with contract and team",
+    "expectedSourceId": "onboard-employee",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "neuen Mitarbeiter aufnehmen",
+    "expectedSourceId": "onboard-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Die neue Kollegin braucht einen Zugang zur Software mit den Rechten einer Sachbearbeiterin",
+    "expectedSourceId": "user-onboarding",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "please create a login account for the new colleague and give her a role",
+    "expectedSourceId": "user-onboarding",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Benutzerkonto anlegen",
+    "expectedSourceId": "user-onboarding",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Frau Berger ist umgezogen, ab dem ersten November gilt die neue Anschrift",
+    "expectedSourceId": "record-employee-address-change",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "one of our people moved house, record the new postal address from December",
+    "expectedSourceId": "record-employee-address-change",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Adresse geändert",
+    "expectedSourceId": "record-employee-address-change",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Herr Lang verlässt uns Ende Jahr, bitte trag das entsprechend ein",
+    "expectedSourceId": "offboard-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "an employee is leaving at the end of March, record his departure",
+    "expectedSourceId": "offboard-employee",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Austritt erfassen",
+    "expectedSourceId": "offboard-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Kannst du Frau Meier für das nächste Halbjahr dem Team Nord zuordnen?",
+    "expectedSourceId": "add-employee-to-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "put this employee into the Zurich team for the next six months",
+    "expectedSourceId": "add-employee-to-group",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Mitarbeiter zu Gruppe",
+    "expectedSourceId": "add-employee-to-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Alle Mitarbeitenden aus dem Kanton Bern mit Stundenvertrag sollen ins Team Mitte — zeig mir vorher was passiert",
+    "expectedSourceId": "bulk-add-employees-to-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "add everyone with a monthly contract in that region to the team, preview first",
+    "expectedSourceId": "bulk-add-employees-to-group",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "alle passenden Mitarbeiter in Gruppe",
+    "expectedSourceId": "bulk-add-employees-to-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Herr Frei ist am zwölften Mai krank, bitte eintragen",
+    "expectedSourceId": "add-absence-for-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "record a day of sick leave for this employee on the third of June",
+    "expectedSourceId": "add-absence-for-employee",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Abwesenheit eintragen",
+    "expectedSourceId": "add-absence-for-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Wir brauchen eine neue Abteilung unterhalb der Region West, gültig ab Januar",
+    "expectedSourceId": "create-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "set up a new team below the western region, valid from January",
+    "expectedSourceId": "create-group",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "neue Gruppe",
+    "expectedSourceId": "create-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Das Team Ost hängt am falschen Ort im Baum, das gehört unter die Region Nord",
+    "expectedSourceId": "move-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "this team sits under the wrong parent, move it below the northern region",
+    "expectedSourceId": "move-group",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Gruppe verschieben",
+    "expectedSourceId": "move-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Die bestehende Bestellung für den Nachtdienst soll dem Team Süd zugeordnet werden",
+    "expectedSourceId": "add-shift-to-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "assign this existing order to the southern team",
+    "expectedSourceId": "add-shift-to-group",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Dienst zu Gruppe",
+    "expectedSourceId": "add-shift-to-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Ordne bitte alle Kunden automatisch der Gruppe zu, die an ihrem Ort liegt",
+    "expectedSourceId": "bulk-add-customers-to-nearest-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "assign every customer to the team closest to their address",
+    "expectedSourceId": "bulk-add-customers-to-nearest-group",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Kunden nach Ort zuordnen",
+    "expectedSourceId": "bulk-add-customers-to-nearest-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Alle Mitarbeitenden sollen automatisch der Gruppe an ihrem Wohnort zugeteilt werden",
+    "expectedSourceId": "bulk-add-employees-to-nearest-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "assign all employees to the team nearest to where they live",
+    "expectedSourceId": "bulk-add-employees-to-nearest-group",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Mitarbeiter nach Ort zuordnen",
+    "expectedSourceId": "bulk-add-employees-to-nearest-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Die externen Mitarbeitenden sollen alle der geografisch nächsten Gruppe zugeteilt werden",
+    "expectedSourceId": "bulk-add-externs-to-nearest-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "assign all external staff to their nearest location team",
+    "expectedSourceId": "bulk-add-externs-to-nearest-group",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Externe nach Ort zuordnen",
+    "expectedSourceId": "bulk-add-externs-to-nearest-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Dieser eine externe Mitarbeiter soll in die Gruppe, die seiner Adresse am nächsten liegt",
+    "expectedSourceId": "add-extern-employee-to-nearest-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "put this single external worker into the team closest to his address",
+    "expectedSourceId": "add-extern-employee-to-nearest-group",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Externen zur nächsten Gruppe",
+    "expectedSourceId": "add-extern-employee-to-nearest-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Ich habe in der Liste ein paar Personen angehakt — die sollen alle in diese Gruppe",
+    "expectedSourceId": "add-selected-clients-to-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "take the people I ticked in the list and add them to that team",
+    "expectedSourceId": "add-selected-clients-to-group",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "markierte Personen in Gruppe",
+    "expectedSourceId": "add-selected-clients-to-group",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Welcher Feiertagskalender für die ganze Firma gilt, ist noch nicht hinterlegt",
+    "expectedSourceId": "setup-owner-address",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "the company-wide holiday calendar is not configured yet, set it up",
+    "expectedSourceId": "setup-owner-address",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Firmen-Feiertagskalender einrichten",
+    "expectedSourceId": "setup-owner-address",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Der Kunde Huber braucht ab Februar einen Dienst montags und mittwochs von acht bis zwölf",
+    "expectedSourceId": "create-shift-order",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "this customer needs a new order on Tuesdays and Thursdays from nine to five",
+    "expectedSourceId": "create-shift-order",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "neue Bestellung anlegen",
+    "expectedSourceId": "create-shift-order",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Der bestehende Task-Dienst soll donnerstags in die Vorlage des Containers rein",
+    "expectedSourceId": "add-task-to-container",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "add this existing task service to the container template on Fridays",
+    "expectedSourceId": "add-task-to-container",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Task in Container",
+    "expectedSourceId": "add-task-to-container",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Die für Herrn Suter vorgemerkte Abwesenheit am neunten Juni ist hinfällig, bitte löschen",
+    "expectedSourceId": "remove-absence-for-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "the planned absence on that day is no longer needed, remove it",
+    "expectedSourceId": "remove-absence-for-employee",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Abwesenheit löschen",
+    "expectedSourceId": "remove-absence-for-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Die vorgemerkten Ferien von Frau Roth verschieben sich um eine Woche nach hinten",
+    "expectedSourceId": "move-absence-for-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "the booked holiday needs to shift to a different week",
+    "expectedSourceId": "move-absence-for-employee",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Abwesenheit verschieben",
+    "expectedSourceId": "move-absence-for-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Herr Amrein kann neu nur noch dienstags und donnerstags vormittags arbeiten",
+    "expectedSourceId": "record-availability-for-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "record on which days and hours this person is available to work",
+    "expectedSourceId": "record-availability-for-employee",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Verfügbarkeit erfassen",
+    "expectedSourceId": "record-availability-for-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Die hinterlegten Verfügbarkeiten von Frau Keller für den Sommer sollen wieder komplett offen sein",
+    "expectedSourceId": "clear-availability-for-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "reset this person's availability entries for that period so the days are open again",
+    "expectedSourceId": "clear-availability-for-employee",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Verfügbarkeit zurücksetzen",
+    "expectedSourceId": "clear-availability-for-employee",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Der letzte Monat ist durch, den würde ich jetzt gerne definitiv abschliessen",
+    "expectedSourceId": "close-payroll-period",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "the month is over, I would like to seal that period now",
+    "expectedSourceId": "close-payroll-period",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "Periode abschliessen",
+    "expectedSourceId": "close-payroll-period",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  },
+  {
+    "query": "Die mobilen Dienste rund um Luzern am Dienstag sollen zu einer optimierten Tour zusammengefasst werden",
+    "expectedSourceId": "bundle-mobile-services-into-container",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "natural"
+  },
+  {
+    "query": "bundle the mobile services around that town on Wednesday into one optimised route",
+    "expectedSourceId": "bundle-mobile-services-into-container",
+    "lang": "other",
+    "langCode": "en",
+    "phrasing": "natural"
+  },
+  {
+    "query": "mobile Dienste bündeln",
+    "expectedSourceId": "bundle-mobile-services-into-container",
+    "lang": "de",
+    "langCode": "de",
+    "phrasing": "terse"
+  }
+]
