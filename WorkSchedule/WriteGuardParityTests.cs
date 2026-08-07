@@ -34,6 +34,17 @@ public class WriteGuardParityTests
     private static readonly TimeOnly ShiftEnd = new(16, 0);
     private const decimal SeedWorkTime = 8m;
 
+    // Free-standing target slot for the update probe: it must NOT overlap the seeded slot, so the only
+    // collision the guard can see in the collision case is the one the precondition puts there.
+    private static readonly TimeOnly RetimedStart = new(18, 0);
+    private static readonly TimeOnly RetimedEnd = new(22, 0);
+
+    // Target slot that deliberately OVERLAPS the seeded one. An update path that forgets to hand its
+    // pre-write row to the conflict checker as a removal collides the edit with its own predecessor and
+    // refuses a legal move; UpdateWorkGuard_RetimingIntoAnOverlappingFreeSlot_IsAllowed pins that.
+    private static readonly TimeOnly OverlappingStart = new(12, 0);
+    private static readonly TimeOnly OverlappingEnd = new(20, 0);
+
     private SignalRTestWebApplicationFactory _factory = null!;
     private string _connectionString = null!;
     private DataBaseContext _context = null!;
@@ -99,9 +110,9 @@ public class WriteGuardParityTests
     public async Task WriteGuard_DayLock_RefusesRealWriteOnSealedDay_AndPersistsNothing(GuardPath path)
     {
         var ctx = BuildContext();
-        if (path.RequiresParentWork)
+        if (path.RequiresExistingWork)
         {
-            ctx.ParentWorkId = await SeedRealWorkAsync(_clientId);
+            ctx.ExistingWorkId = await SeedRealWorkAsync(_clientId);
         }
         await SeedActiveGlobalSealAsync(_date);
 
@@ -122,9 +133,9 @@ public class WriteGuardParityTests
     public async Task WriteGuard_StructuralCollision_RefusesRealWrite_AndPersistsNothing(GuardPath path)
     {
         var ctx = BuildContext();
-        if (path.RequiresParentWork)
+        if (path.RequiresExistingWork)
         {
-            ctx.ParentWorkId = await SeedRealWorkAsync(_clientId);
+            ctx.ExistingWorkId = await SeedRealWorkAsync(_clientId);
         }
         await path.SeedCollisionPrecondition!(ctx, _context);
         var before = await path.CountWrittenAsync(ctx, _context);
@@ -298,6 +309,8 @@ public class WriteGuardParityTests
         yield return BulkWorksPath();
         yield return BulkBreaksPath();
         yield return WorkChangePath();
+        yield return UpdateWorkPath();
+        yield return ReassignWorkPath();
     }
 
     private static IEnumerable<GuardPath> CollisionPaths() =>
@@ -465,11 +478,11 @@ public class WriteGuardParityTests
     {
         Name = "work-change (PostCommand<WorkChangeResource>)",
         EnforcesStructuralCollision = true,
-        RequiresParentWork = true,
+        RequiresExistingWork = true,
         WriteDayLockProbe = async (mediator, ctx, ct) =>
             await mediator.Send(new PostCommand<WorkChangeResource>(new WorkChangeResource
             {
-                WorkId = ctx.ParentWorkId,
+                WorkId = ctx.ExistingWorkId,
                 Type = WorkChangeType.CorrectionEnd,
                 StartTime = ShiftStart,
                 EndTime = ShiftEnd,
@@ -479,7 +492,7 @@ public class WriteGuardParityTests
         WriteCollisionProbe = async (mediator, ctx, ct) =>
             await mediator.Send(new PostCommand<WorkChangeResource>(new WorkChangeResource
             {
-                WorkId = ctx.ParentWorkId,
+                WorkId = ctx.ExistingWorkId,
                 Type = WorkChangeType.ReplacementWithin,
                 ReplaceClientId = ctx.ReplaceClientId,
                 StartTime = ShiftStart,
@@ -504,7 +517,137 @@ public class WriteGuardParityTests
         },
         CountWrittenAsync = (ctx, db) => db.WorkChange
             .AsNoTracking()
-            .CountAsync(wc => wc.WorkId == ctx.ParentWorkId),
+            .CountAsync(wc => wc.WorkId == ctx.ExistingWorkId),
+    };
+
+    /// <summary>
+    /// Retiming an existing work. The probe moves the seeded row from ShiftStart..ShiftEnd into
+    /// RetimedStart..RetimedEnd, and the row count is taken at the TARGET coordinates - counting the
+    /// client's works for the day would stay at one whether the update happened or not, so the guard
+    /// could do nothing and the assertion would still pass.
+    /// </summary>
+    private static GuardPath UpdateWorkPath() => new()
+    {
+        Name = "update-work (PutCommand<WorkResource>)",
+        EnforcesStructuralCollision = true,
+        RequiresExistingWork = true,
+        WriteDayLockProbe = async (mediator, ctx, ct) =>
+            await mediator.Send(new PutCommand<WorkResource>(RetimedWorkResource(ctx, RetimedStart, RetimedEnd)), ct),
+        WriteCollisionProbe = async (mediator, ctx, ct) =>
+            await mediator.Send(new PutCommand<WorkResource>(RetimedWorkResource(ctx, RetimedStart, RetimedEnd)), ct),
+        // The colliding precondition already occupies the slot the edit moves into, so the projected row
+        // - not the pre-write one - is what the guard has to judge.
+        SeedCollisionPrecondition = async (ctx, db) =>
+        {
+            db.Work.Add(new Work
+            {
+                Id = Guid.NewGuid(),
+                ClientId = ctx.ClientId,
+                ShiftId = ctx.ShiftId,
+                CurrentDate = ctx.Date,
+                StartTime = RetimedStart,
+                EndTime = RetimedEnd,
+                WorkTime = SeedWorkTime,
+                IsDeleted = false,
+            });
+            await db.SaveChangesAsync();
+        },
+        CountWrittenAsync = (ctx, db) => db.Work
+            .AsNoTracking()
+            .CountAsync(w => w.ClientId == ctx.ClientId
+                && w.CurrentDate == ctx.Date
+                && w.StartTime == RetimedStart
+                && w.AnalyseToken == null),
+    };
+
+    /// <summary>
+    /// Handing an existing work to another client. Counted on the TARGET client, so a guard that does
+    /// nothing shows up as an extra row there.
+    /// </summary>
+    private static GuardPath ReassignWorkPath() => new()
+    {
+        Name = "reassign-work (ReassignWorkClientCommand)",
+        EnforcesStructuralCollision = true,
+        RequiresExistingWork = true,
+        WriteDayLockProbe = async (mediator, ctx, ct) =>
+            await mediator.Send(new ReassignWorkClientCommand(ctx.ExistingWorkId, ctx.ReplaceClientId), ct),
+        WriteCollisionProbe = async (mediator, ctx, ct) =>
+            await mediator.Send(new ReassignWorkClientCommand(ctx.ExistingWorkId, ctx.ReplaceClientId), ct),
+        SeedCollisionPrecondition = async (ctx, db) =>
+        {
+            db.Work.Add(new Work
+            {
+                Id = Guid.NewGuid(),
+                ClientId = ctx.ReplaceClientId,
+                ShiftId = ctx.ShiftId,
+                CurrentDate = ctx.Date,
+                StartTime = ShiftStart,
+                EndTime = ShiftEnd,
+                WorkTime = SeedWorkTime,
+                IsDeleted = false,
+            });
+            await db.SaveChangesAsync();
+        },
+        CountWrittenAsync = (ctx, db) => db.Work
+            .AsNoTracking()
+            .CountAsync(w => w.ClientId == ctx.ReplaceClientId
+                && w.CurrentDate == ctx.Date
+                && w.AnalyseToken == null),
+    };
+
+    [Test]
+    public async Task UpdateWorkGuard_RetimingIntoAnOverlappingFreeSlot_IsAllowed()
+    {
+        var ctx = BuildContext();
+        ctx.ExistingWorkId = await SeedRealWorkAsync(_clientId);
+
+        using var scope = _factory.Services.CreateScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        await Should.NotThrowAsync(
+            async () => await mediator.Send(
+                new PutCommand<WorkResource>(RetimedWorkResource(ctx, OverlappingStart, OverlappingEnd)),
+                CancellationToken.None),
+            "an edit must be judged on its projected state: the row it replaces is vacated by the same " +
+            "write and must not be counted against it, even though the new times overlap the old ones");
+
+        var moved = await _context.Work
+            .AsNoTracking()
+            .CountAsync(w => w.Id == ctx.ExistingWorkId
+                && w.StartTime == OverlappingStart
+                && w.EndTime == OverlappingEnd);
+        moved.ShouldBe(1, "the legal retiming must have been persisted");
+    }
+
+    [Test]
+    public async Task ReassignWorkGuard_TargetClientWithoutOverlap_IsAllowed()
+    {
+        var ctx = BuildContext();
+        ctx.ExistingWorkId = await SeedRealWorkAsync(_clientId);
+
+        using var scope = _factory.Services.CreateScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        await Should.NotThrowAsync(
+            async () => await mediator.Send(
+                new ReassignWorkClientCommand(ctx.ExistingWorkId, ctx.ReplaceClientId), CancellationToken.None),
+            "handing a shift to a free client must stay possible");
+
+        var reassigned = await _context.Work
+            .AsNoTracking()
+            .CountAsync(w => w.Id == ctx.ExistingWorkId && w.ClientId == ctx.ReplaceClientId);
+        reassigned.ShouldBe(1, "the legal reassignment must have been persisted");
+    }
+
+    private static WorkResource RetimedWorkResource(GuardTestContext ctx, TimeOnly start, TimeOnly end) => new()
+    {
+        Id = ctx.ExistingWorkId,
+        ClientId = ctx.ClientId,
+        ShiftId = ctx.ShiftId,
+        CurrentDate = ctx.Date,
+        StartTime = start,
+        EndTime = end,
+        WorkTime = SeedWorkTime,
     };
 
     private async Task SeedBaseFixtureAsync()
@@ -733,7 +876,7 @@ public class WriteGuardParityTests
 
         public Guid AbsenceId { get; set; }
 
-        public Guid ParentWorkId { get; set; }
+        public Guid ExistingWorkId { get; set; }
     }
 
     public sealed class GuardPath
@@ -742,7 +885,7 @@ public class WriteGuardParityTests
 
         public bool EnforcesStructuralCollision { get; init; }
 
-        public bool RequiresParentWork { get; init; }
+        public bool RequiresExistingWork { get; init; }
 
         public required Func<IMediator, GuardTestContext, CancellationToken, Task> WriteDayLockProbe { get; init; }
 
