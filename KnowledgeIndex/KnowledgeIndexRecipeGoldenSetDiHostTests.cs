@@ -29,9 +29,14 @@ using Shouldly;
 [Category("KnowledgeIndex")]
 public class KnowledgeIndexRecipeGoldenSetDiHostTests
 {
-    // Measured 2026-08-06 on the 72-case set: top-1 52, recall@3 66. The floors sit a few cases below
-    // that so index jitter does not turn the build red while a real regression still does. Raise them
-    // when a change earns it - never to make a failing run pass.
+    // Measured 2026-08-06 on the then 72-case set: top-1 52, recall@3 66. The floors sit a few cases
+    // below that so index jitter does not turn the build red while a real regression still does.
+    // On 2026-08-07 the set grew to 79 cases (the seven historical terse probes taken over from
+    // RecipeSemanticMatchBreadthTests) and the floors were deliberately left untouched: they are
+    // absolute hit counts and retrieval runs once per case, so a larger set can only raise the counts.
+    // A floor measured on a subset therefore stays valid on a superset. For the same reason the
+    // percentages of two differently sized runs are not comparable - only the counts are. Raise the
+    // floors when a change earns it - never to make a failing run pass.
     private const int MinimumTop1Hits = 48;
     private const int MinimumTopKHits = 62;
 
@@ -42,6 +47,15 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
     private const double SemanticGreyZoneThreshold = 0.4;
     private const double SemanticAmbiguityMargin = 0.05;
     private const int SemanticMatchTopK = 3;
+
+    // The three outcomes of the gate above, as they are written to the report and as the optional
+    // "expectedClassification" field of the golden set spells them.
+    private const string ClassificationHigh = "high";
+    private const string ClassificationGrey = "grey";
+    private const string ClassificationNone = "none";
+
+    private const string CaseLinePrefix = "CASE |";
+    private const string ClassificationMismatchPrefix = "CLASSIFICATION MISMATCH |";
 
     private static readonly string RecipeSetPath = Path.Combine(
         TestContext.CurrentContext.TestDirectory,
@@ -75,7 +89,14 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
         public Task ApplyAsync() => Task.CompletedTask;
     }
 
-    private sealed record RecipeCase(string Query, string ExpectedSourceId, string LangCode, string Phrasing);
+    // ExpectedClassification is optional and report-only: null means the golden set makes no
+    // statement about the gate outcome for that case and nothing is compared.
+    private sealed record RecipeCase(
+        string Query,
+        string ExpectedSourceId,
+        string LangCode,
+        string Phrasing,
+        string? ExpectedClassification);
 
     private RecipeBypassFactory _factory = null!;
 
@@ -94,6 +115,15 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
 
         TestContext.WriteLine($"Active embedding space: {embeddingProvider.EmbeddingSpaceId}");
         TestContext.WriteLine("=== RECIPE GOLDEN SET (production recipe fallback path) ===");
+        // Deliberately spells the case marker apart instead of interpolating the constant: the marker
+        // must occur exactly once per case in the output, so a header carrying it would show up in an
+        // extraction as one extra case made of placeholders.
+        TestContext.WriteLine(
+            $"--- per case, one line marked CASE followed by a pipe, fields in fixed order: " +
+            $"expected=<sourceId>, [phrasing/langCode], " +
+            $"classification=<{ClassificationHigh}/{ClassificationGrey}/{ClassificationNone}>, " +
+            $"score=<best candidate>, top1=<true/false>, rank=<0-based position of the expected " +
+            $"recipe, -1 = not in the top {SemanticMatchTopK}>, quoted query last ---");
 
         var cases = LoadCases();
         var top1Hits = 0;
@@ -121,6 +151,7 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
             {
                 empty++;
                 misses.Add($"EMPTY | expected={item.ExpectedSourceId} | [{item.Phrasing}/{item.LangCode}] \"{item.Query}\"");
+                ReportCase(item, ClassificationNone, 0d, isTop1: false, rank: -1);
                 continue;
             }
 
@@ -147,16 +178,20 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
             // what decides between running a recipe, asking a confirmation question, and doing
             // nothing - so it is measured on the top candidate, not on the expected one.
             var best = candidates[0].Score;
+            string classification;
             if (best >= SemanticHighConfidenceLogThreshold)
             {
+                classification = ClassificationHigh;
                 highConfidence++;
             }
             else if (best >= SemanticGreyZoneThreshold)
             {
+                classification = ClassificationGrey;
                 greyZone++;
             }
             else
             {
+                classification = ClassificationNone;
                 belowGate++;
             }
 
@@ -165,6 +200,8 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
             {
                 ambiguous++;
             }
+
+            ReportCase(item, classification, best, isTop1, rank);
         }
 
         TestContext.WriteLine(
@@ -216,6 +253,31 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
         topKHits.ShouldBeGreaterThanOrEqualTo(MinimumTopKHits);
     }
 
+    // One machine-readable line per case. The aggregate counters hide a single case sliding across a
+    // gate boundary, which is exactly the move that changes whether the engine runs a recipe, asks a
+    // confirmation question or stays silent. Fixed field order with the query last, so a split on '|'
+    // survives any query text. Classification and score are those of the BEST candidate - the same
+    // one the gate counters use - not of the expected recipe.
+    private static void ReportCase(RecipeCase item, string classification, double bestScore, bool isTop1, int rank)
+    {
+        TestContext.WriteLine(
+            $"{CaseLinePrefix} expected={item.ExpectedSourceId} | [{item.Phrasing}/{item.LangCode}] | " +
+            $"classification={classification} | score={bestScore:F4} | " +
+            $"top1={isTop1.ToString().ToLowerInvariant()} | rank={rank} | \"{item.Query}\"");
+
+        // Report only, never an assertion: the score distribution is bimodal, so a per-case
+        // classification assertion would go red on index jitter around a threshold instead of on a
+        // real regression. The line exists so a shift is visible in the diff of two runs.
+        if (item.ExpectedClassification != null &&
+            !classification.Equals(item.ExpectedClassification, StringComparison.OrdinalIgnoreCase))
+        {
+            TestContext.WriteLine(
+                $"{ClassificationMismatchPrefix} expected={item.ExpectedClassification} | " +
+                $"measured={classification} | score={bestScore:F4} | " +
+                $"[{item.Phrasing}/{item.LangCode}] | \"{item.Query}\"");
+        }
+    }
+
     private static bool Matches(string sourceId, string expected) =>
         sourceId.Equals(expected, StringComparison.OrdinalIgnoreCase);
 
@@ -226,7 +288,11 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
             e.GetProperty("query").GetString()!,
             e.GetProperty("expectedSourceId").GetString()!,
             e.TryGetProperty("langCode", out var lang) ? lang.GetString()! : "unknown",
-            e.TryGetProperty("phrasing", out var phrasing) ? phrasing.GetString()! : "unknown"))
+            e.TryGetProperty("phrasing", out var phrasing) ? phrasing.GetString()! : "unknown",
+            e.TryGetProperty("expectedClassification", out var classification) &&
+                classification.ValueKind == JsonValueKind.String
+                ? classification.GetString()
+                : null))
             .ToList();
     }
 }
