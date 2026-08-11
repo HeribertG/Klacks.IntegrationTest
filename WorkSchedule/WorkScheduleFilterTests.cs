@@ -200,7 +200,7 @@ public class WorkScheduleFilterTests
         var mockPeriodHoursService = Substitute.For<IPeriodHoursService>();
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
         var mockUnitOfWork = Substitute.For<IUnitOfWork>();
-        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter);
+        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter, new Klacks.Api.Domain.Services.Clients.ClientSearchService(), new Klacks.IntegrationTest.TestHelpers.EmptyClientFuzzySearchService());
         var repository = new WorkRepository(_context, mockLogger, baseQueryService, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
@@ -239,7 +239,7 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter);
+        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter, new Klacks.Api.Domain.Services.Clients.ClientSearchService(), new Klacks.IntegrationTest.TestHelpers.EmptyClientFuzzySearchService());
         var repository = new WorkRepository(_context, mockLogger, baseQueryService, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
@@ -279,7 +279,7 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter);
+        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter, new Klacks.Api.Domain.Services.Clients.ClientSearchService(), new Klacks.IntegrationTest.TestHelpers.EmptyClientFuzzySearchService());
         var repository = new WorkRepository(_context, mockLogger, baseQueryService, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
@@ -317,7 +317,7 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter);
+        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter, new Klacks.Api.Domain.Services.Clients.ClientSearchService(), new Klacks.IntegrationTest.TestHelpers.EmptyClientFuzzySearchService());
         var repository = new WorkRepository(_context, mockLogger, baseQueryService, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;
@@ -355,7 +355,7 @@ public class WorkScheduleFilterTests
 
         var mockLogger = Substitute.For<ILogger<Work>>();
         var mockWorkMacroService = Substitute.For<IWorkMacroService>();
-        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter);
+        var baseQueryService = new ClientBaseQueryService(_context, mockGroupFilter, mockSearchFilter, new Klacks.Api.Domain.Services.Clients.ClientSearchService(), new Klacks.IntegrationTest.TestHelpers.EmptyClientFuzzySearchService());
         var repository = new WorkRepository(_context, mockLogger, baseQueryService, mockWorkMacroService, Substitute.For<IClientContractDataProvider>());
 
         var now = DateTime.UtcNow;

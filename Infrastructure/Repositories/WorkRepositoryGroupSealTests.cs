@@ -50,10 +50,16 @@ public class WorkRepositoryGroupSealTests
 
         _context = new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
 
+        var fuzzySearchService = Substitute.For<IClientFuzzySearchService>();
+        fuzzySearchService.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new List<Client>()));
+
         var baseQueryService = new ClientBaseQueryService(
             _context,
             Substitute.For<IClientGroupFilterService>(),
-            Substitute.For<IClientSearchFilterService>());
+            Substitute.For<IClientSearchFilterService>(),
+            new Klacks.Api.Domain.Services.Clients.ClientSearchService(),
+            fuzzySearchService);
 
         _repo = new WorkRepository(
             _context,

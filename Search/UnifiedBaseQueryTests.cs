@@ -55,7 +55,16 @@ public class UnifiedBaseQueryTests
         var searchService = new ClientSearchService();
         var searchFilterService = new ClientSearchFilterService(searchService);
 
-        _baseQueryService = new ClientBaseQueryService(_context, mockGroupFilterService, searchFilterService);
+        var fuzzySearchService = Substitute.For<Klacks.Api.Application.Interfaces.IClientFuzzySearchService>();
+        fuzzySearchService.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new List<Klacks.Api.Domain.Models.Staffs.Client>()));
+
+        _baseQueryService = new ClientBaseQueryService(
+            _context,
+            mockGroupFilterService,
+            searchFilterService,
+            searchService,
+            fuzzySearchService);
 
         _workRepository = new WorkRepository(
             _context,

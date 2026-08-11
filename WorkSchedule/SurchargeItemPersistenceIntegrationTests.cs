@@ -180,7 +180,7 @@ OUTPUT 14, BonusHoliday
             overtimeSurchargeCalculator, Substitute.For<ILogger<WorkMacroService>>());
 
         var baseQueryService = new ClientBaseQueryService(
-            _context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientSearchFilterService>());
+            _context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientSearchFilterService>(), new Klacks.Api.Domain.Services.Clients.ClientSearchService(), new Klacks.IntegrationTest.TestHelpers.EmptyClientFuzzySearchService());
 
         _workRepository = new WorkRepository(
             _context, Substitute.For<ILogger<Work>>(), baseQueryService, workMacroService,

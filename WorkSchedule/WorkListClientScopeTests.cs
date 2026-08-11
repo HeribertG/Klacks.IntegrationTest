@@ -67,7 +67,7 @@ public class WorkListClientScopeTests
         var baseQueryService = new ClientBaseQueryService(
             _context,
             groupFilterService,
-            searchFilterService);
+            searchFilterService, new Klacks.Api.Domain.Services.Clients.ClientSearchService(), new Klacks.IntegrationTest.TestHelpers.EmptyClientFuzzySearchService());
 
         _repo = new WorkRepository(
             _context,

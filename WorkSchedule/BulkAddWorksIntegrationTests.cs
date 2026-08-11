@@ -124,7 +124,16 @@ public class BulkAddWorksIntegrationTests
             overtimeSurchargeCalculator,
             Substitute.For<ILogger<WorkMacroService>>());
 
-        var baseQueryService = new ClientBaseQueryService(_context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientSearchFilterService>());
+        var fuzzySearchService = Substitute.For<Klacks.Api.Application.Interfaces.IClientFuzzySearchService>();
+        fuzzySearchService.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new List<Klacks.Api.Domain.Models.Staffs.Client>()));
+
+        var baseQueryService = new ClientBaseQueryService(
+            _context,
+            Substitute.For<IClientGroupFilterService>(),
+            Substitute.For<IClientSearchFilterService>(),
+            new Klacks.Api.Domain.Services.Clients.ClientSearchService(),
+            fuzzySearchService);
         var workRepository = new WorkRepository(
             _context,
             Substitute.For<ILogger<Work>>(),
@@ -571,7 +580,16 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
 
-        var baseQueryService = new ClientBaseQueryService(_context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientSearchFilterService>());
+        var fuzzySearchService = Substitute.For<Klacks.Api.Application.Interfaces.IClientFuzzySearchService>();
+        fuzzySearchService.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new List<Klacks.Api.Domain.Models.Staffs.Client>()));
+
+        var baseQueryService = new ClientBaseQueryService(
+            _context,
+            Substitute.For<IClientGroupFilterService>(),
+            Substitute.For<IClientSearchFilterService>(),
+            new Klacks.Api.Domain.Services.Clients.ClientSearchService(),
+            fuzzySearchService);
         var workRepository = new WorkRepository(
             _context,
             Substitute.For<ILogger<Work>>(),
