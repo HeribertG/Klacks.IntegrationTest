@@ -41,6 +41,8 @@ public class ErpOrderImportFlowIntegrationTests
     private const string DropPointSourceSystemId = "INTEGRATION_TEST_ERP_SOURCE";
     private const string ProcessedSegment = "processed";
     private const string ErrorSegment = "error";
+    private const string ProcessingSegment = "processing";
+    private const string ForeignClaimPayload = "claimed by another instance";
 
     private const string FixtureFileName = "sample-erp-order-import.xml";
     private const string FixtureSourceSystemIdAttribute = "sourceSystemId=\"erp-example\"";
@@ -362,6 +364,46 @@ public class ErpOrderImportFlowIntegrationTests
         recorded.ResolvedAt.ShouldBeNull();
     }
 
+    [Test]
+    public async Task RunAsync_HandledFile_LeavesNothingBehindInTheProcessingSegment()
+    {
+        var fileName = UniqueFileName();
+        await UploadAsync(fileName, ReadFixtureXml());
+
+        await RunImportAsync();
+
+        _objectStorage.Contains(ProcessedKey(fileName)).ShouldBeTrue("the handled file must end up under processed/");
+        _objectStorage.Contains(ProcessingKey(fileName)).ShouldBeFalse(
+            "the claim must be resolved by the move, otherwise every import leaves an orphan behind that no later run ever picks up");
+        _objectStorage.Contains(PendingKey(fileName)).ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task RunAsync_FileClaimedByAnotherInstance_ImportsNothingAndLeavesTheFileUntouched()
+    {
+        var fileName = UniqueFileName();
+        await UploadAsync(fileName, ReadFixtureXml());
+        await OccupyProcessingSlotAsync(fileName);
+
+        await RunImportAsync();
+
+        _objectStorage.Contains(PendingKey(fileName)).ShouldBeTrue(
+            "a file this run could not claim must stay untouched at its original key, so the run that owns it keeps working on it");
+        (await ReadStoredTextAsync(ProcessingKey(fileName))).ShouldBe(ForeignClaimPayload,
+            "the losing run must not overwrite what the owning run put into the processing slot");
+        _objectStorage.Contains(ProcessedKey(fileName)).ShouldBeFalse();
+        _objectStorage.Contains(ErrorKey(fileName)).ShouldBeFalse();
+
+        (await LoadImportedShiftsAsync()).ShouldBeEmpty("a file claimed elsewhere must not be imported a second time");
+        (await LoadImportedClientsAsync()).ShouldBeEmpty("a file claimed elsewhere must not create its customers a second time");
+
+        var recordedExceptions = await _context.Set<ErpImportException>()
+            .AsNoTracking()
+            .Where(e => e.SourceSystemId == DropPointSourceSystemId)
+            .ToListAsync();
+        recordedExceptions.ShouldBeEmpty("losing a claim is normal concurrency, not an import failure worth reporting");
+    }
+
     private DataBaseContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<DataBaseContext>()
@@ -506,10 +548,28 @@ public class ErpOrderImportFlowIntegrationTests
         return $"{_storagePrefix}{ErrorSegment}/{fileName}";
     }
 
+    private string ProcessingKey(string fileName)
+    {
+        return $"{_storagePrefix}{ProcessingSegment}/{fileName}";
+    }
+
     private async Task UploadAsync(string fileName, string xml)
     {
         await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
         await _objectStorage.UploadAsync(PendingKey(fileName), stream);
+    }
+
+    private async Task OccupyProcessingSlotAsync(string fileName)
+    {
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(ForeignClaimPayload));
+        await _objectStorage.UploadAsync(ProcessingKey(fileName), stream);
+    }
+
+    private async Task<string> ReadStoredTextAsync(string key)
+    {
+        await using var stream = await _objectStorage.DownloadAsync(key);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return await reader.ReadToEndAsync();
     }
 
     private async Task<List<Client>> LoadImportedClientsAsync()

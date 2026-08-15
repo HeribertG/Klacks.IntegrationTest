@@ -62,6 +62,22 @@ public class InMemoryObjectStorageService : IObjectStorageService
         return Task.CompletedTask;
     }
 
+    public Task<bool> TryClaimAsync(string sourceKey, string destinationKey, CancellationToken cancellationToken = default)
+    {
+        if (_objects.ContainsKey(destinationKey) || !_objects.Remove(sourceKey, out var content))
+        {
+            return Task.FromResult(false);
+        }
+
+        _objects[destinationKey] = content;
+        if (_lastModifiedUtc.Remove(sourceKey, out var lastModified))
+        {
+            _lastModifiedUtc[destinationKey] = lastModified;
+        }
+
+        return Task.FromResult(true);
+    }
+
     public async Task UploadAsync(string key, Stream content, CancellationToken cancellationToken = default)
     {
         using var buffer = new MemoryStream();
