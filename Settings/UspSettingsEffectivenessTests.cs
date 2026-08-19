@@ -65,7 +65,7 @@ public class UspSettingsEffectivenessTests
     [Test]
     public async Task OvertimeConfigResolver_TierLadderSettings_DriveResolvedLadder()
     {
-        var resolver = new OvertimeConfigResolver(_context, new ClientContractDataProvider(_context));
+        var resolver = new OvertimeConfigResolver(_context, new ClientContractDataProvider(_context, NullLogger<ClientContractDataProvider>.Instance));
         var clientWithoutContract = Guid.NewGuid();
         var date = new DateOnly(2091, 3, 10);
 
@@ -141,7 +141,7 @@ public class UspSettingsEffectivenessTests
     [Test]
     public async Task ClientContractDataProvider_NightWindowSettings_DriveContractlessDefaults()
     {
-        var provider = new ClientContractDataProvider(_context);
+        var provider = new ClientContractDataProvider(_context, NullLogger<ClientContractDataProvider>.Instance);
         var clientWithoutContract = Guid.NewGuid();
         var date = new DateOnly(2091, 3, 10);
 

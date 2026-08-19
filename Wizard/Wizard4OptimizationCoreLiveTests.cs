@@ -8,6 +8,7 @@
 /// </summary>
 
 using Klacks.Api.Application.Services.Schedules;
+using Microsoft.Extensions.Logging.Abstractions;
 using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Domain.Interfaces.Schedules;
 using Klacks.Api.Infrastructure.Persistence;
@@ -76,7 +77,7 @@ public class Wizard4OptimizationCoreLiveTests
         agentIds.Count.ShouldBeGreaterThan(0);
         TestContext.Out.WriteLine($"period {from}..{until}, agents={agentIds.Count}");
 
-        var provider = new ClientContractDataProvider(_context);
+        var provider = new ClientContractDataProvider(_context, NullLogger<ClientContractDataProvider>.Instance);
         var periodHours = Substitute.For<IPeriodHoursService>();
         periodHours.GetPeriodBoundariesAsync(Arg.Any<DateOnly>()).Returns((from, until));
         periodHours
