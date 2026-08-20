@@ -231,8 +231,9 @@ public class RegionPackageEffectivenessTests
     /// <summary>
     /// The industry axis must actually reach the detectors: the same client and the same timeline,
     /// judged once under the strictest and once under the loosest industry preset of ONE country, must
-    /// come out differently. In 24 of 30 packages all five industries carry identical values, so most
-    /// countries cannot prove anything here at all.
+    /// come out differently. In most packages the industries carry identical values, so most countries
+    /// cannot prove anything here at all (the hospitality industry ships genuine per-country deviations,
+    /// see docs/knowledge/hospitality-gastronomy-labor-law-research-2026-08-20.md).
     /// </summary>
     [Test]
     public async Task IndustryPresets_OfTheSameCountry_CarryTheirDifferenceIntoTheDetector()
@@ -315,10 +316,11 @@ public class RegionPackageEffectivenessTests
 
     private static double HoursPerDayFor(decimal weeklyHours) => (double)weeklyHours / DaysPerWeek;
 
-    // Switzerland is one of the very few packages whose industry blocks carry genuinely different values
-    // for the same field (weekly cap 42 to 50). Measured across all packages, only five country/field
-    // combinations differ at all - elsewhere the industries either repeat the same numbers or simply
-    // leave the field empty, which is a gap rather than a difference.
+    // Switzerland is one of the few packages whose industry blocks carry genuinely different values
+    // for the same field (weekly cap 42 to 50). In most packages the industries either repeat the same
+    // numbers or simply leave the field empty, which is a gap rather than a difference; the hospitality
+    // industry adds real per-country deviations (see
+    // docs/knowledge/hospitality-gastronomy-labor-law-research-2026-08-20.md).
     private const string IndustryDifferencePackage = "ch";
     private const int DaysPerWeek = 7;
 
