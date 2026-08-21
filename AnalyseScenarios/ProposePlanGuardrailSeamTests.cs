@@ -95,8 +95,13 @@ public class ProposePlanGuardrailSeamTests
             _context,
             enforcementResolver);
 
+        var holidayWorkEvaluator = Substitute.For<IHolidayWorkEvaluator>();
+        holidayWorkEvaluator
+            .EvaluateAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyCollection<DateOnly>>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ScheduleValidationNotificationDto>());
+
         _checker = new PreCommitConflictChecker(_context, timeline, resolver, new Klacks.Api.Application.Services.Schedules.ComplianceEscalationService(enforcementResolver), settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator, restrictedTimeWindowEvaluator,
-            NonReportingCompensatoryRestEvaluator());
+            NonReportingCompensatoryRestEvaluator(), holidayWorkEvaluator);
     }
 
     [TearDown]
