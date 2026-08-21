@@ -358,6 +358,10 @@ public class RuleEntityEffectivenessTests
         // report nothing anyway, but registering it keeps the dependency tree resolvable.
         services.AddSingleton<ICompensatoryRestObligationRepository, CompensatoryRestObligationRepository>();
         services.AddSingleton<ICompensatoryRestEvaluator, CompensatoryRestEvaluator>();
+        services.AddSingleton<Klacks.Api.Application.Interfaces.IHolidayCalculatorCache, Klacks.Api.Infrastructure.Scripting.HolidayCalculatorCache>();
+        services.AddSingleton<IHolidayWorkExemptionRuleRepository, HolidayWorkExemptionRuleRepository>();
+        services.AddSingleton<IClientHolidayCalendarResolver, ClientHolidayCalendarResolver>();
+        services.AddSingleton<IHolidayWorkEvaluator, HolidayWorkEvaluator>();
         services.AddSingleton<IPreCommitConflictChecker, PreCommitConflictChecker>();
         return services.BuildServiceProvider();
     }
