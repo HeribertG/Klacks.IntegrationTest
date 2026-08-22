@@ -129,8 +129,12 @@ public class WriteGuardParityTests
         written.ShouldBe(0, $"{path.Name}: nothing may be persisted when the day-lock guard refuses");
     }
 
+    // BulkBreaksPath is the only remaining member: its "collision" precondition is a duplicate active
+    // absence of the same type, an unconditional business-rule guard in BulkAddBreaksCommandHandler that
+    // is unrelated to the schedule-timeline collision check and was never touched by the 2026-08-22
+    // owner decision below.
     [TestCaseSource(nameof(CollisionPaths))]
-    public async Task WriteGuard_StructuralCollision_RefusesRealWrite_AndPersistsNothing(GuardPath path)
+    public async Task WriteGuard_DuplicateAbsence_RefusesRealWrite_AndPersistsNothing(GuardPath path)
     {
         var ctx = BuildContext();
         if (path.RequiresExistingWork)
@@ -147,10 +151,38 @@ public class WriteGuardParityTests
             async () => await path.WriteCollisionProbe!(mediator, ctx, CancellationToken.None));
         ex.Message.ShouldContain("blocked",
             Case.Insensitive,
-            $"{path.Name}: a structurally conflicting real write must be refused by the pre-commit guard");
+            $"{path.Name}: a duplicate active absence must be refused by its dedicated guard");
 
         var after = await path.CountWrittenAsync(ctx, _context);
         after.ShouldBe(before, $"{path.Name}: the refused write must not add any row beyond the precondition");
+    }
+
+    // Owner decision 2026-08-22: a schedule collision alone (client A already has an overlapping Work,
+    // or the client a WorkChange/reassignment would hand the shift to already has one) no longer refuses
+    // the write on these five paths. The write persists and the async post-commit check
+    // (ScheduleTimelineBackgroundService) surfaces the collision into the error list instead - see
+    // PreCommitCheckResult.IsHardBlocking. BulkBreaksPath is excluded here: its guard is the unrelated
+    // duplicate-absence rule covered by WriteGuard_DuplicateAbsence_RefusesRealWrite_AndPersistsNothing.
+    [TestCaseSource(nameof(AdvisoryCollisionPaths))]
+    public async Task WriteGuard_ScheduleCollision_NoLongerRefusesRealWrite_AndPersistsTheRow(GuardPath path)
+    {
+        var ctx = BuildContext();
+        if (path.RequiresExistingWork)
+        {
+            ctx.ExistingWorkId = await SeedRealWorkAsync(_clientId);
+        }
+        await path.SeedCollisionPrecondition!(ctx, _context);
+        var before = await path.CountWrittenAsync(ctx, _context);
+
+        using var scope = _factory.Services.CreateScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        await Should.NotThrowAsync(
+            async () => await path.WriteCollisionProbe!(mediator, ctx, CancellationToken.None),
+            $"{path.Name}: a schedule collision alone must no longer refuse the write");
+
+        var after = await path.CountWrittenAsync(ctx, _context);
+        after.ShouldBe(before + 1, $"{path.Name}: the colliding write must still be persisted");
     }
 
     [Test]
@@ -172,7 +204,7 @@ public class WriteGuardParityTests
     }
 
     [Test]
-    public async Task CollisionGuard_SoftDeletedCollidingWork_DoesNotFalselyBlock()
+    public async Task CollisionGuard_SoftDeletedCollidingWork_DoesNotFalselyReport()
     {
         var collidingWorkId = await SeedRealWorkAsync(_clientId);
         var plannedRow = new PlannedWorkRow(_clientId, _date, ShiftStart, ShiftEnd, _shiftId);
@@ -181,8 +213,8 @@ public class WriteGuardParityTests
         {
             var checker = activeScope.ServiceProvider.GetRequiredService<IPreCommitConflictChecker>();
             var withActiveCollision = await checker.CheckAsync(new[] { plannedRow }, null, CancellationToken.None);
-            withActiveCollision.HasHardBlocking.ShouldBeTrue(
-                "control: an overlapping active work must produce a structural collision");
+            withActiveCollision.HasBlocking.ShouldBeTrue(
+                "control: an overlapping active work must produce a schedule collision");
         }
 
         await SoftDeleteWorkAsync(collidingWorkId);
@@ -191,7 +223,7 @@ public class WriteGuardParityTests
         {
             var checker = afterScope.ServiceProvider.GetRequiredService<IPreCommitConflictChecker>();
             var afterSoftDelete = await checker.CheckAsync(new[] { plannedRow }, null, CancellationToken.None);
-            afterSoftDelete.HasHardBlocking.ShouldBeFalse(
+            afterSoftDelete.HasBlocking.ShouldBeFalse(
                 "a soft-deleted work must be invisible to the collision guard and must not be revived");
         }
     }
@@ -316,10 +348,13 @@ public class WriteGuardParityTests
     private static IEnumerable<GuardPath> CollisionPaths() =>
         AllPaths().Where(p => p.EnforcesStructuralCollision);
 
+    private static IEnumerable<GuardPath> AdvisoryCollisionPaths() =>
+        AllPaths().Where(p => !p.EnforcesStructuralCollision && p.WriteCollisionProbe != null);
+
     private static GuardPath SingleWorkPath() => new()
     {
         Name = "single-work (PostCommand<WorkResource>)",
-        EnforcesStructuralCollision = true,
+        EnforcesStructuralCollision = false,
         WriteDayLockProbe = async (mediator, ctx, ct) =>
             await mediator.Send(new PostCommand<WorkResource>(new WorkResource
             {
@@ -340,8 +375,9 @@ public class WriteGuardParityTests
                 EndTime = ShiftEnd,
                 WorkTime = SeedWorkTime,
             }), ct),
-        // The colliding precondition is the client's own overlapping work on the same day: the guard
-        // must refuse a second one, exactly like the replacement path does for the incoming client.
+        // The colliding precondition is the client's own overlapping work on the same day. Owner
+        // decision 2026-08-22: the guard no longer refuses a second one, it persists and the collision
+        // is reported into the error list post-commit instead.
         SeedCollisionPrecondition = async (ctx, db) =>
         {
             db.Work.Add(new Work
@@ -365,7 +401,7 @@ public class WriteGuardParityTests
     private static GuardPath BulkWorksPath() => new()
     {
         Name = "bulk-works (BulkAddWorksCommand)",
-        EnforcesStructuralCollision = true,
+        EnforcesStructuralCollision = false,
         WriteDayLockProbe = async (mediator, ctx, ct) =>
             await mediator.Send(new BulkAddWorksCommand(new BulkAddWorksRequest
             {
@@ -402,8 +438,9 @@ public class WriteGuardParityTests
                     },
                 },
             }), ct),
-        // The colliding precondition is the client's own overlapping work on the same day: the guard
-        // must refuse a second one, exactly like the replacement path does for the incoming client.
+        // The colliding precondition is the client's own overlapping work on the same day. Owner
+        // decision 2026-08-22: the guard no longer refuses a second one, it persists and the collision
+        // is reported into the error list post-commit instead.
         SeedCollisionPrecondition = async (ctx, db) =>
         {
             db.Work.Add(new Work
@@ -477,7 +514,7 @@ public class WriteGuardParityTests
     private static GuardPath WorkChangePath() => new()
     {
         Name = "work-change (PostCommand<WorkChangeResource>)",
-        EnforcesStructuralCollision = true,
+        EnforcesStructuralCollision = false,
         RequiresExistingWork = true,
         WriteDayLockProbe = async (mediator, ctx, ct) =>
             await mediator.Send(new PostCommand<WorkChangeResource>(new WorkChangeResource
@@ -529,7 +566,7 @@ public class WriteGuardParityTests
     private static GuardPath UpdateWorkPath() => new()
     {
         Name = "update-work (PutCommand<WorkResource>)",
-        EnforcesStructuralCollision = true,
+        EnforcesStructuralCollision = false,
         RequiresExistingWork = true,
         WriteDayLockProbe = async (mediator, ctx, ct) =>
             await mediator.Send(new PutCommand<WorkResource>(RetimedWorkResource(ctx, RetimedStart, RetimedEnd)), ct),
@@ -567,7 +604,7 @@ public class WriteGuardParityTests
     private static GuardPath ReassignWorkPath() => new()
     {
         Name = "reassign-work (ReassignWorkClientCommand)",
-        EnforcesStructuralCollision = true,
+        EnforcesStructuralCollision = false,
         RequiresExistingWork = true,
         WriteDayLockProbe = async (mediator, ctx, ct) =>
             await mediator.Send(new ReassignWorkClientCommand(ctx.ExistingWorkId, ctx.ReplaceClientId), ct),
@@ -883,6 +920,10 @@ public class WriteGuardParityTests
     {
         public required string Name { get; init; }
 
+        // True only for BulkBreaksPath's duplicate-absence guard, which is unconditional and unrelated
+        // to the schedule-timeline collision check. The five Work-related paths set this false: their
+        // collision precondition/probe still populate SeedCollisionPrecondition/WriteCollisionProbe, but
+        // AdvisoryCollisionPaths() picks them up instead of CollisionPaths().
         public bool EnforcesStructuralCollision { get; init; }
 
         public bool RequiresExistingWork { get; init; }
