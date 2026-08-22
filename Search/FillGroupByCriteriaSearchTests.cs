@@ -48,7 +48,16 @@ public class FillGroupByCriteriaSearchTests
             .Options;
 
         _context = new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
-        _repository = new ClientSearchRepository(_context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientFuzzySearchService>());
+
+        // SearchAsync scopes every result to the caller's visible groups. These tests cover the
+        // criteria filters, not visibility, so the group filter passes the query through
+        // unchanged — the substitute's default null return would NRE instead.
+        var groupFilterService = Substitute.For<IClientGroupFilterService>();
+        groupFilterService
+            .FilterClientsByGroupId(Arg.Any<Guid?>(), Arg.Any<IQueryable<Client>>(), Arg.Any<bool>())
+            .Returns(call => Task.FromResult((IQueryable<Client>)call[1]));
+
+        _repository = new ClientSearchRepository(_context, groupFilterService, Substitute.For<IClientFuzzySearchService>());
 
         await CleanupTestDataAsync();
         await SeedTestDataAsync();
