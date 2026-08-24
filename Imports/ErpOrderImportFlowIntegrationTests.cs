@@ -502,6 +502,7 @@ public class ErpOrderImportFlowIntegrationTests
             workRepository,
             clientRepository,
             triggerService,
+            new ShiftGroupScopeReadRepository(context),
             unitOfWork,
             Substitute.For<ILogger<OrderSupersessionService>>());
 
