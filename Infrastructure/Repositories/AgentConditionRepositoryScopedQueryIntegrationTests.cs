@@ -1,0 +1,203 @@
+// Copyright (c) Heribert Gasparoli Private. All rights reserved.
+
+/// <summary>
+/// Integration tests for AgentConditionRepository's restricted-scope branch, shared by
+/// GetTopForContextAsync (Etappe 3g) and GetOpenForScopeAsync/CountOpenForScopeAsync (Etappe 3f), against
+/// the real PostgreSQL database. Unit tests only exercise this query against the EF InMemory provider,
+/// which accepts LINQ shapes Npgsql cannot always translate - in particular the GroupId-to-Group LEFT JOIN
+/// via join/DefaultIfEmpty, the "g.Root ?? g.Id" root fallback, and visibleRootIds.Contains(...) where
+/// visibleRootIds is statically typed IReadOnlySet&lt;Guid&gt; (its own instance Contains(T) method, not
+/// Enumerable.Contains - a different expression-tree shape EF's parameterized-collection translator may or
+/// may not recognize the same way). Nothing else in the codebase runs that exact shape:
+/// PlanningAudienceResolver resolves Root ?? Id in a separate C# step after a plain single-row fetch,
+/// never inside a LINQ join translated to SQL, so this is a genuinely new translation path that only a
+/// real database can prove. Cleanup deletes ONLY rows this fixture created - the dev app shares this
+/// database, which already carries thousands of AgentCondition rows from earlier live-verification
+/// sessions; fixture rows are dated far in the past so they always sort first in both
+/// GetTopForContextAsync's and GetOpenForScopeAsync's oldest-first tiebreak regardless of that volume,
+/// instead of relying on a Take large enough to outrun it.
+/// </summary>
+
+using Klacks.Api.Domain.Enums;
+using Klacks.Api.Domain.Models.Assistant;
+using Klacks.Api.Domain.Models.Associations;
+using Klacks.Api.Infrastructure.Persistence;
+using Klacks.Api.Infrastructure.Repositories.Assistant;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using NSubstitute;
+using NUnit.Framework;
+using Shouldly;
+
+namespace Klacks.IntegrationTest.Infrastructure.Repositories;
+
+[TestFixture]
+[Category("RealDatabase")]
+public class AgentConditionRepositoryScopedQueryIntegrationTests
+{
+    private const string TestPrefix = "INTEGRATION_TEST_CTXQ_";
+    private static readonly DateTime FarPastUtc = new(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    [OneTimeSetUp]
+    public async Task OneTimeSetUp()
+    {
+        await CleanupAsync();
+    }
+
+    [TearDown]
+    public async Task TearDown()
+    {
+        await CleanupAsync();
+    }
+
+    [Test]
+    public async Task RestrictedScope_LeftJoinAndRootFallback_TranslateAgainstRealPostgres()
+    {
+        // Root-level visible group (its own Id is the "root" - Root is null, matching the g.Root ?? g.Id
+        // fallback), a child underneath it (Root set, subtree membership only provable via the fallback),
+        // and an unrelated foreign root the caller cannot see.
+        var visibleRoot = await GivenGroupAsync(root: null);
+        var visibleChild = await GivenGroupAsync(root: visibleRoot.Id);
+        var foreignRoot = await GivenGroupAsync(root: null);
+
+        var onVisibleRoot = await GivenConditionAsync("high", visibleRoot.Id);
+        var onVisibleChild = await GivenConditionAsync("high", visibleChild.Id);
+        var onForeignRoot = await GivenConditionAsync("high", foreignRoot.Id);
+        var ungated = await GivenConditionAsync("high", groupId: null);
+
+        await using var context = NewContext();
+        var result = await new AgentConditionRepository(context).GetTopForContextAsync(
+            isUnrestricted: false,
+            visibleRootIds: new HashSet<Guid> { visibleRoot.Id },
+            preferredGroupId: null,
+            take: 50);
+
+        var resultIds = result.Select(c => c.Id).ToHashSet();
+        resultIds.ShouldContain(onVisibleRoot.Id);
+        resultIds.ShouldContain(onVisibleChild.Id);
+        resultIds.ShouldContain(ungated.Id);
+        resultIds.ShouldNotContain(onForeignRoot.Id);
+    }
+
+    [Test]
+    public async Task UnrestrictedScope_SkipsTheJoinEntirely_AndStillTranslates()
+    {
+        // "high", not "medium": GetTopForContextAsync ranks severity ahead of the age tiebreak, so a
+        // "medium" row can never outrank the dev DB's real "high" rows regardless of how old it is dated.
+        var group = await GivenGroupAsync(root: null);
+        var condition = await GivenConditionAsync("high", group.Id);
+
+        await using var context = NewContext();
+        var result = await new AgentConditionRepository(context).GetTopForContextAsync(
+            isUnrestricted: true,
+            visibleRootIds: new HashSet<Guid>(),
+            preferredGroupId: null,
+            take: 50);
+
+        result.Select(c => c.Id).ShouldContain(condition.Id);
+    }
+
+    [Test]
+    public async Task GetOpenForScope_RestrictedScope_LeftJoinAndRootFallback_TranslateAgainstRealPostgres()
+    {
+        // Same shape as RestrictedScope_LeftJoinAndRootFallback_TranslateAgainstRealPostgres above, but
+        // through GetOpenForScopeAsync/CountOpenForScopeAsync (Etappe 3f's list_open_findings skill) -
+        // the two entry points ScopedPlannerRelevantQuery actually has to serve. If either method's own
+        // OrderBy/Take on top of the shared query fragment somehow broke translation, only running it
+        // through GetTopForContextAsync would miss that.
+        var visibleRoot = await GivenGroupAsync(root: null);
+        var visibleChild = await GivenGroupAsync(root: visibleRoot.Id);
+        var foreignRoot = await GivenGroupAsync(root: null);
+
+        var onVisibleRoot = await GivenConditionAsync("high", visibleRoot.Id);
+        var onVisibleChild = await GivenConditionAsync("high", visibleChild.Id);
+        var onForeignRoot = await GivenConditionAsync("high", foreignRoot.Id);
+        var ungated = await GivenConditionAsync("high", groupId: null);
+
+        var scope = new HashSet<Guid> { visibleRoot.Id };
+
+        await using var context = NewContext();
+        var repository = new AgentConditionRepository(context);
+        var result = await repository.GetOpenForScopeAsync(isUnrestricted: false, visibleRootIds: scope, take: 50);
+        var count = await repository.CountOpenForScopeAsync(isUnrestricted: false, visibleRootIds: scope);
+
+        var resultIds = result.Select(c => c.Id).ToHashSet();
+        resultIds.ShouldContain(onVisibleRoot.Id);
+        resultIds.ShouldContain(onVisibleChild.Id);
+        resultIds.ShouldContain(ungated.Id);
+        resultIds.ShouldNotContain(onForeignRoot.Id);
+
+        // count also covers the dev DB's own real ungated rows (GroupId == null), so it cannot be pinned
+        // to an exact number - only proven to be at least large enough to cover this fixture's 3 in-scope
+        // rows, and to translate/execute against Postgres at all without throwing.
+        count.ShouldBeGreaterThanOrEqualTo(3);
+    }
+
+    private static async Task<Group> GivenGroupAsync(Guid? root)
+    {
+        var group = new Group
+        {
+            Id = Guid.NewGuid(),
+            Name = TestPrefix + "group",
+            Root = root,
+            ValidFrom = DateTime.UtcNow,
+        };
+
+        await using var context = NewContext();
+        context.Group.Add(group);
+        await context.SaveChangesAsync();
+
+        return group;
+    }
+
+    private static async Task<AgentCondition> GivenConditionAsync(string severity, Guid? groupId)
+    {
+        // Dated far in the past (not DateTime.UtcNow) so this row always sorts first under
+        // GetTopForContextAsync's oldest-first tiebreak, no matter how many real, newer rows already sit
+        // in the shared dev DB - see the fixture-level remarks.
+        var condition = new AgentCondition
+        {
+            Id = Guid.NewGuid(),
+            TriggerKind = TestPrefix + "kind",
+            Fingerprint = TestPrefix + Guid.NewGuid(),
+            Severity = severity,
+            Status = AgentConditionStatus.Detected,
+            GroupId = groupId,
+            DetectedAtUtc = FarPastUtc,
+            LastSeenAtUtc = FarPastUtc,
+            PayloadJson = "{}",
+        };
+
+        await using var context = NewContext();
+        context.AgentConditions.Add(condition);
+        await context.SaveChangesAsync();
+
+        return condition;
+    }
+
+    private static DataBaseContext NewContext()
+    {
+        var options = new DbContextOptionsBuilder<DataBaseContext>()
+            .UseNpgsql(TestHostDatabase.ConnectionString)
+            .UseSnakeCaseNamingConvention()
+            .Options;
+
+        return new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
+    }
+
+    private static async Task CleanupAsync()
+    {
+        // Both filters are this fixture's own marker: conditions carry the prefix in trigger_kind, groups
+        // in name. Neither pattern can reach dev-app data.
+        await using var context = NewContext();
+        await context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM agent_condition_events WHERE condition_id IN (SELECT id FROM agent_conditions WHERE trigger_kind LIKE {0})",
+            TestPrefix + "%");
+        await context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM agent_conditions WHERE trigger_kind LIKE {0}",
+            TestPrefix + "%");
+        await context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM \"group\" WHERE name LIKE {0}",
+            TestPrefix + "%");
+    }
+}
