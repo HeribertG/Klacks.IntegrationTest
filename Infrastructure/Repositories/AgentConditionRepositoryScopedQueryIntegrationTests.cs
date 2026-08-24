@@ -18,6 +18,7 @@
 /// instead of relying on a Take large enough to outrun it.
 /// </summary>
 
+using System.Data;
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Assistant;
@@ -191,6 +192,13 @@ public class AgentConditionRepositoryScopedQueryIntegrationTests
 
         await using var context = NewContext();
         var repository = new AgentConditionRepository(context);
+
+        // One RepeatableRead snapshot across both reads. The dev app shares this database and its
+        // detector tick keeps moving rows to terminal statuses; a row resolving between the two queries
+        // would sit in adminRows but not in plannerIds and fail the withholding assertion for a reason
+        // that is not a bug. Safe to open here because this fixture's context has no retrying execution
+        // strategy (see NewContext) - inside the API's own EnableRetryOnFailure context it would not be.
+        await using var snapshot = await context.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead);
 
         var adminRows = await repository.GetOpenForScopeAsync(
             isUnrestricted: true, visibleRootIds: new HashSet<Guid>(), take: int.MaxValue);
