@@ -18,6 +18,7 @@
 /// instead of relying on a Take large enough to outrun it.
 /// </summary>
 
+using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Domain.Models.Associations;
@@ -133,6 +134,93 @@ public class AgentConditionRepositoryScopedQueryIntegrationTests
         count.ShouldBeGreaterThanOrEqualTo(3);
     }
 
+    /// <summary>
+    /// The RequiresGroupScope withholding against real Postgres. Two translation risks the InMemory
+    /// provider cannot expose: the negated array membership on trigger_kind
+    /// (NOT (trigger_kind = ANY(@p))) now sitting inside the same WHERE as the LEFT JOIN's nullable
+    /// root fallback, and its interaction with SQL three-valued logic on the join's null side, where a
+    /// client-evaluated short circuit would give a different answer than the database does.
+    /// </summary>
+    [Test]
+    public async Task RestrictedScope_WithholdsAGroupScopedKindWhoseGroupIsUnknown_AgainstRealPostgres()
+    {
+        var visibleRoot = await GivenGroupAsync(root: null);
+
+        var groupScopedUngrouped = await GivenConditionAsync("high", groupId: null, triggerKind: AgentTriggerKinds.EmptyContainer);
+        var alsoGroupScopedUngrouped = await GivenConditionAsync("high", groupId: null, triggerKind: AgentTriggerKinds.UncutFulldayShift);
+        var globalUngrouped = await GivenConditionAsync("high", groupId: null, triggerKind: AgentTriggerKinds.TargetHoursDrift);
+        var groupScopedWithGroup = await GivenConditionAsync("high", groupId: visibleRoot.Id, triggerKind: AgentTriggerKinds.EmptyContainer);
+
+        var scope = new HashSet<Guid> { visibleRoot.Id };
+
+        await using var context = NewContext();
+        var repository = new AgentConditionRepository(context);
+        var planner = await repository.GetOpenForScopeAsync(isUnrestricted: false, visibleRootIds: scope, take: 500);
+        var plannerWithoutScope = await repository.GetOpenForScopeAsync(
+            isUnrestricted: false, visibleRootIds: new HashSet<Guid>(), take: 500);
+        var admin = await repository.GetOpenForScopeAsync(isUnrestricted: true, visibleRootIds: new HashSet<Guid>(), take: 500);
+
+        var plannerIds = planner.Select(c => c.Id).ToHashSet();
+        plannerIds.ShouldNotContain(groupScopedUngrouped.Id);
+        plannerIds.ShouldNotContain(alsoGroupScopedUngrouped.Id);
+        plannerIds.ShouldContain(globalUngrouped.Id);
+        plannerIds.ShouldContain(groupScopedWithGroup.Id);
+
+        var unscopedIds = plannerWithoutScope.Select(c => c.Id).ToHashSet();
+        unscopedIds.ShouldNotContain(groupScopedUngrouped.Id);
+        unscopedIds.ShouldContain(globalUngrouped.Id);
+
+        var adminIds = admin.Select(c => c.Id).ToHashSet();
+        adminIds.ShouldContain(groupScopedUngrouped.Id);
+        adminIds.ShouldContain(alsoGroupScopedUngrouped.Id);
+    }
+
+    /// <summary>
+    /// Runs the new predicate over the dev database's WHOLE planner-relevant ledger, not just planted rows:
+    /// whatever the dev app has accumulated (at the time of writing 50 empty_container plus 2
+    /// uncut_fullday_shift rows with a null group_id, alongside ~2800 target_hours_drift ones) is classified
+    /// by the same query, and every row the planner does not get is checked to be one the rule is allowed to
+    /// withhold. One fixture row of each side is seeded so neither direction can pass vacuously on a day the
+    /// live backlog happens to be empty.
+    /// </summary>
+    [Test]
+    public async Task RestrictedScope_AcrossTheWholeLiveLedger_WithholdsOnlyRowsTheRuleAllows()
+    {
+        var seededGroupScoped = await GivenConditionAsync("high", groupId: null, triggerKind: AgentTriggerKinds.EmptyContainer);
+        var seededGlobal = await GivenConditionAsync("high", groupId: null, triggerKind: AgentTriggerKinds.TargetHoursDrift);
+
+        await using var context = NewContext();
+        var repository = new AgentConditionRepository(context);
+
+        var adminRows = await repository.GetOpenForScopeAsync(
+            isUnrestricted: true, visibleRootIds: new HashSet<Guid>(), take: int.MaxValue);
+        var plannerRows = await repository.GetOpenForScopeAsync(
+            isUnrestricted: false, visibleRootIds: new HashSet<Guid>(), take: int.MaxValue);
+
+        var plannerIds = plannerRows.Select(c => c.Id).ToHashSet();
+
+        adminRows
+            .Where(condition => !plannerIds.Contains(condition.Id))
+            .ShouldAllBe(condition => condition.GroupId != null
+                || AgentTriggerGroupScopedKinds.Values.Contains(condition.TriggerKind));
+
+        var ungroupedGroupScoped = adminRows
+            .Where(condition => condition.GroupId == null
+                && AgentTriggerGroupScopedKinds.Values.Contains(condition.TriggerKind))
+            .ToList();
+
+        ungroupedGroupScoped.Select(condition => condition.Id).ShouldContain(seededGroupScoped.Id);
+        ungroupedGroupScoped.ShouldAllBe(condition => !plannerIds.Contains(condition.Id));
+
+        var ungroupedGlobal = adminRows
+            .Where(condition => condition.GroupId == null
+                && !AgentTriggerGroupScopedKinds.Values.Contains(condition.TriggerKind))
+            .ToList();
+
+        ungroupedGlobal.Select(condition => condition.Id).ShouldContain(seededGlobal.Id);
+        ungroupedGlobal.ShouldAllBe(condition => plannerIds.Contains(condition.Id));
+    }
+
     private static async Task<Group> GivenGroupAsync(Guid? root)
     {
         var group = new Group
@@ -150,7 +238,10 @@ public class AgentConditionRepositoryScopedQueryIntegrationTests
         return group;
     }
 
-    private static async Task<AgentCondition> GivenConditionAsync(string severity, Guid? groupId)
+    /// <param name="triggerKind">Defaults to this fixture's own synthetic kind. The RequiresGroupScope
+    /// tests must plant REAL kind strings instead, because that is what the query classifies on - which is
+    /// why cleanup keys on the Fingerprint prefix as well, the only marker such a row still carries.</param>
+    private static async Task<AgentCondition> GivenConditionAsync(string severity, Guid? groupId, string? triggerKind = null)
     {
         // Dated far in the past (not DateTime.UtcNow) so this row always sorts first under
         // GetTopForContextAsync's oldest-first tiebreak, no matter how many real, newer rows already sit
@@ -158,7 +249,7 @@ public class AgentConditionRepositoryScopedQueryIntegrationTests
         var condition = new AgentCondition
         {
             Id = Guid.NewGuid(),
-            TriggerKind = TestPrefix + "kind",
+            TriggerKind = triggerKind ?? TestPrefix + "kind",
             Fingerprint = TestPrefix + Guid.NewGuid(),
             Severity = severity,
             Status = AgentConditionStatus.Detected,
@@ -187,14 +278,18 @@ public class AgentConditionRepositoryScopedQueryIntegrationTests
 
     private static async Task CleanupAsync()
     {
-        // Both filters are this fixture's own marker: conditions carry the prefix in trigger_kind, groups
-        // in name. Neither pattern can reach dev-app data.
+        // Every filter is this fixture's own marker: conditions carry the prefix in fingerprint (and, for
+        // the rows that keep the synthetic kind, in trigger_kind too), groups in name. Fingerprint is the
+        // load-bearing one since the RequiresGroupScope tests plant real trigger_kind values - matching on
+        // trigger_kind alone would leave those rows behind in the shared dev DB, and widening the match to
+        // the kind itself would delete the dev app's own 52 live rows. No pattern can reach dev-app data.
         await using var context = NewContext();
         await context.Database.ExecuteSqlRawAsync(
-            "DELETE FROM agent_condition_events WHERE condition_id IN (SELECT id FROM agent_conditions WHERE trigger_kind LIKE {0})",
+            "DELETE FROM agent_condition_events WHERE condition_id IN "
+            + "(SELECT id FROM agent_conditions WHERE trigger_kind LIKE {0} OR fingerprint LIKE {0})",
             TestPrefix + "%");
         await context.Database.ExecuteSqlRawAsync(
-            "DELETE FROM agent_conditions WHERE trigger_kind LIKE {0}",
+            "DELETE FROM agent_conditions WHERE trigger_kind LIKE {0} OR fingerprint LIKE {0}",
             TestPrefix + "%");
         await context.Database.ExecuteSqlRawAsync(
             "DELETE FROM \"group\" WHERE name LIKE {0}",
