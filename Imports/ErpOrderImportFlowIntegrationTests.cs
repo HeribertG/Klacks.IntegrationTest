@@ -517,6 +517,7 @@ public class ErpOrderImportFlowIntegrationTests
             triggerService,
             settingsRepository,
             unitOfWork,
+            new Klacks.Api.Application.Services.Imports.ErpImportRunState(),
             Substitute.For<ILogger<ErpOrderImportRunner>>());
     }
 
