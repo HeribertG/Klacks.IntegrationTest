@@ -1,4 +1,4 @@
-// Copyright (c) Heribert Gasparoli Private. All rights reserved.
+﻿// Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 /// <summary>
 /// Regression guard for the Accept-path lock-seam (Phase 0 of the autofill/recovery button pipeline,
@@ -223,6 +223,11 @@ public class AcceptLockSeamDataLossCharacterizationTests
             compliance,
             Substitute.For<Klacks.Api.Application.Interfaces.Schedules.ISupervisorOverrideAuthorizer>(),
             Substitute.For<Klacks.Api.Application.Interfaces.IScheduleTimelineService>(),
+            new Klacks.Api.Infrastructure.Repositories.Assistant.AgentConditionRepository(_context),
+            new Klacks.Api.Application.Services.Assistant.Conditions.AgentConditionLedgerService(
+                new Klacks.Api.Infrastructure.Repositories.Assistant.AgentConditionRepository(_context),
+                TimeProvider.System,
+                Substitute.For<ILogger<Klacks.Api.Application.Services.Assistant.Conditions.AgentConditionLedgerService>>()),
             Substitute.For<Microsoft.AspNetCore.Http.IHttpContextAccessor>(),
             Substitute.For<ILogger<AcceptAnalyseScenarioCommandHandler>>());
     }

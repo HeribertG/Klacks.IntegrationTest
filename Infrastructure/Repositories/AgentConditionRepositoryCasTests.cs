@@ -219,6 +219,37 @@ public class AgentConditionRepositoryCasTests
             .LastSeenAtUtc.ShouldBe(closed.LastSeenAtUtc, TimeSpan.FromMilliseconds(1));
     }
 
+    /// <summary>
+    /// The payload refresh against real PostgreSQL. Two things only a real provider can prove: that the
+    /// conditional setter translates to SQL at all (the in-memory provider supports no ExecuteUpdateAsync),
+    /// and that a refresh whose timestamp has NOT advanced still reaches the row - the case a filter gated
+    /// on the timestamp alone would silently drop.
+    /// </summary>
+    [Test]
+    public async Task TouchLastSeen_WithAPayload_RewritesItWithoutDisturbingTheRowsLifecycle()
+    {
+        var condition = await GivenConditionAsync(NewFingerprint(), AgentConditionStatus.Reported);
+        var closed = await GivenConditionAsync(NewFingerprint(), AgentConditionStatus.Resolved);
+        const string refreshed = "{\"isoWeekdays\":[1,3]}";
+
+        await using var context = NewContext();
+        var repository = new AgentConditionRepository(context);
+
+        (await repository.TouchLastSeenAsync(condition.Id, condition.LastSeenAtUtc, refreshed)).ShouldBeTrue();
+        (await repository.TouchLastSeenAsync(closed.Id, closed.LastSeenAtUtc.AddMinutes(10), refreshed)).ShouldBeFalse();
+
+        await using var verify = NewContext();
+        var stored = await verify.AgentConditions.AsNoTracking().SingleAsync(c => c.Id == condition.Id);
+        stored.PayloadJson.ShouldBe(refreshed);
+        stored.Status.ShouldBe(AgentConditionStatus.Reported);
+        stored.Fingerprint.ShouldBe(condition.Fingerprint);
+        stored.AttemptCount.ShouldBe(condition.AttemptCount);
+        stored.LastSeenAtUtc.ShouldBe(condition.LastSeenAtUtc, TimeSpan.FromMilliseconds(1));
+
+        (await verify.AgentConditions.AsNoTracking().SingleAsync(c => c.Id == closed.Id))
+            .PayloadJson.ShouldBe(closed.PayloadJson);
+    }
+
     private static string NewFingerprint() => TestPrefix + Guid.NewGuid();
 
     private static AgentCondition NewCondition(string fingerprint, AgentConditionStatus status)

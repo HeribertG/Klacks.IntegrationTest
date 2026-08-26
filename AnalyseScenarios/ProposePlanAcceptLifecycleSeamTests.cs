@@ -1,4 +1,4 @@
-// Copyright (c) Heribert Gasparoli Private. All rights reserved.
+﻿// Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 /// <summary>
 /// Integration test for the propose_plan -> accept_scenario lifecycle seam: a propose_plan placement
@@ -179,6 +179,11 @@ public class ProposePlanAcceptLifecycleSeamTests
             compliance,
             Substitute.For<Klacks.Api.Application.Interfaces.Schedules.ISupervisorOverrideAuthorizer>(),
             Substitute.For<Klacks.Api.Application.Interfaces.IScheduleTimelineService>(),
+            new Klacks.Api.Infrastructure.Repositories.Assistant.AgentConditionRepository(_context),
+            new Klacks.Api.Application.Services.Assistant.Conditions.AgentConditionLedgerService(
+                new Klacks.Api.Infrastructure.Repositories.Assistant.AgentConditionRepository(_context),
+                TimeProvider.System,
+                Substitute.For<ILogger<Klacks.Api.Application.Services.Assistant.Conditions.AgentConditionLedgerService>>()),
             Substitute.For<IHttpContextAccessor>(),
             Substitute.For<ILogger<AcceptAnalyseScenarioCommandHandler>>());
     }
