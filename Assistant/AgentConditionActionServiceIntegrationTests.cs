@@ -103,7 +103,7 @@ public class AgentConditionActionServiceIntegrationTests
 
         await using var verify = NewContext();
         var claims = await new AgentConditionRepository(verify)
-            .CountActionClaimsAsync(SyntheticKind, DateTime.UtcNow.Date);
+            .CountActionClaimsAsync(SyntheticKind, groupId: null, DateTime.UtcNow.Date);
 
         claims.ShouldBe(
             1,
@@ -140,13 +140,55 @@ public class AgentConditionActionServiceIntegrationTests
         await using var context = NewContext();
         var repository = new AgentConditionRepository(context);
 
-        (await repository.CountActionClaimsAsync(SyntheticKind, nowUtc.AddMinutes(-60))).ShouldBe(
+        (await repository.CountActionClaimsAsync(SyntheticKind, groupId: null, nowUtc.AddMinutes(-60))).ShouldBe(
             1,
             "Inside the window: the recent claim only - not the outcome event, not the event without a "
             + "detail, and not the other kind's claim.");
 
-        (await repository.CountActionClaimsAsync(SyntheticKind, nowUtc.AddHours(-24))).ShouldBe(
+        (await repository.CountActionClaimsAsync(SyntheticKind, groupId: null, nowUtc.AddHours(-24))).ShouldBe(
             2, "Widening the window to a day must pick up the older claim as well.");
+    }
+
+    /// <summary>
+    /// The GROUP dimension of the budget query, and the one property no in-memory provider can speak to:
+    /// the null branch has to reach the rows that carry no group at all. A single GroupId == groupId
+    /// comparison with a null argument is the classic SQL trap - "= NULL" matches nothing - which would
+    /// leave every installation-wide kind believing its budget untouched forever. Whether Npgsql would in
+    /// fact translate that form to IS NULL is not asserted here; what is asserted is the OBSERVABLE
+    /// number the dispatcher's budget gate depends on.
+    /// </summary>
+    [Test]
+    public async Task TheBudgetQuery_CountsPerGroup_AndCountsTheGroupLessRowsForANullGroup()
+    {
+        var nowUtc = DateTime.UtcNow;
+        var busyGroupId = Guid.NewGuid();
+        var quietGroupId = Guid.NewGuid();
+
+        var busy = await GivenReportedConditionAsync(groupId: busyGroupId);
+        var quiet = await GivenReportedConditionAsync(groupId: quietGroupId);
+        var installationWide = await GivenReportedConditionAsync();
+
+        await GivenEventAsync(busy.Id, AgentConditionActionDefaults.ActionClaimDetailPrefix + "busy-one", nowUtc.AddMinutes(-5));
+        await GivenEventAsync(busy.Id, AgentConditionActionDefaults.ActionClaimDetailPrefix + "busy-two", nowUtc.AddMinutes(-4));
+        await GivenEventAsync(quiet.Id, AgentConditionActionDefaults.ActionClaimDetailPrefix + "quiet-one", nowUtc.AddMinutes(-3));
+        await GivenEventAsync(installationWide.Id, AgentConditionActionDefaults.ActionClaimDetailPrefix + "global-one", nowUtc.AddMinutes(-2));
+
+        await using var context = NewContext();
+        var repository = new AgentConditionRepository(context);
+        var sinceUtc = nowUtc.AddMinutes(-60);
+
+        (await repository.CountActionClaimsAsync(SyntheticKind, busyGroupId, sinceUtc)).ShouldBe(
+            2, "The busy group's own two claims - and nothing of the other two scopes.");
+
+        (await repository.CountActionClaimsAsync(SyntheticKind, quietGroupId, sinceUtc)).ShouldBe(
+            1,
+            "A quiet group is charged only for what it spent itself. Three would mean the count is "
+            + "pooled across groups, which is what let a busy group exhaust a quiet one's budget.");
+
+        (await repository.CountActionClaimsAsync(SyntheticKind, groupId: null, sinceUtc)).ShouldBe(
+            1,
+            "Null is the installation-wide bucket, not 'any group'. Zero would be the SQL '= NULL' "
+            + "failure; four would mean no group filter reached the query at all.");
     }
 
     [Test]
@@ -233,13 +275,15 @@ public class AgentConditionActionServiceIntegrationTests
             NullLogger<AgentConditionActionService>.Instance);
     }
 
-    private static async Task<AgentCondition> GivenReportedConditionAsync(string triggerKind = SyntheticKind) =>
-        await GivenConditionAsync(AgentConditionStatus.Reported, triggerKind);
+    private static async Task<AgentCondition> GivenReportedConditionAsync(
+        string triggerKind = SyntheticKind, Guid? groupId = null) =>
+        await GivenConditionAsync(AgentConditionStatus.Reported, triggerKind, groupId: groupId);
 
     private static async Task<AgentCondition> GivenConditionAsync(
         AgentConditionStatus status,
         string triggerKind = SyntheticKind,
-        DateTime? lastAttemptAtUtc = null)
+        DateTime? lastAttemptAtUtc = null,
+        Guid? groupId = null)
     {
         var nowUtc = DateTime.UtcNow;
         var condition = new AgentCondition
@@ -248,6 +292,7 @@ public class AgentConditionActionServiceIntegrationTests
             TriggerKind = triggerKind,
             Fingerprint = TestPrefix + Guid.NewGuid(),
             EntityId = Guid.NewGuid(),
+            GroupId = groupId,
             Severity = AgentTriggerSeverity.Medium,
             Status = status,
             DetectedAtUtc = nowUtc.AddHours(-2),
