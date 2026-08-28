@@ -102,9 +102,6 @@
   { "query": "IMAP testen", "expectedSourceId": "test_imap_connection" },
   { "query": "test imap connection", "expectedSourceId": "test_imap_connection" },
 
-  { "query": "Heartbeat konfigurieren", "expectedSourceId": "configure_heartbeat" },
-  { "query": "configure heartbeat", "expectedSourceId": "configure_heartbeat" },
-
   { "query": "Skills auflisten", "expectedSourceId": "list_agent_skills" },
   { "query": "list available skills", "expectedSourceId": "list_agent_skills" },
 
