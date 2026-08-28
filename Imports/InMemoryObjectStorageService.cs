@@ -97,6 +97,18 @@ public class InMemoryObjectStorageService : IObjectStorageService
         return Task.CompletedTask;
     }
 
+    public Task<ObjectStorageHealthResult> CheckHealthAsync(
+        IReadOnlyList<string> requiredPrefixes,
+        CancellationToken cancellationToken = default)
+    {
+        var prefixResults = requiredPrefixes
+            .Select(prefix => new ObjectStoragePrefixHealth(prefix, true, null))
+            .ToList();
+
+        return Task.FromResult(new ObjectStorageHealthResult(
+            "in-memory", true, true, true, null, prefixResults));
+    }
+
     public bool Contains(string key)
     {
         return _objects.ContainsKey(key);
