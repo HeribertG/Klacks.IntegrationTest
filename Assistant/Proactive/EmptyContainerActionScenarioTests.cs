@@ -1,11 +1,20 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 /// <summary>
-/// Az1 of the Klacksy-Autonomie test spec (docs/knowledge/klacksy-autonomie-testspezifikation-2026-08-28.md
-/// §4): governance at Execute, three empty_container-shaped findings, the REAL EmptyContainerRemediationBinder
-/// and create_container_template argument shape end to end - but a SYNTHETIC trigger kind, a CAPTURING fake
-/// executor rather than the real skill, and a stubbed IProactiveGovernanceResolver rather than a real
-/// settings row, for reasons an incident on 2026-08-29 made concrete rather than theoretical:
+/// Az1, Az2, Az9 and Az10 of the Klacksy-Autonomie test spec
+/// (docs/knowledge/klacksy-autonomie-testspezifikation-2026-08-28.md §4): governance at Execute, three
+/// empty_container-shaped findings, the REAL EmptyContainerRemediationBinder and create_container_template
+/// argument shape end to end - but a SYNTHETIC trigger kind, a CAPTURING fake executor rather than the real
+/// skill, and a stubbed IProactiveGovernanceResolver rather than a real settings row, for reasons an
+/// incident on 2026-08-29 made concrete rather than theoretical:
+///
+/// Az2 (Idempotenz) reuses the Az1 fixture unchanged and adds two ways the same three conditions could be
+/// acted on twice: the same service instance ticking again after everything is already Executed (Az2a), and
+/// two instances racing the same tick concurrently via Task.WhenAll (Az2b, same double-dispatcher proof as
+/// AgentConditionActionServiceIntegrationTests.TwoDispatchersOnTheSameCondition_ProduceExactlyOneExecution,
+/// extended from one synthetic condition to three real-binder-shaped ones). Both assert the executor sees
+/// exactly 3 invocations total and agent_condition_events carries exactly one Prepared and one Executed
+/// event per condition - never a duplicate from either path.
 ///
 /// INCIDENT, KEPT AS A RECORD: the first version of this fixture used the real AgentTriggerKinds.EmptyContainer
 /// kind against the real ConditionRemediationRegistry. AgentConditionRepository.GetActionableByKindAsync
@@ -191,6 +200,94 @@ public class EmptyContainerActionScenarioTests
 
         await identityProvider.Received(1).ResolveForSkillAsync(
             plannerB, condition.Id, CreateContainerTemplateParameters.SkillName, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task Az2a_TheSameTickRunTwiceSequentially_ExecutesEachConditionExactlyOnce()
+    {
+        var containerA = await GivenEmptyContainerConditionAsync(
+            isoWeekdays: [3, 5], startShift: new TimeOnly(6, 0), endShift: new TimeOnly(14, 0));
+        var containerB = await GivenEmptyContainerConditionAsync(
+            isoWeekdays: [1], startShift: new TimeOnly(7, 0), endShift: new TimeOnly(15, 30));
+        var containerC = await GivenEmptyContainerConditionAsync(
+            isoWeekdays: [2, 4, 6], startShift: new TimeOnly(8, 15), endShift: new TimeOnly(16, 0));
+
+        var executor = new CapturingSkillExecutor();
+        var reporter = Substitute.For<IProactiveActionReporter>();
+        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        await using (var firstContext = NewContext())
+        {
+            var firstResult = await NewService(firstContext, executor, reporter, ProactiveMaxAction.Execute)
+                .RunAsync(CancellationToken.None);
+            firstResult.Executed.ShouldBe(3);
+        }
+
+        await using (var secondContext = NewContext())
+        {
+            var secondResult = await NewService(secondContext, executor, reporter, ProactiveMaxAction.Execute)
+                .RunAsync(CancellationToken.None);
+            secondResult.Executed.ShouldBe(
+                0, "The second tick finds all three conditions already Executed, a terminal status - "
+                + "GetActionableByKindAsync must not reclaim them.");
+        }
+
+        await AssertExactlyThreeExecutionsAsync(executor, containerA.Id, containerB.Id, containerC.Id);
+    }
+
+    [Test]
+    public async Task Az2b_TwoConcurrentServiceInstancesOnTheSameTick_ExecuteEachConditionExactlyOnce()
+    {
+        var containerA = await GivenEmptyContainerConditionAsync(
+            isoWeekdays: [3, 5], startShift: new TimeOnly(6, 0), endShift: new TimeOnly(14, 0));
+        var containerB = await GivenEmptyContainerConditionAsync(
+            isoWeekdays: [1], startShift: new TimeOnly(7, 0), endShift: new TimeOnly(15, 30));
+        var containerC = await GivenEmptyContainerConditionAsync(
+            isoWeekdays: [2, 4, 6], startShift: new TimeOnly(8, 15), endShift: new TimeOnly(16, 0));
+
+        var executor = new CapturingSkillExecutor();
+        var reporter = Substitute.For<IProactiveActionReporter>();
+        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        await using var firstContext = NewContext();
+        await using var secondContext = NewContext();
+
+        var first = NewService(firstContext, executor, reporter, ProactiveMaxAction.Execute)
+            .RunAsync(CancellationToken.None);
+        var second = NewService(secondContext, executor, reporter, ProactiveMaxAction.Execute)
+            .RunAsync(CancellationToken.None);
+
+        var results = await Task.WhenAll(first, second);
+
+        (results[0].Executed + results[1].Executed).ShouldBe(
+            3, "The claim is a compare-and-swap (Reported->Prepared, ExecuteUpdateAsync). Whichever "
+            + "instance loses the race must see zero rows affected, not throw a unique-violation.");
+
+        await AssertExactlyThreeExecutionsAsync(executor, containerA.Id, containerB.Id, containerC.Id);
+    }
+
+    private static async Task AssertExactlyThreeExecutionsAsync(
+        CapturingSkillExecutor executor, Guid containerAId, Guid containerBId, Guid containerCId)
+    {
+        executor.Invocations.Count.ShouldBe(3, "Neither a second tick nor a losing concurrent instance may re-invoke the skill.");
+        AssertInvocation(executor, containerAId, expectedWeekday: 3);
+        AssertInvocation(executor, containerBId, expectedWeekday: 1);
+        AssertInvocation(executor, containerCId, expectedWeekday: 2);
+
+        await using var verify = NewContext();
+        var stored = await verify.AgentConditions
+            .Where(c => c.Fingerprint.StartsWith(TestPrefix))
+            .ToListAsync();
+        stored.Count.ShouldBe(3);
+        stored.ShouldAllBe(c => c.Status == AgentConditionStatus.Executed);
+
+        var events = await verify.AgentConditionEvents
+            .Where(e => stored.Select(c => c.Id).Contains(e.ConditionId))
+            .AsNoTracking()
+            .ToListAsync();
+        events.Count(e => e.EventType == AgentConditionStatus.Prepared.ToString()).ShouldBe(
+            3, "No duplicate dispatch: exactly one Prepared event per condition, never two from a race or a repeat tick.");
+        events.Count(e => e.EventType == AgentConditionStatus.Executed.ToString()).ShouldBe(3);
     }
 
     private static void AssertInvocation(CapturingSkillExecutor executor, Guid containerId, int expectedWeekday)
