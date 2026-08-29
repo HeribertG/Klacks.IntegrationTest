@@ -1,9 +1,12 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 /// <summary>
-/// Az6 of the Klacksy-Autonomie test spec (docs/knowledge/klacksy-autonomie-testspezifikation-2026-08-28.md
-/// §4, "Eskalation"): a remediation that fails three times in a row must escalate to a human on the 4th
-/// tick rather than being retried forever, and the 4th tick must make no further attempt at all.
+/// Az6 and (partially) Az8 of the Klacksy-Autonomie test spec
+/// (docs/knowledge/klacksy-autonomie-testspezifikation-2026-08-28.md §4, "Eskalation" / "Fehlerinjektion"):
+/// a remediation that fails three times in a row must escalate to a human on the 4th tick rather than being
+/// retried forever, and the 4th tick must make no further attempt at all. Az8's own test method below adds
+/// the one code path Az6's failing-but-returning executor cannot reach - see that test's own doc comment
+/// for what Az8 half this covers and what it deliberately does not.
 ///
 /// Each retry after a failure needs the row reclaimed from Prepared rather than claimed fresh from
 /// Reported (RecordFailureAsync deliberately leaves a failed row on Prepared, see its own doc comment), and
@@ -114,6 +117,44 @@ public class EmptyContainerEscalationScenarioTests
 
         // 3 failure reports plus 1 escalation report, all to the same owner (GroupId is null throughout).
         await reporter.Received(4).ReportAsync(OwnerUserId, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task Az8_ExecutorThrows_RecordsTheFailureThroughTheCatchBranchInsteadOfTheResultBranch()
+    {
+        // Az8 "Fehlerinjektion": SkillResult.Error(...) (Az6, above) and an executor that THROWS hit two
+        // different branches in AgentConditionActionService.ExecuteAsync - the `if (!result.Success)`
+        // branch versus a separate `catch (Exception ex)` block a few lines above it. Both call
+        // RecordFailureAsync with the same shape, but nothing exercises the catch branch specifically
+        // without this test. The "DB error after claim" half of Az8 is deliberately NOT built here: it
+        // would need either a connection-killing harness or a repository decorator that throws mid-
+        // transaction, both new infrastructure whose only payoff is a path this catch block already
+        // handles identically to a thrown skill exception.
+        var shiftId = Guid.NewGuid();
+        var condition = await GivenReportedConditionAsync(shiftId);
+
+        var executor = new ThrowingSkillExecutor();
+        var reporter = Substitute.For<IProactiveActionReporter>();
+        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        var timeProvider = new SettableTimeProvider(new DateTime(2026, 9, 1, 10, 0, 0, DateTimeKind.Utc));
+
+        await using (var context = NewContext())
+        {
+            var result = await NewService(context, executor, reporter, timeProvider).RunAsync(CancellationToken.None);
+            result.Executed.ShouldBe(0);
+        }
+
+        executor.CallCount.ShouldBe(1);
+
+        await using var verify = NewContext();
+        var stored = await verify.AgentConditions.SingleAsync(c => c.Id == condition.Id);
+        stored.Status.ShouldBe(AgentConditionStatus.Prepared, "No half-written state: a thrown exception leaves the row exactly where a returned failure would.");
+        stored.AttemptCount.ShouldBe(1);
+
+        var events = await verify.AgentConditionEvents.Where(e => e.ConditionId == condition.Id).AsNoTracking().ToListAsync();
+        events.Count(e => e.EventType == AgentConditionEventTypes.AttemptFailed).ShouldBe(1);
+
+        await reporter.Received(1).ReportAsync(OwnerUserId, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     private static async Task<AgentCondition> GivenReportedConditionAsync(Guid shiftId)
@@ -266,6 +307,25 @@ public class EmptyContainerEscalationScenarioTests
         {
             Interlocked.Increment(ref _callCount);
             return Task.FromResult(SkillResult.Error(FailureMessage));
+        }
+
+        public Task<IReadOnlyList<SkillResult>> ExecuteChainAsync(
+            IReadOnlyList<SkillInvocation> invocations, SkillExecutionContext context,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingSkillExecutor : ISkillExecutor
+    {
+        private int _callCount;
+
+        public int CallCount => _callCount;
+
+        public Task<SkillResult> ExecuteAsync(
+            SkillInvocation invocation, SkillExecutionContext context, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _callCount);
+            throw new InvalidOperationException(FailureMessage);
         }
 
         public Task<IReadOnlyList<SkillResult>> ExecuteChainAsync(
