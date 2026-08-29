@@ -335,10 +335,17 @@ public class SkillLearningEndToEndTests
             : value.Length <= PayloadLogLimit ? value : value[..PayloadLogLimit] + "…";
 
     // An authored pair still has to be a real routing gap today, and only the corpus can say that. Two
-    // conditions, and neither may be assumed: the target must NOT be in the assembled toolset - otherwise
-    // the loop rightly dismisses the wish as already routed and nothing is learned - and it must be among
-    // the retrieval hits, because oracle O1 demands that the ORIGINAL wish reaches the target after the
-    // phrase is added, and no wording bolted onto a skill retrieval never considers will achieve that.
+    // conditions, and neither may be assumed. The target must NOT be in the assembled toolset - otherwise
+    // the loop rightly dismisses the wish as already routed and nothing is learned. And it must be
+    // somewhere in the retrieval hits at RetrievalProbeDepth, as a weak sign that the index relates the
+    // wish to the skill at all: a wording bolted onto a skill the index does not connect to this wording
+    // will not make oracle O1 go green, and O1 demands that the ORIGINAL wish reaches the target.
+    // That second check is deliberately weak and does not promise a green O1. The assembler retrieves
+    // only KnowledgeIndexConstants.DefaultTopK (20) candidates, so a hit at rank 21-40 here is a hit the
+    // assembler never sees - it says the pair is plausible, not that a phrase can bridge it. The run of
+    // 2026-08-30 is the example: set_client_availability qualified, three wordings were generated, each
+    // reached the skill for its own text, and none moved the excerpt. That is a fact about retrieval, and
+    // the fixture is right to report it rather than to hide it behind an easier pair.
     //
     // What is deliberately NOT done here is falling back to some other skill when no pair qualifies. That
     // fallback is exactly how the meaningless golden case of 2026-08-29 came about: the fixture always
