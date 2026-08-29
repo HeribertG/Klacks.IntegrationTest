@@ -65,8 +65,13 @@ public class SkillLearningEndToEndTests
     // exists for. A wording the index already resolves would end the run as "already routed" and prove
     // nothing about learning.
     private const string PhraseWish = "sind die kartenpunkte der teams inzwischen gesetzt";
+    // Distinctive vocabulary on purpose. The generator builds its trigger stems out of the wish, and a
+    // short generic stem collides with somebody else's phrase: an earlier wording produced the stem
+    // "frei" (from "freie Zeitfenster"), which anyWordStart also matches in "freigegebene dateiformate"
+    // - the phrase users reach get_export_formats_settings with - so the draft validator rightly threw
+    // all three variants away before either oracle saw them. Long, specific nouns collide far less.
     private const string CapabilityWish =
-        "sag mir das heutige datum und dazu, welche zeitfenster fuer eine abwesenheit noch frei waeren";
+        "welche mitarbeitenden haben im september abwesenheiten und wie steht die kapazitaetsreserve";
 
     // Concrete enough that retrieval has something to work with - the target is chosen from what this
     // wording actually retrieves - and colloquial enough that the ranking is not a foregone conclusion.
@@ -77,6 +82,7 @@ public class SkillLearningEndToEndTests
     private Guid _agentId;
     private readonly List<Guid> _seededClusters = [];
     private HashSet<Guid> _preexistingLearnedPhrases = [];
+    private HashSet<Guid> _preexistingLearnedRecipes = [];
     private int _preexistingCaseCount;
 
     [OneTimeSetUp]
@@ -96,6 +102,7 @@ public class SkillLearningEndToEndTests
         // delete an installation's real lessons the first time this fixture runs anywhere else.
         _preexistingLearnedPhrases = await LoadLearnedPhraseIdsAsync();
         _preexistingCaseCount = await CountCasesAsync();
+        _preexistingLearnedRecipes = await LoadLearnedRecipeIdsAsync();
         TestContext.WriteLine($"BASELINE learned phrases: {_preexistingLearnedPhrases.Count}");
 
         await PurgeAsync();
@@ -427,6 +434,32 @@ public class SkillLearningEndToEndTests
         {
             await context.Database.ExecuteSqlRawAsync("DELETE FROM skill_phrase WHERE id = {0}", id);
         }
+
+        // Same story for recipes, and it bites harder. CapabilityLearner withdraws a recipe by
+        // soft-delete - correct in production, because the engine reads through the query filter and a
+        // soft-deleted row stops forcing its steps immediately - but the row stays. Without this the
+        // fixture leaves one behind on every run that activates and then withdraws, and its own
+        // cleanliness check (which reads with IgnoreQueryFilters) is red for every later run.
+        foreach (var id in (await LoadLearnedRecipeIdsAsync()).Except(_preexistingLearnedRecipes))
+        {
+            await context.Database.ExecuteSqlRawAsync(
+                "DELETE FROM skill_phrase WHERE owner_kind = {0} AND owner_name IN "
+                + "(SELECT name FROM agent_recipes WHERE id = {1})",
+                SkillPhraseOwnerKinds.Recipe, id);
+            await context.Database.ExecuteSqlRawAsync("DELETE FROM agent_recipes WHERE id = {0}", id);
+        }
+    }
+
+    private static async Task<HashSet<Guid>> LoadLearnedRecipeIdsAsync()
+    {
+        await using var context = NewContext();
+        var ids = await context.AgentRecipes
+            .IgnoreQueryFilters()
+            .Where(r => r.Origin != AgentRecipeOrigins.Seed)
+            .Select(r => r.Id)
+            .ToListAsync();
+
+        return [.. ids];
     }
 
     private static async Task<int> CountCasesAsync()
@@ -491,8 +524,8 @@ public class SkillLearningEndToEndTests
             _preexistingCaseCount, "Seeded cases survived the rollback.");
         (await LoadLearnedPhraseIdsAsync()).Except(_preexistingLearnedPhrases).ShouldBeEmpty(
             "A learned phrase this run created survived the rollback.");
-        (await context.AgentRecipes.IgnoreQueryFilters().CountAsync(r => r.Origin == AgentRecipeOrigins.Learned))
-            .ShouldBe(0, "A learned recipe survived the rollback and would force its steps for everyone.");
+        (await LoadLearnedRecipeIdsAsync()).Except(_preexistingLearnedRecipes).ShouldBeEmpty(
+            "A learned recipe this run created survived the rollback.");
 
         TestContext.WriteLine("ROLLBACK: database is back to its starting state.");
     }
