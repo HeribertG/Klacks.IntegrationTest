@@ -30,6 +30,8 @@ using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Interfaces.Assistant;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Infrastructure.Persistence;
+using Klacks.Api.KnowledgeIndex.Application.Interfaces;
+using Klacks.Api.KnowledgeIndex.Domain;
 using Klacks.IntegrationTest.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,8 +49,15 @@ public class SkillLearningEndToEndTests
     private const string KeyPrefix = "INTEGRATION_TEST_";
     private const string PhraseKey = KeyPrefix + "phrase_gap";
     private const string CapabilityKey = KeyPrefix + "capability_gap";
-    private const string FirstUser = KeyPrefix + "user_a";
-    private const string SecondUser = KeyPrefix + "user_b";
+    private const string CorrectionKey = KeyPrefix + "corrected_gap";
+    private const int SeededClusterCount = 3;
+    private const int RetrievalProbeDepth = 40;
+    // Real user ids, not synthetic markers. Oracle O2 mints its identity from the case's user
+    // (SkillExecutionOracle.ParseOwner does a Guid.TryParse), so a made-up id leaves the probe with no
+    // owner and the composition is reported as unjudged - which is correct behaviour for a missing
+    // identity, but tests the wrong thing. Production cases always carry a real user id.
+    private const string FirstUser = "672f77e8-e479-4422-8781-84d218377fb3";
+    private const string SecondUser = "753fcbc7-8929-4841-a454-6ba208d59ea7";
     private const string Locale = "de";
 
     // Oblique on purpose. Both share no vocabulary with the name or description of the skill they are
@@ -59,9 +68,16 @@ public class SkillLearningEndToEndTests
     private const string CapabilityWish =
         "sag mir das heutige datum und dazu, welche zeitfenster fuer eine abwesenheit noch frei waeren";
 
+    // Concrete enough that retrieval has something to work with - the target is chosen from what this
+    // wording actually retrieves - and colloquial enough that the ranking is not a foregone conclusion.
+    private const string CorrectionWish =
+        "koennen im august noch drei leute gleichzeitig weg oder wird es dann zu duenn";
+
     private SignalRTestWebApplicationFactory _factory = null!;
     private Guid _agentId;
     private readonly List<Guid> _seededClusters = [];
+    private HashSet<Guid> _preexistingLearnedPhrases = [];
+    private int _preexistingCaseCount;
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp()
@@ -74,17 +90,33 @@ public class SkillLearningEndToEndTests
         agent.ShouldNotBeNull("No default agent in the database; the loop cannot run at all.");
         _agentId = agent!.Id;
 
+        // Everything the loop writes to skill_phrase has to be told apart from what was already there,
+        // and a generated phrase carries no marker of its own. So the pre-existing set is recorded once
+        // and the rollback removes exactly the difference - never "all learned phrases", which would
+        // delete an installation's real lessons the first time this fixture runs anywhere else.
+        _preexistingLearnedPhrases = await LoadLearnedPhraseIdsAsync();
+        _preexistingCaseCount = await CountCasesAsync();
+        TestContext.WriteLine($"BASELINE learned phrases: {_preexistingLearnedPhrases.Count}");
+
         await PurgeAsync();
     }
 
     [OneTimeTearDown]
     public void OneTimeTearDown() => _factory?.Dispose();
 
+    // Three wishes, and the third one is the only one that can ever be learned. The phrase path is
+    // reachable ONLY through an explicit correction, and that is not a quirk of this fixture: the
+    // classifier may name a skill only if it is already in the candidate list
+    // (LearnedArtifactGenerator.ReadClassification), and LearnPhraseAsync dismisses precisely when the
+    // target IS in that list. A classifier-chosen target therefore always ends as "already routed", so
+    // the first two wishes exercise the loop up to the verdict and no further - which is itself worth
+    // observing, and was how that dead end was found.
     [Test]
     public async Task TheLoop_ProcessesSeededWishesEndToEndAndLeavesNothingBehind()
     {
         await SeedClusterAsync(PhraseKey, PhraseWish, [FirstUser, SecondUser, FirstUser]);
         await SeedClusterAsync(CapabilityKey, CapabilityWish, [FirstUser, SecondUser, FirstUser]);
+        await SeedCorrectedClusterAsync();
 
         await ReportBaselineAsync();
 
@@ -116,7 +148,7 @@ public class SkillLearningEndToEndTests
     // below vacuously true.
     private async Task AssertInvariantsAsync(SkillLearningRunSummary summary)
     {
-        summary.Processed.ShouldBe(2, "Both seeded clusters must have been claimed.");
+        summary.Processed.ShouldBe(SeededClusterCount, "Every seeded cluster must have been claimed.");
 
         await using var context = NewContext();
         var clusters = await context.SkillLearningClusters
@@ -124,7 +156,7 @@ public class SkillLearningEndToEndTests
             .Where(c => c.ClusterKey.StartsWith(KeyPrefix))
             .ToListAsync();
 
-        clusters.Count.ShouldBe(2);
+        clusters.Count.ShouldBe(SeededClusterCount);
         clusters.ShouldAllBe(c => c.Status != SkillLearningClusterStatuses.Learning);
         clusters.ShouldAllBe(c => c.LearningClaimedAtUtc == null);
 
@@ -243,10 +275,62 @@ public class SkillLearningEndToEndTests
         }
     }
 
-    private static string Shorten(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? "-" : value.Length <= 400 ? value : value[..400] + "…";
+    // Generous on purpose. At 400 characters the cut landed inside a recipe payload just before its
+    // trigger block, so the one thing a rejected capability needs to explain itself - which trigger term
+    // collided - was the one thing never written down, and the candidate rows are gone after rollback.
+    private const int PayloadLogLimit = 4000;
 
-    private async Task SeedClusterAsync(string clusterKey, string wish, IReadOnlyList<string> users)
+    private static string Shorten(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? "-"
+            : value.Length <= PayloadLogLimit ? value : value[..PayloadLogLimit] + "…";
+
+    // The target has to satisfy two conditions at once, and getting one of them cheaply costs the other.
+    // It must not be in the current toolset - otherwise the loop rightly dismisses the wish as already
+    // routed - and a phrase must be ABLE to bridge the wish to it, because oracle O1 demands that the
+    // original utterance reaches the target afterwards. A target picked for non-membership alone (say,
+    // the alphabetically first skill nobody retrieved) satisfies the first and makes the second
+    // impossible: no wording added to an unrelated skill will ever pull a meaningless sentence to it.
+    // So the target is the best-scoring retrieval hit that the tool BUDGET cut off. Retrieval already
+    // judged it relevant to this wish; it is missing only because the cap sent twenty of twenty-four.
+    // That is a real routing gap rather than a constructed one, and it is exactly the shape the loop is
+    // built for.
+    private async Task SeedCorrectedClusterAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var retrieval = scope.ServiceProvider.GetRequiredService<IKnowledgeRetrievalService>();
+        var oracle = scope.ServiceProvider.GetRequiredService<ISkillRoutingOracle>();
+
+        var probe = await oracle.ProbeAsync(CorrectionWish, Locale, string.Empty);
+        var offered = probe.TopSkills.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var hits = await retrieval.RetrieveAsync(
+            CorrectionWish, [Roles.Admin], true, RetrievalProbeDepth, null, CancellationToken.None,
+            KnowledgeEntryKind.Skill);
+
+        TestContext.WriteLine(
+            $"CORRECTION retrieval -> {hits.Candidates.Count} Treffer, Toolset {probe.TopSkills.Count} Skills");
+
+        var target = hits.Candidates
+            .OrderByDescending(c => c.Score)
+            .Select(c => c.Entry.SourceId)
+            .FirstOrDefault(name => !offered.Contains(name));
+
+        target.ShouldNotBeNull(
+            "Every retrieved skill is already in the toolset, so this wording has no routing gap to learn.");
+
+        TestContext.WriteLine($"CORRECTION target \"{target}\" — abgerufen, aber vom Budget-Cap verdrängt");
+
+        await SeedClusterAsync(
+            CorrectionKey, CorrectionWish, [FirstUser, SecondUser, FirstUser], target, expectedSkill: target);
+    }
+
+    private async Task SeedClusterAsync(
+        string clusterKey,
+        string wish,
+        IReadOnlyList<string> users,
+        string? chosenSkill = null,
+        string? expectedSkill = null)
     {
         await using var context = NewContext();
         var now = DateTime.UtcNow;
@@ -260,7 +344,9 @@ public class SkillLearningEndToEndTests
             Locale = Locale,
             OccurrenceCount = users.Count,
             DistinctUserCount = users.Distinct(StringComparer.Ordinal).Count(),
-            SignalKindsJson = $"{{\"{SkillLearningSignals.Refusal}\":{users.Count}}}",
+            SignalKindsJson = expectedSkill == null
+                ? $"{{\"{SkillLearningSignals.Refusal}\":{users.Count}}}"
+                : $"{{\"{SkillLearningSignals.WrongSkill}\":{users.Count}}}",
             Status = SkillLearningClusterStatuses.Ready,
             StatusChangedAtUtc = now,
             FirstSeenAtUtc = now.AddDays(-2),
@@ -278,7 +364,11 @@ public class SkillLearningEndToEndTests
                 UserId = users[index],
                 Locale = Locale,
                 IntentExcerpt = wish,
-                Signal = SkillLearningSignals.Refusal,
+                Signal = expectedSkill == null
+                    ? SkillLearningSignals.Refusal
+                    : SkillLearningSignals.WrongSkill,
+                ChosenSkill = chosenSkill,
+                ExpectedSkill = expectedSkill,
                 ToolsetJson = "[]",
                 IsGolden = index == 0,
                 OccurredAtUtc = now.AddHours(-index * 3)
@@ -327,6 +417,34 @@ public class SkillLearningEndToEndTests
             $"DELETE FROM skill_learning_cases WHERE cluster_id IN ({clusterScope})");
         await context.Database.ExecuteSqlRawAsync(
             "DELETE FROM skill_learning_clusters WHERE cluster_key LIKE 'INTEGRATION_TEST_%'");
+
+        // The probe phrases of a REJECTED variant are the normal case, not an accident: PhraseLearner
+        // writes a phrase before oracle O1 has judged it and, on rejection, only sets it to Rejected -
+        // the row stays deliberately, as the negative list that stops a later round from proposing the
+        // same wording again. Those rows hang off no cluster (the failed cluster has no OutcomeRef), so
+        // nothing else can reach them. They are removed by difference against the recorded set.
+        foreach (var id in (await LoadLearnedPhraseIdsAsync()).Except(_preexistingLearnedPhrases))
+        {
+            await context.Database.ExecuteSqlRawAsync("DELETE FROM skill_phrase WHERE id = {0}", id);
+        }
+    }
+
+    private static async Task<int> CountCasesAsync()
+    {
+        await using var context = NewContext();
+        return await context.SkillLearningCases.IgnoreQueryFilters().CountAsync();
+    }
+
+    private static async Task<HashSet<Guid>> LoadLearnedPhraseIdsAsync()
+    {
+        await using var context = NewContext();
+        var ids = await context.SkillPhrases
+            .IgnoreQueryFilters()
+            .Where(p => p.Source == SkillPhraseSources.Learned)
+            .Select(p => p.Id)
+            .ToListAsync();
+
+        return [.. ids];
     }
 
     private static async Task RemoveArtefactAsync(
@@ -369,11 +487,10 @@ public class SkillLearningEndToEndTests
         (await context.SkillLearningClusters.IgnoreQueryFilters()
             .CountAsync(c => c.ClusterKey.StartsWith(KeyPrefix)))
             .ShouldBe(0, "Seeded clusters survived the rollback.");
-        (await context.SkillLearningCases.IgnoreQueryFilters()
-            .CountAsync(c => c.UserId != null && c.UserId.StartsWith(KeyPrefix)))
-            .ShouldBe(0, "Seeded cases survived the rollback.");
-        (await context.SkillPhrases.IgnoreQueryFilters().CountAsync(p => p.Source == SkillPhraseSources.Learned))
-            .ShouldBe(0, "A learned phrase survived the rollback and now affects the shared index.");
+        (await CountCasesAsync()).ShouldBe(
+            _preexistingCaseCount, "Seeded cases survived the rollback.");
+        (await LoadLearnedPhraseIdsAsync()).Except(_preexistingLearnedPhrases).ShouldBeEmpty(
+            "A learned phrase this run created survived the rollback.");
         (await context.AgentRecipes.IgnoreQueryFilters().CountAsync(r => r.Origin == AgentRecipeOrigins.Learned))
             .ShouldBe(0, "A learned recipe survived the rollback and would force its steps for everyone.");
 

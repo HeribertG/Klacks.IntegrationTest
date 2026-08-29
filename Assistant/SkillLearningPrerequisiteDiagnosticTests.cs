@@ -128,6 +128,76 @@ public class SkillLearningPrerequisiteDiagnosticTests
         }
     }
 
+    // The capability path asked the model for a whole recipe - name, goal, four goal translations, a
+    // trigger and ordered steps - and got back nothing usable twice in a row, with no way to see what
+    // the model actually said: the loop only records "the generator produced no usable capability".
+    // This sends the same shape of request and prints the raw answer, which is the only way to tell a
+    // model that cannot follow the format from a parser that rejects a good answer.
+    [Test]
+    public async Task TheCheapestModel_ReportsWhatItAnswersToACapabilityRequest()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var resolver = scope.ServiceProvider.GetRequiredService<ICheapestModelResolver>();
+
+        var (model, provider) = await resolver.ResolveAsync();
+        if (model == null || provider == null)
+        {
+            Assert.Inconclusive("No model or provider resolved.");
+            return;
+        }
+
+        var request = new LLMProviderRequest
+        {
+            Message =
+                "A user asked for this and no single skill could serve it: welche zeitfenster fuer eine "
+                + "abwesenheit sind noch frei\nLanguage of the request: de\n\nSkills you may use:\n"
+                + "- get_current_time (reads): Returns the current date and time.\n"
+                + "- find_absence_capacity_windows (reads): Searches a date range for periods where an "
+                + "absence of the wanted length could be granted. | parameters: from (String, required), "
+                + "to (String, required)\n\nWrite 3 different capabilities, ordered best first, each with "
+                + "at most 4 steps.",
+            SystemPrompt = CapabilitySystemPrompt,
+            ModelId = model.ApiModelId,
+            ConversationHistory = [],
+            AvailableFunctions = [],
+            Temperature = 0.2,
+            MaxTokens = 2500,
+            SupportedParameters = model.SupportedParameters,
+            CostPerInputToken = model.CostPerInputToken,
+            CostPerOutputToken = model.CostPerOutputToken
+        };
+
+        var response = await provider.ProcessAsync(request, CancellationToken.None);
+
+        TestContext.WriteLine($"CAPMODEL: {model.ApiModelId}");
+        TestContext.WriteLine($"CAPSUCCESS: {response.Success}");
+        TestContext.WriteLine($"CAPERROR : {response.Error ?? "-"}");
+        TestContext.WriteLine($"CAPCONTENT: {response.Content ?? "<null>"}");
+    }
+
+    // Copied verbatim from LearnedArtifactGenerator so the diagnosis measures the real contract; if the
+    // production prompt changes and this one does not, the diagnosis stops meaning anything.
+    private const string CapabilitySystemPrompt =
+        "You compose new capabilities for an assistant by chaining skills it already has. A capability is " +
+        "a recipe: a trigger that recognises the request, and an ordered list of steps that serve it. " +
+        "Rules, all mandatory: " +
+        "use ONLY the skills you are given, copied character for character; " +
+        "every step is \"search\" (reads) or \"mutate\" (writes) - never \"ask\", \"guard\" or \"verify\"; " +
+        "a step takes its parameters from \"inject\", whose values are either plain string constants or " +
+        "\"$slot\" references to a value an EARLIER step captured with \"capture\": \"field[].id as slot\"; " +
+        "never reference a slot nothing captured; " +
+        "prefer compositions that only read, because those can be verified before activation; " +
+        "the trigger has \"allOf\" conditions that must all match, each listing \"anyWordStart\" stems; " +
+        "every stem is at least four characters and is a distinctive word of THIS request, never a " +
+        "generic verb; " +
+        "the name is an English lower-case kebab-case slug; " +
+        "\"goal\" is one English sentence, and \"goalTranslations\" gives it in de, en, fr and it. " +
+        "Respond ONLY with a JSON object: {\"capabilities\":[{\"name\":\"...\",\"goal\":\"...\"," +
+        "\"goalTranslations\":{\"de\":\"...\",\"en\":\"...\",\"fr\":\"...\",\"it\":\"...\"}," +
+        "\"trigger\":{\"allOf\":[{\"anyWordStart\":[\"...\"]}]}," +
+        "\"steps\":[{\"kind\":\"search\",\"skill\":\"...\",\"inject\":{\"param\":\"value\"}," +
+        "\"capture\":\"items[].id as itemId\"}]}]}.";
+
     private static async Task AskAndReportAsync(LLMModel model, ILLMProvider provider)
     {
         var request = new LLMProviderRequest
