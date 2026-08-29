@@ -47,7 +47,10 @@ namespace Klacks.IntegrationTest.Assistant;
 public class SkillLearningEndToEndTests
 {
     private const string KeyPrefix = "INTEGRATION_TEST_";
-    private const string PhraseKey = KeyPrefix + "phrase_gap";
+    // Named for what the arm really is. It used to be called phrase_gap, which was the arm that
+    // structurally cannot produce a phrase - see the comment on the test below. The arm that learns a
+    // phrase is the corrected one.
+    private const string RefusalKey = KeyPrefix + "refusal_gap";
     private const string CapabilityKey = KeyPrefix + "capability_gap";
     private const string CorrectionKey = KeyPrefix + "corrected_gap";
     private const int SeededClusterCount = 3;
@@ -60,11 +63,11 @@ public class SkillLearningEndToEndTests
     private const string SecondUser = "753fcbc7-8929-4841-a454-6ba208d59ea7";
     private const string Locale = "de";
 
-    // Oblique on purpose. Both share no vocabulary with the name or description of the skill they are
-    // meant to reach, so retrieval has a real chance of missing them - which is the situation the loop
-    // exists for. A wording the index already resolves would end the run as "already routed" and prove
-    // nothing about learning.
-    private const string PhraseWish = "sind die kartenpunkte der teams inzwischen gesetzt";
+    // Oblique on purpose: it shares no vocabulary with the name or description of any skill, so
+    // retrieval has a real chance of missing it - the situation the loop exists for. This wish carries
+    // no correction, and a wish without one can only ever be dismissed (see the test comment), so what
+    // it exercises is the loop up to the verdict and the clean release afterwards.
+    private const string RefusalWish = "sind die kartenpunkte der teams inzwischen gesetzt";
     // Distinctive vocabulary on purpose. The generator builds its trigger stems out of the wish, and a
     // short generic stem collides with somebody else's phrase: an earlier wording produced the stem
     // "frei" (from "freie Zeitfenster"), which anyWordStart also matches in "freigegebene dateiformate"
@@ -73,13 +76,31 @@ public class SkillLearningEndToEndTests
     private const string CapabilityWish =
         "welche mitarbeitenden haben im september abwesenheiten und wie steht die kapazitaetsreserve";
 
-    // Concrete enough that retrieval has something to work with - the target is chosen from what this
-    // wording actually retrieves - and colloquial enough that the ranking is not a foregone conclusion.
-    private const string CorrectionWish =
-        "koennen im august noch drei leute gleichzeitig weg oder wird es dann zu duenn";
+    // Hand-authored wish/skill pairs, and the pairing is the point. A successful phrase run FREEZES its
+    // wish against its target in skill_learning_golden_cases, where it stays as a regression case for
+    // every later run. The first version of this fixture chose the target by rank alone - the
+    // best-scoring retrieval hit outside the toolset - and the run of 2026-08-29 duly froze a sentence
+    // about staffing headroom in August onto group_ungrouped_by_city_name. The mechanics worked; the
+    // lesson was nonsense, and a nonsense golden case is worse than none because it is asserted forever.
+    // Every pair below is one a person can read and agree with. Which one is used is still decided at
+    // run time - see SelectCorrectionPairAsync - because only the corpus can say which of them is a real
+    // routing gap today, but the candidates are authored, never invented.
+    private static readonly (string Wish, string Target)[] CorrectionPairs =
+    [
+        ("koennen im august noch drei leute gleichzeitig weg oder wird es dann zu duenn",
+            "check_absence_capacity_reserve"),
+        ("wie viele leute duerfen im august gleichzeitig in die ferien ohne dass es eng wird",
+            "find_absence_capacity_windows"),
+        ("ueberschneiden sich die abwesenheiten in dieser gruppe im september",
+            "get_group_absence_overlap"),
+        ("ich moechte festlegen an welchen tagen dieser kunde erreichbar ist",
+            "set_client_availability")
+    ];
 
     private SignalRTestWebApplicationFactory _factory = null!;
     private Guid _agentId;
+    private string _correctionWish = string.Empty;
+    private string _correctionTarget = string.Empty;
     private readonly List<Guid> _seededClusters = [];
     private HashSet<Guid> _preexistingLearnedPhrases = [];
     private HashSet<Guid> _preexistingLearnedRecipes = [];
@@ -111,17 +132,18 @@ public class SkillLearningEndToEndTests
     [OneTimeTearDown]
     public void OneTimeTearDown() => _factory?.Dispose();
 
-    // Three wishes, and the third one is the only one that can ever be learned. The phrase path is
+    // Three wishes, and the third one is the only one that can ever be learned as a phrase. That path is
     // reachable ONLY through an explicit correction, and that is not a quirk of this fixture: the
     // classifier may name a skill only if it is already in the candidate list
     // (LearnedArtifactGenerator.ReadClassification), and LearnPhraseAsync dismisses precisely when the
     // target IS in that list. A classifier-chosen target therefore always ends as "already routed", so
-    // the first two wishes exercise the loop up to the verdict and no further - which is itself worth
-    // observing, and was how that dead end was found.
+    // the refusal wish exercises the loop up to the verdict and no further - which is itself worth
+    // observing, and was how that dead end was found. The deterministic half of that dead end is pinned
+    // in Klacks.UnitTest, SkillLearningPhraseGapPathTests, where it needs no model to be shown.
     [Test]
     public async Task TheLoop_ProcessesSeededWishesEndToEndAndLeavesNothingBehind()
     {
-        await SeedClusterAsync(PhraseKey, PhraseWish, [FirstUser, SecondUser, FirstUser]);
+        await SeedClusterAsync(RefusalKey, RefusalWish, [FirstUser, SecondUser, FirstUser]);
         await SeedClusterAsync(CapabilityKey, CapabilityWish, [FirstUser, SecondUser, FirstUser]);
         await SeedCorrectedClusterAsync();
 
@@ -209,6 +231,26 @@ public class SkillLearningEndToEndTests
             var probe = await oracle.ProbeAsync(cluster.IntentExcerpt, cluster.Locale, phrase.OwnerName);
             probe.TargetFound.ShouldBeTrue(
                 $"'{phrase.OwnerName}' was learned for \"{cluster.IntentExcerpt}\" but the wish still does not reach it.");
+
+            // The half the mechanics cannot check on their own: WHAT was learned, not just that something
+            // was. A golden case is written here and asserted by every later run, so a wish frozen onto a
+            // skill it has nothing to do with is a permanent lie in the regression set. The pair is
+            // authored, so it can be compared.
+            if (string.Equals(cluster.ClusterKey, CorrectionKey, StringComparison.Ordinal))
+            {
+                phrase.OwnerName.ShouldBe(
+                    _correctionTarget,
+                    "The phrase was learned for a different skill than the wish was authored against, so "
+                    + "the golden case this run froze does not mean what it says.");
+
+                var frozen = await context.SkillLearningGoldenCases
+                    .AsNoTracking()
+                    .Where(g => g.ClusterId == cluster.Id)
+                    .ToListAsync();
+
+                frozen.ShouldAllBe(
+                    g => g.Query == _correctionWish && g.ExpectedSourceId == _correctionTarget);
+            }
         }
 
         if (cluster.Status == SkillLearningClusterStatuses.LearnedCapability)
@@ -229,7 +271,7 @@ public class SkillLearningEndToEndTests
         using var scope = _factory.Services.CreateScope();
         var oracle = scope.ServiceProvider.GetRequiredService<ISkillRoutingOracle>();
 
-        foreach (var wish in new[] { PhraseWish, CapabilityWish })
+        foreach (var wish in new[] { RefusalWish, CapabilityWish })
         {
             var probe = await oracle.ProbeAsync(wish, Locale, string.Empty);
 
@@ -292,44 +334,66 @@ public class SkillLearningEndToEndTests
             ? "-"
             : value.Length <= PayloadLogLimit ? value : value[..PayloadLogLimit] + "…";
 
-    // The target has to satisfy two conditions at once, and getting one of them cheaply costs the other.
-    // It must not be in the current toolset - otherwise the loop rightly dismisses the wish as already
-    // routed - and a phrase must be ABLE to bridge the wish to it, because oracle O1 demands that the
-    // original utterance reaches the target afterwards. A target picked for non-membership alone (say,
-    // the alphabetically first skill nobody retrieved) satisfies the first and makes the second
-    // impossible: no wording added to an unrelated skill will ever pull a meaningless sentence to it.
-    // So the target is the best-scoring retrieval hit that the tool BUDGET cut off. Retrieval already
-    // judged it relevant to this wish; it is missing only because the cap sent twenty of twenty-four.
-    // That is a real routing gap rather than a constructed one, and it is exactly the shape the loop is
-    // built for.
+    // An authored pair still has to be a real routing gap today, and only the corpus can say that. Two
+    // conditions, and neither may be assumed: the target must NOT be in the assembled toolset - otherwise
+    // the loop rightly dismisses the wish as already routed and nothing is learned - and it must be among
+    // the retrieval hits, because oracle O1 demands that the ORIGINAL wish reaches the target after the
+    // phrase is added, and no wording bolted onto a skill retrieval never considers will achieve that.
+    //
+    // What is deliberately NOT done here is falling back to some other skill when no pair qualifies. That
+    // fallback is exactly how the meaningless golden case of 2026-08-29 came about: the fixture always
+    // found *a* target, so it always ran, and nobody had to notice that the target had stopped making
+    // sense. A corpus in which none of the authored pairs is a gap any more is a fact about the corpus,
+    // and it belongs in a failure message that names each pair and why it dropped out - not in a
+    // substitute target that keeps the run green.
     private async Task SeedCorrectedClusterAsync()
+    {
+        var (wish, target, diagnosis) = await SelectCorrectionPairAsync();
+
+        target.ShouldNotBeNullOrEmpty(
+            "None of the authored wish/skill pairs is a routing gap in this corpus, so there is nothing "
+            + "honest to learn. Author a new pair rather than letting the fixture pick one by rank:\n"
+            + diagnosis);
+
+        _correctionWish = wish;
+        _correctionTarget = target;
+
+        TestContext.WriteLine($"CORRECTION pair \"{wish}\" -> {target}\n{diagnosis}");
+
+        await SeedClusterAsync(
+            CorrectionKey, wish, [FirstUser, SecondUser, FirstUser], target, expectedSkill: target);
+    }
+
+    private async Task<(string Wish, string Target, string Diagnosis)> SelectCorrectionPairAsync()
     {
         using var scope = _factory.Services.CreateScope();
         var retrieval = scope.ServiceProvider.GetRequiredService<IKnowledgeRetrievalService>();
         var oracle = scope.ServiceProvider.GetRequiredService<ISkillRoutingOracle>();
 
-        var probe = await oracle.ProbeAsync(CorrectionWish, Locale, string.Empty);
-        var offered = probe.TopSkills.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var report = new List<string>();
 
-        var hits = await retrieval.RetrieveAsync(
-            CorrectionWish, [Roles.Admin], true, RetrievalProbeDepth, null, CancellationToken.None,
-            KnowledgeEntryKind.Skill);
+        foreach (var (wish, target) in CorrectionPairs)
+        {
+            var probe = await oracle.ProbeAsync(wish, Locale, target);
 
-        TestContext.WriteLine(
-            $"CORRECTION retrieval -> {hits.Candidates.Count} Treffer, Toolset {probe.TopSkills.Count} Skills");
+            var hits = await retrieval.RetrieveAsync(
+                wish, [Roles.Admin], true, RetrievalProbeDepth, null, CancellationToken.None,
+                KnowledgeEntryKind.Skill);
 
-        var target = hits.Candidates
-            .OrderByDescending(c => c.Score)
-            .Select(c => c.Entry.SourceId)
-            .FirstOrDefault(name => !offered.Contains(name));
+            var retrieved = hits.Candidates
+                .Any(c => string.Equals(c.Entry.SourceId, target, StringComparison.OrdinalIgnoreCase));
 
-        target.ShouldNotBeNull(
-            "Every retrieved skill is already in the toolset, so this wording has no routing gap to learn.");
+            report.Add(
+                $"  \"{wish}\" -> {target}: offered={probe.TargetFound} retrieved={retrieved} "
+                + $"(toolset {probe.TopSkills.Count}, hits {hits.Candidates.Count})");
 
-        TestContext.WriteLine($"CORRECTION target \"{target}\" — abgerufen, aber vom Budget-Cap verdrängt");
+            if (!probe.TargetFound && retrieved)
+            {
+                return (wish, target, string.Join(Environment.NewLine, report));
+            }
+        }
 
-        await SeedClusterAsync(
-            CorrectionKey, CorrectionWish, [FirstUser, SecondUser, FirstUser], target, expectedSkill: target);
+        return (string.Empty, string.Empty, string.Join(Environment.NewLine, report));
     }
 
     private async Task SeedClusterAsync(

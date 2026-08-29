@@ -67,8 +67,12 @@ public class SkillLearningPrerequisiteDiagnosticTests
                 TestContext.WriteLine($"   {hit.Entry.SourceId} score={hit.Score:F4}");
             }
 
+            // The same cap and the same guarantee switch oracle O1 uses, not a hand-typed 20. A diagnostic
+            // that measures a narrower toolset than the loop does reports a gap the loop does not see.
             var toolset = await assembler.AssembleAsync(
-                agent, [Roles.Admin], wish, null, null, Guid.Empty.ToString(), "de", 20, CancellationToken.None);
+                agent, [Roles.Admin], wish, null, null, Guid.Empty.ToString(), "de",
+                SkillLearningDefaults.RoutingProbeTopK, applyLearnedPhraseGuarantee: false,
+                CancellationToken.None);
 
             TestContext.WriteLine(
                 $"TOOLSET \"{wish}\" -> {toolset.Functions.Count}: "
