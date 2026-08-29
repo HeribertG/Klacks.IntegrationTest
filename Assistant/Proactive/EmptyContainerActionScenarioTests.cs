@@ -45,6 +45,7 @@ using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces.Assistant;
 using Klacks.Api.Domain.Models.Assistant;
+using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Assistant;
 using Microsoft.AspNetCore.Http;
@@ -64,6 +65,7 @@ public class EmptyContainerActionScenarioTests
     private const string Kind = TestPrefix + "empty_container_like";
 
     private static readonly Guid OwnerUserId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+    private static readonly DateTime FarPastUtc = new(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp() => await CleanupAsync();
@@ -86,7 +88,8 @@ public class EmptyContainerActionScenarioTests
         var reporter = Substitute.For<IProactiveActionReporter>();
         reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = await NewService(context, executor, reporter).RunAsync(CancellationToken.None);
+        var result = await NewService(context, executor, reporter, ProactiveMaxAction.Execute)
+            .RunAsync(CancellationToken.None);
 
         result.Executed.ShouldBe(3);
 
@@ -107,6 +110,89 @@ public class EmptyContainerActionScenarioTests
         await reporter.Received(3).ReportAsync(OwnerUserId, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    [Test]
+    public async Task Az10_StufeOnePrepareOnANonScenarioCapableRemediation_NeverExecutesAndLeavesTheLedgerReported()
+    {
+        // Global Stufe 1 maps to Prepare (ProactiveGovernanceDefaults.MapAutonomyLevel); empty_container's
+        // real remediation is Execute-only (IsScenarioCapable: false, see ConditionRemediationRegistry),
+        // and this fixture's SingleKindRegistry mirrors that default. Prepare on a non-scenario-capable
+        // remediation must behave like Hint - report and wait - never execute and never touch the ledger.
+        var container = await GivenEmptyContainerConditionAsync(
+            isoWeekdays: [4], startShift: new TimeOnly(9, 0), endShift: new TimeOnly(17, 0));
+
+        var executor = new CapturingSkillExecutor();
+        await using var context = NewContext();
+        var reporter = Substitute.For<IProactiveActionReporter>();
+        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        var result = await NewService(context, executor, reporter, ProactiveMaxAction.Prepare)
+            .RunAsync(CancellationToken.None);
+
+        result.Executed.ShouldBe(0);
+        executor.Invocations.ShouldBeEmpty();
+
+        await using var verify = NewContext();
+        var stored = await verify.AgentConditions.SingleAsync(c => c.Id == container.Id);
+        stored.Status.ShouldBe(AgentConditionStatus.Reported);
+
+        await reporter.DidNotReceive().ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task Az9_AFindingInGroupB_NeverReachesPlannerAsScopeAndOnlyActsUnderPlannerBsIdentity()
+    {
+        // Two halves of Az9: the scope query a planner-relevant skill reads from (GetOpenForScopeAsync,
+        // already proven against real Postgres in AgentConditionRepositoryScopedQueryIntegrationTests)
+        // must withhold a Group-B-scoped row from a caller whose visible roots are Group A only; and the
+        // action dispatcher, when it does act, must borrow ONLY Planner B's rights - governance's
+        // ResponsibleOwnerUserId is what IProactiveActionIdentityProvider is asked to resolve for, so
+        // asserting the identity call was made for plannerB proves "im Auftrag von Planer B" directly,
+        // without needing a real AppUser/Group membership join this repository method does not use.
+        var groupA = await GivenGroupAsync();
+        var groupB = await GivenGroupAsync();
+        var plannerB = Guid.NewGuid();
+
+        var condition = await GivenEmptyContainerConditionAsync(
+            isoWeekdays: [5], startShift: new TimeOnly(6, 0), endShift: new TimeOnly(14, 0), groupId: groupB.Id);
+
+        await using (var scopeContext = NewContext())
+        {
+            var scopeRepository = new AgentConditionRepository(scopeContext);
+
+            var plannerAView = await scopeRepository.GetOpenForScopeAsync(
+                isUnrestricted: false, visibleRootIds: new HashSet<Guid> { groupA.Id }, take: 50);
+            plannerAView.Select(c => c.Id).ShouldNotContain(condition.Id);
+
+            var plannerBView = await scopeRepository.GetOpenForScopeAsync(
+                isUnrestricted: false, visibleRootIds: new HashSet<Guid> { groupB.Id }, take: 50);
+            plannerBView.Select(c => c.Id).ShouldContain(condition.Id);
+        }
+
+        var executor = new CapturingSkillExecutor();
+        await using var context = NewContext();
+        var reporter = Substitute.For<IProactiveActionReporter>();
+        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        var identityProvider = Substitute.For<IProactiveActionIdentityProvider>();
+        identityProvider
+            .ResolveForSkillAsync(Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ProactiveActionIdentity.Resolved(
+                new SkillExecutionContext
+                {
+                    UserId = plannerB,
+                    TenantId = Guid.Empty,
+                    UserName = KlacksyIdentity.SystemUserName,
+                    UserPermissions = ["some.permission"],
+                    BypassAutonomyGate = true
+                },
+                ["some.permission"]));
+
+        await NewService(context, executor, reporter, ProactiveMaxAction.Execute, plannerB, identityProvider)
+            .RunAsync(CancellationToken.None);
+
+        await identityProvider.Received(1).ResolveForSkillAsync(
+            plannerB, condition.Id, CreateContainerTemplateParameters.SkillName, Arg.Any<CancellationToken>());
+    }
+
     private static void AssertInvocation(CapturingSkillExecutor executor, Guid containerId, int expectedWeekday)
     {
         var invocation = executor.Invocations.SingleOrDefault(
@@ -117,7 +203,7 @@ public class EmptyContainerActionScenarioTests
     }
 
     private static async Task<AgentCondition> GivenEmptyContainerConditionAsync(
-        IReadOnlyCollection<int> isoWeekdays, TimeOnly startShift, TimeOnly endShift)
+        IReadOnlyCollection<int> isoWeekdays, TimeOnly startShift, TimeOnly endShift, Guid? groupId = null)
     {
         var shiftId = Guid.NewGuid();
         var triggerEvent = new EmptyContainerTriggerEvent(
@@ -137,11 +223,15 @@ public class EmptyContainerActionScenarioTests
             TriggerKind = Kind,
             Fingerprint = TestPrefix + shiftId,
             EntityId = shiftId,
-            GroupId = null,
+            GroupId = groupId,
             Severity = AgentTriggerSeverity.High,
             Status = AgentConditionStatus.Reported,
-            DetectedAtUtc = DateTime.UtcNow.AddHours(-1),
-            LastSeenAtUtc = DateTime.UtcNow,
+            // Far past, not "now": GetOpenForScopeAsync orders oldest-first within a severity tier, and
+            // the dev DB carries thousands of real conditions (Az9 tripped over this once - see the
+            // fixture-level doc comment). Dating this far in the past guarantees it sorts first
+            // regardless of real volume, matching AgentConditionRepositoryScopedQueryIntegrationTests.
+            DetectedAtUtc = FarPastUtc,
+            LastSeenAtUtc = FarPastUtc,
             PayloadJson = payloadJson,
         };
 
@@ -152,9 +242,29 @@ public class EmptyContainerActionScenarioTests
         return condition;
     }
 
-    private static AgentConditionActionService NewService(
-        DataBaseContext context, ISkillExecutor executor, IProactiveActionReporter reporter)
+    private static async Task<Group> GivenGroupAsync()
     {
+        var group = new Group
+        {
+            Id = Guid.NewGuid(),
+            Name = TestPrefix + "group",
+            Root = null,
+            ValidFrom = DateTime.UtcNow,
+        };
+
+        await using var context = NewContext();
+        context.Group.Add(group);
+        await context.SaveChangesAsync();
+
+        return group;
+    }
+
+    private static AgentConditionActionService NewService(
+        DataBaseContext context, ISkillExecutor executor, IProactiveActionReporter reporter,
+        ProactiveMaxAction globalAutonomyCap, Guid? ownerUserId = null,
+        IProactiveActionIdentityProvider? identityProviderOverride = null)
+    {
+        var owner = ownerUserId ?? OwnerUserId;
         var repository = new AgentConditionRepository(context);
         var ledger = new AgentConditionLedgerService(
             repository, TimeProvider.System, NullLogger<AgentConditionLedgerService>.Instance);
@@ -165,33 +275,36 @@ public class EmptyContainerActionScenarioTests
             .Returns(new ProactiveGovernanceDecision(
                 TriggerKind: Kind,
                 GroupId: null,
-                EffectiveMaxAction: ProactiveMaxAction.Execute,
+                EffectiveMaxAction: globalAutonomyCap < ProactiveMaxAction.Execute ? globalAutonomyCap : ProactiveMaxAction.Execute,
                 ConfiguredMaxAction: ProactiveMaxAction.Execute,
                 Enabled: true,
                 KillSwitchActive: false,
-                ResponsibleOwnerUserId: OwnerUserId,
+                ResponsibleOwnerUserId: owner,
                 DailyActionBudget: 5,
                 WindowActionLimit: 5,
                 WindowMinutes: 60,
                 IsStored: true,
-                GlobalAutonomyCap: ProactiveMaxAction.Execute));
+                GlobalAutonomyCap: globalAutonomyCap));
 
         var quietWindow = Substitute.For<IQuietWindowService>();
         quietWindow.IsQuietForAsync(Arg.Any<AgentCondition>(), Arg.Any<CancellationToken>()).Returns(false);
 
-        var identityProvider = Substitute.For<IProactiveActionIdentityProvider>();
-        identityProvider
-            .ResolveForSkillAsync(Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ProactiveActionIdentity.Resolved(
-                new SkillExecutionContext
-                {
-                    UserId = OwnerUserId,
-                    TenantId = Guid.Empty,
-                    UserName = KlacksyIdentity.SystemUserName,
-                    UserPermissions = ["some.permission"],
-                    BypassAutonomyGate = true
-                },
-                ["some.permission"]));
+        var identityProvider = identityProviderOverride ?? Substitute.For<IProactiveActionIdentityProvider>();
+        if (identityProviderOverride is null)
+        {
+            identityProvider
+                .ResolveForSkillAsync(Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(ProactiveActionIdentity.Resolved(
+                    new SkillExecutionContext
+                    {
+                        UserId = owner,
+                        TenantId = Guid.Empty,
+                        UserName = KlacksyIdentity.SystemUserName,
+                        UserPermissions = ["some.permission"],
+                        BypassAutonomyGate = true
+                    },
+                    ["some.permission"]));
+        }
 
         return new AgentConditionActionService(
             repository,
@@ -225,6 +338,9 @@ public class EmptyContainerActionScenarioTests
             TestPrefix + "%");
         await context.Database.ExecuteSqlRawAsync(
             "DELETE FROM agent_conditions WHERE fingerprint LIKE {0}",
+            TestPrefix + "%");
+        await context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM \"group\" WHERE name LIKE {0}",
             TestPrefix + "%");
     }
 
