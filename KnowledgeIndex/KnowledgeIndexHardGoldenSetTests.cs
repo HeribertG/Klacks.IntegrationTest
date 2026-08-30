@@ -30,6 +30,8 @@ public class KnowledgeIndexHardGoldenSetTests
 {
     private const string ConnectionString = "Host=localhost;Port=5434;Database=klacks;Username=postgres;Password=admin";
 
+    private const string MinPassRateEnvironmentVariable = "KNOWLEDGEINDEX_HARD_MIN_PASS_RATE";
+
     private static string EmbeddingCacheDir =>
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -47,6 +49,7 @@ public class KnowledgeIndexHardGoldenSetTests
 
     // No baseline gate on purpose: this set exists to MEASURE the confusable-cluster gap, not to
     // enforce a threshold yet. Once a baseline run has happened, replace this with a real number.
+    // The gate can be forced without code changes via KNOWLEDGEINDEX_HARD_MIN_PASS_RATE (0.0-1.0).
     private const double MinPassRate = 0.0;
 
     [SetUp]
@@ -127,9 +130,29 @@ public class KnowledgeIndexHardGoldenSetTests
             }
         }
 
+        var gate = ReadMinPassRateGate();
         passRate.ShouldBeGreaterThanOrEqualTo(
-            MinPassRate,
+            gate,
             $"top-3 recall on the hard golden set: {passRate:P1} ({failures.Count} failures of {golden.Count}).");
+    }
+
+    private static double ReadMinPassRateGate()
+    {
+        var raw = Environment.GetEnvironmentVariable(MinPassRateEnvironmentVariable);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return MinPassRate;
+        }
+
+        if (!double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            || parsed < 0.0 || parsed > 1.0)
+        {
+            throw new InvalidOperationException(
+                $"{MinPassRateEnvironmentVariable} must be a number between 0.0 and 1.0, got '{raw}'.");
+        }
+
+        return parsed;
     }
 
     private static List<HardGoldenSetItem> LoadGoldenSet() => HardGoldenSetItem.Load(GoldenSetPath);

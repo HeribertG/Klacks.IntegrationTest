@@ -1,6 +1,7 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 using Klacks.Api.Application.Services.Assistant.Evaluation.TurnEval;
+using Klacks.Api.Domain.Interfaces.Assistant;
 using Klacks.IntegrationTest.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
@@ -17,8 +18,10 @@ public class TurnSelectionGoldenSetTests
     private const string GoldsetName = "turn-selection-v1";
     private const string ModelIdEnvironmentVariable = "TURNEVAL_MODEL_ID";
     private const string MaxItemsEnvironmentVariable = "TURNEVAL_MAX_ITEMS";
+    private const string MinPassRateEnvironmentVariable = "TURNEVAL_MIN_PASS_RATE";
     private const string DefaultModelId = "gpt-54-mini";
     private const string AdminRight = "Admin";
+    private const double BaselineTolerance = 0.05;
 
     private SignalRTestWebApplicationFactory _factory = null!;
 
@@ -42,9 +45,31 @@ public class TurnSelectionGoldenSetTests
             Environment.GetEnvironmentVariable(MaxItemsEnvironmentVariable), out var parsedMaxItems) && parsedMaxItems > 0
             ? parsedMaxItems
             : null;
+        var forcedMinPassRate = ReadForcedMinPassRate();
 
         using var scope = _factory.Services.CreateScope();
         var runner = scope.ServiceProvider.GetRequiredService<ITurnEvalRunnerService>();
+
+        // Read the baseline BEFORE the run so the freshly persisted EvalRun is never its own baseline.
+        double? baselineThreshold = null;
+        if (!forcedMinPassRate.HasValue)
+        {
+            var evalRunRepository = scope.ServiceProvider.GetRequiredService<IEvalRunRepository>();
+            var baseline = await evalRunRepository.GetLatestAsync(GoldsetName, modelId);
+            if (baseline != null && baseline.ItemsTotal > 0)
+            {
+                var baselinePassRate = (double)baseline.ItemsPassed / baseline.ItemsTotal;
+                baselineThreshold = Math.Max(0.0, baselinePassRate - BaselineTolerance);
+                TestContext.WriteLine(
+                    $"Gate baseline: {baselinePassRate:P1} (latest {GoldsetName}/{modelId} run) -> min pass rate {baselineThreshold:P1}");
+            }
+            else
+            {
+                TestContext.WriteLine(
+                    "No baseline EvalRun found - this is the calibration run; gate skipped. " +
+                    $"Set {MinPassRateEnvironmentVariable} to force a threshold.");
+            }
+        }
 
         var result = await runner.RunAsync(
             GoldsetName,
@@ -57,6 +82,47 @@ public class TurnSelectionGoldenSetTests
         result.Dimensions!.ItemsTotal.ShouldBeGreaterThan(0);
 
         WriteScorecard(modelId, result);
+
+        var passRate = ComputePassRate(result.Dimensions);
+        if (forcedMinPassRate.HasValue)
+        {
+            passRate.ShouldBeGreaterThanOrEqualTo(
+                forcedMinPassRate.Value,
+                $"turn-selection pass rate {passRate:P1} below forced gate {forcedMinPassRate:P1} " +
+                $"(env {MinPassRateEnvironmentVariable}).");
+        }
+        else if (baselineThreshold.HasValue)
+        {
+            passRate.ShouldBeGreaterThanOrEqualTo(
+                baselineThreshold.Value,
+                $"turn-selection pass rate {passRate:P1} regressed below baseline gate {baselineThreshold:P1} " +
+                $"(baseline - {BaselineTolerance:P0}).");
+        }
+    }
+
+    private static double? ReadForcedMinPassRate()
+    {
+        var raw = Environment.GetEnvironmentVariable(MinPassRateEnvironmentVariable);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        if (!double.TryParse(raw, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            || parsed < 0.0 || parsed > 1.0)
+        {
+            throw new InvalidOperationException(
+                $"{MinPassRateEnvironmentVariable} must be a number between 0.0 and 1.0, got '{raw}'.");
+        }
+
+        return parsed;
+    }
+
+    private static double ComputePassRate(TurnEvalDimensions dimensions)
+    {
+        var activeItems = Math.Max(1, dimensions.ItemsTotal - dimensions.ItemsExcluded);
+        return (double)dimensions.ItemsPassed / activeItems;
     }
 
     private static void WriteScorecard(string modelId, TurnEvalRunResult result)
