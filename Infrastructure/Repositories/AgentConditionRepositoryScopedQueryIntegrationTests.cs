@@ -290,15 +290,20 @@ public class AgentConditionRepositoryScopedQueryIntegrationTests
         // the rows that keep the synthetic kind, in trigger_kind too), groups in name. Fingerprint is the
         // load-bearing one since the RequiresGroupScope tests plant real trigger_kind values - matching on
         // trigger_kind alone would leave those rows behind in the shared dev DB, and widening the match to
-        // the kind itself would delete the dev app's own 52 live rows. No pattern can reach dev-app data.
+        // the kind itself would delete the dev app's own 52 live rows. payload_json is matched as well:
+        // scenario fixtures that keep a REAL kind (e.g. target_hours_drift) carry the prefix only in their
+        // payload, and the dev app's own detectors once created 26 target_hours_drift conditions whose
+        // payloads referenced INTEGRATION_TEST_ client names planted by Az0 (deleted manually 2026-08-30) -
+        // hence the contains-match on payload_json with the generic marker, not this fixture's prefix.
+        // No pattern can reach dev-app data, because real clients never carry the marker in their names.
         await using var context = NewContext();
         await context.Database.ExecuteSqlRawAsync(
             "DELETE FROM agent_condition_events WHERE condition_id IN "
-            + "(SELECT id FROM agent_conditions WHERE trigger_kind LIKE {0} OR fingerprint LIKE {0})",
-            TestPrefix + "%");
+            + "(SELECT id FROM agent_conditions WHERE trigger_kind LIKE {0} OR fingerprint LIKE {0} OR payload_json LIKE {1})",
+            TestPrefix + "%", "%INTEGRATION_TEST_%");
         await context.Database.ExecuteSqlRawAsync(
-            "DELETE FROM agent_conditions WHERE trigger_kind LIKE {0} OR fingerprint LIKE {0}",
-            TestPrefix + "%");
+            "DELETE FROM agent_conditions WHERE trigger_kind LIKE {0} OR fingerprint LIKE {0} OR payload_json LIKE {1}",
+            TestPrefix + "%", "%INTEGRATION_TEST_%");
         await context.Database.ExecuteSqlRawAsync(
             "DELETE FROM \"group\" WHERE name LIKE {0}",
             TestPrefix + "%");
