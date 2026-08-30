@@ -29,7 +29,7 @@ public class TurnNamesGoldenSetTests
 {
     private const string GoldsetName = "turn-names-v1";
     private const string ModelIdEnvironmentVariable = "TURNEVAL_MODEL_ID";
-    private const string DefaultModelId = "claude-haiku-45";
+    private const string DefaultModelId = "deepseek-v4-pro";
     private const string AdminRight = "Admin";
     private const string SeedMarker = "INTEGRATION_TEST_TURNEVAL";
 

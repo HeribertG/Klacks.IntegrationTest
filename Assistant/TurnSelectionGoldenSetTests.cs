@@ -19,7 +19,7 @@ public class TurnSelectionGoldenSetTests
     private const string ModelIdEnvironmentVariable = "TURNEVAL_MODEL_ID";
     private const string MaxItemsEnvironmentVariable = "TURNEVAL_MAX_ITEMS";
     private const string MinPassRateEnvironmentVariable = "TURNEVAL_MIN_PASS_RATE";
-    private const string DefaultModelId = "gpt-54-mini";
+    private const string DefaultModelId = "deepseek-v4-pro";
     private const string AdminRight = "Admin";
     private const double BaselineTolerance = 0.05;
 
