@@ -27,7 +27,8 @@
 /// EF InMemory does not enforce it, so only Postgres can prove the re-arm insert actually succeeds once the
 /// old row is terminal, and would actually reject a genuine duplicate while the old row is still open.
 ///
-/// Cleanup deletes ONLY rows this fixture created, by its own fingerprint prefix.
+/// Cleanup deletes ONLY rows this fixture created, by its own fingerprint prefix, plus the dispatch
+/// rows the package-F extension writes, by its own trigger-kind prefix.
 /// </summary>
 
 using System.Text.Json;
@@ -37,6 +38,7 @@ using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces.Assistant;
 using Klacks.Api.Domain.Models.Assistant;
+using Klacks.Api.Domain.Services.Assistant;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Assistant;
 using Klacks.IntegrationTest.TestHelpers;
@@ -57,6 +59,7 @@ public class EmptyContainerRecurrenceScenarioTests
     private const string Kind = TestPrefix + "empty_container_like";
 
     private static readonly Guid OwnerUserId = Guid.Parse("66666666-6666-6666-6666-666666666666");
+    private static readonly Guid PlannerUserId = Guid.Parse("99999999-9999-9999-9999-999999999999");
     private static readonly DateTime FarPastUtc = new(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     [OneTimeSetUp]
@@ -150,6 +153,90 @@ public class EmptyContainerRecurrenceScenarioTests
             .Count().ShouldBe(1, "The recurrence's Executed event belongs to its own row, not appended to the first row's history.");
     }
 
+    /// <summary>
+    /// Package F (B11) extension of Az5: the recurrence must not only open a fresh ledger row, it must
+    /// also reach the planner again. AgentTriggerService.OnEventAsync is driven with the REAL dispatch
+    /// and condition repositories before and after the recurrence: dedup is narrowed by ConditionId
+    /// (ProactiveTriggerDispatchRepository.WasDispatchedAsync), so the second event - same user, same
+    /// kind, same DedupKey, NEW condition id - persists its own dispatch row instead of being swallowed
+    /// by the first. Only Postgres can prove this: the partial unique index on
+    /// agent_trigger_dispatches (user_id, trigger_kind, dedup_key) WHERE condition_id IS NULL admits
+    /// any number of condition-linked rows for the same key, and EF InMemory would not enforce either
+    /// side of that statement. Both rows carry the armed reminder schedule (NextReminderAtUtc), which
+    /// is what makes the recurrence nag on its own.
+    /// </summary>
+    [Test]
+    public async Task Az5_TheRecurrence_GetsItsOwnDispatchRowForTheSameUserKindAndDedupKey()
+    {
+        var shiftId = Guid.NewGuid();
+        var dedupKey = shiftId.ToString();
+        var fingerprint = AgentConditionLedgerPolicy.FingerprintFor(Kind, dedupKey);
+        var payloadJson = BuildPayloadJson(shiftId);
+        var timeProvider = new SettableTimeProvider(new DateTime(2026, 9, 1, 10, 0, 0, DateTimeKind.Utc));
+
+        var firstCondition = await GivenReportedConditionAsync(shiftId, fingerprint, payloadJson);
+
+        await using (var firstDispatch = NewContext())
+        {
+            await NewTriggerService(firstDispatch, timeProvider)
+                .OnEventAsync(new TestTriggerEvent(shiftId), CancellationToken.None);
+        }
+
+        var firstRow = await ReloadDispatchAsync(dedupKey);
+        firstRow.ConditionId.ShouldBe(firstCondition.Id);
+        firstRow.UserId.ShouldBe(PlannerUserId.ToString());
+        firstRow.NextReminderAtUtc.ShouldNotBeNull(
+            "A condition-linked row joins the reminder loop at dispatch time (FirstDueAfter).");
+
+        // The recurrence: the first finding goes terminal (Reported -> Resolved is the legal close
+        // here; Executed would need the whole action pipeline and is already covered by the test
+        // above), which frees the open-fingerprint index for a genuinely new ledger row.
+        AgentCondition secondCondition;
+        await using (var ledgerContext = NewContext())
+        {
+            var ledgerService = new AgentConditionLedgerService(
+                new AgentConditionRepository(ledgerContext), timeProvider,
+                NullLogger<AgentConditionLedgerService>.Instance);
+
+            var resolved = await ledgerService.TryTransitionAsync(
+                firstCondition.Id, AgentConditionStatus.Reported, AgentConditionStatus.Resolved,
+                cancellationToken: CancellationToken.None);
+            resolved.ShouldBeTrue();
+
+            var (upserted, isNew) = await ledgerService.UpsertDetectedAsync(
+                Kind, fingerprint, shiftId, groupId: null, AgentTriggerSeverity.High, payloadJson,
+                CancellationToken.None);
+            isNew.ShouldBeTrue();
+            upserted.Id.ShouldNotBe(firstCondition.Id);
+
+            var reported = await ledgerService.TryTransitionAsync(
+                upserted.Id, AgentConditionStatus.Detected, AgentConditionStatus.Reported,
+                cancellationToken: CancellationToken.None);
+            reported.ShouldBeTrue();
+            secondCondition = upserted;
+        }
+
+        await using (var secondDispatch = NewContext())
+        {
+            await NewTriggerService(secondDispatch, timeProvider)
+                .OnEventAsync(new TestTriggerEvent(shiftId), CancellationToken.None);
+        }
+
+        await using var verify = NewContext();
+        var rows = await verify.AgentTriggerDispatches
+            .Where(d => d.TriggerKind == Kind && d.DedupKey == dedupKey)
+            .AsNoTracking()
+            .ToListAsync();
+        rows.Count.ShouldBe(2,
+            "Same (user, kind, dedup key) twice: dedup narrows by ConditionId, and the partial unique "
+            + "index only covers rows without one - both halves need real Postgres to be proven.");
+        rows.ShouldAllBe(d => d.UserId == PlannerUserId.ToString());
+        rows.Select(d => d.ConditionId).ShouldBe(
+            new Guid?[] { firstCondition.Id, secondCondition.Id }, ignoreOrder: true);
+        rows.ShouldAllBe(d => d.NextReminderAtUtc != null,
+            "The recurrence's row is armed for reminders independently of the first one.");
+    }
+
     private static string BuildPayloadJson(Guid shiftId)
     {
         var triggerEvent = new EmptyContainerTriggerEvent(
@@ -241,6 +328,49 @@ public class EmptyContainerRecurrenceScenarioTests
             NullLogger<AgentConditionActionService>.Instance);
     }
 
+    /// <summary>
+    /// The real dispatch pipeline with only its outward edges substituted: SignalR (nobody connected),
+    /// the planner audience (the fixture's fixed planner), the messenger (NoContact) and the activity
+    /// tracker. Repositories, preference service, rate limiter and the injected clock are genuine, so
+    /// dedup, condition linkage and the armed reminder schedule are the production behaviour.
+    /// </summary>
+    private static AgentTriggerService NewTriggerService(DataBaseContext context, TimeProvider timeProvider)
+    {
+        var notifications = Substitute.For<IAssistantNotificationService>();
+        notifications.GetConnectedUserIdsAsync().Returns(Array.Empty<string>());
+
+        var audienceResolver = Substitute.For<IPlanningAudienceResolver>();
+        audienceResolver.GetAdminUserIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new HashSet<string> { PlannerUserId.ToString() });
+        audienceResolver.GetPlanningUserIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new HashSet<string> { PlannerUserId.ToString() });
+
+        var offlineMessengerNotifier = Substitute.For<IOfflineMessengerNotifier>();
+        offlineMessengerNotifier
+            .TrySendAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(OfflineMessengerDeliveryResult.NoContact);
+
+        return new AgentTriggerService(
+            new AgentTriggerRateLimiter(timeProvider),
+            new InMemoryAgentTriggerPreferenceService(timeProvider),
+            notifications,
+            new ProactiveTriggerDispatchRepository(context, timeProvider),
+            new AgentConditionRepository(context),
+            Substitute.For<IUserActivityTracker>(),
+            audienceResolver,
+            offlineMessengerNotifier,
+            Substitute.For<IProactiveMessengerTextComposer>(),
+            timeProvider,
+            NullLogger<AgentTriggerService>.Instance);
+    }
+
+    private static async Task<ProactiveTriggerDispatchRow> ReloadDispatchAsync(string dedupKey)
+    {
+        await using var context = NewContext();
+        return await context.AgentTriggerDispatches
+            .SingleAsync(d => d.TriggerKind == Kind && d.DedupKey == dedupKey);
+    }
+
     private static DataBaseContext NewContext()
     {
         var options = new DbContextOptionsBuilder<DataBaseContext>()
@@ -254,6 +384,9 @@ public class EmptyContainerRecurrenceScenarioTests
     private static async Task CleanupAsync()
     {
         await using var context = NewContext();
+        await context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM agent_trigger_dispatches WHERE trigger_kind LIKE {0}",
+            TestPrefix + "%");
         await context.Database.ExecuteSqlRawAsync(
             "DELETE FROM agent_condition_events WHERE condition_id IN "
             + "(SELECT id FROM agent_conditions WHERE fingerprint LIKE {0})",
@@ -292,6 +425,32 @@ public class EmptyContainerRecurrenceScenarioTests
 
         public ProactiveMaxAction TryGetEffectiveMaxAction(string triggerKind, ProactiveMaxAction configuredMaxAction) =>
             triggerKind == _triggerKind ? configuredMaxAction : ProactiveMaxAction.Hint;
+    }
+
+    /// <summary>
+    /// Synthetic stand-in for EmptyContainerTriggerEvent under this fixture's own kind, shaped like
+    /// the real event: planner audience (PlannersOnly + RequiresGroupScope, no groups =&gt; admin
+    /// audience, which the resolver substitute maps to the fixture's planner), high severity and a
+    /// shift-id dedup key. Ledger-tracked per AgentConditionLedgerPolicy.IsLedgerTracked, so the
+    /// dispatch row links the open condition found by fingerprint and arms the reminder loop.
+    /// </summary>
+    private sealed record TestTriggerEvent(Guid ShiftId) : IAgentTriggerEvent
+    {
+        public string Kind => EmptyContainerRecurrenceScenarioTests.Kind;
+
+        public string Severity => AgentTriggerSeverity.High;
+
+        public string Summary => TestPrefix + "summary";
+
+        public IReadOnlyDictionary<string, object?> Payload => new Dictionary<string, object?>();
+
+        public bool PlannersOnly => true;
+
+        public bool RequiresGroupScope => true;
+
+        public string DedupKey => ShiftId.ToString();
+
+        public Guid? EntityId => ShiftId;
     }
 
     private sealed class CapturingSkillExecutor : ISkillExecutor
