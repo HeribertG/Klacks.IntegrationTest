@@ -16,6 +16,7 @@ namespace Klacks.IntegrationTest.Assistant;
 public class TurnSelectionGoldenSetTests
 {
     private const string GoldsetName = "turn-selection-v1";
+    private const string GoldsetEnvironmentVariable = "TURNEVAL_GOLDSET";
     private const string ModelIdEnvironmentVariable = "TURNEVAL_MODEL_ID";
     private const string MaxItemsEnvironmentVariable = "TURNEVAL_MAX_ITEMS";
     private const string MinPassRateEnvironmentVariable = "TURNEVAL_MIN_PASS_RATE";
@@ -41,6 +42,7 @@ public class TurnSelectionGoldenSetTests
     public async Task TurnSelectionGoldset_ReplaysAllItemsAndReportsScorecard()
     {
         var modelId = Environment.GetEnvironmentVariable(ModelIdEnvironmentVariable) ?? DefaultModelId;
+        var goldsetName = Environment.GetEnvironmentVariable(GoldsetEnvironmentVariable) ?? GoldsetName;
         int? maxItems = int.TryParse(
             Environment.GetEnvironmentVariable(MaxItemsEnvironmentVariable), out var parsedMaxItems) && parsedMaxItems > 0
             ? parsedMaxItems
@@ -50,7 +52,7 @@ public class TurnSelectionGoldenSetTests
         using var scope = _factory.Services.CreateScope();
         var runner = scope.ServiceProvider.GetRequiredService<ITurnEvalRunnerService>();
         var goldsetItems = await scope.ServiceProvider.GetRequiredService<ITurnGoldsetLoader>()
-            .LoadAsync(GoldsetName, CancellationToken.None);
+            .LoadAsync(goldsetName, CancellationToken.None);
 
         // Read the baseline BEFORE the run so the freshly persisted EvalRun is never its own baseline.
         // W0.5/W4: the baseline only gates when it measured the same goldset size — a goldset build-out
@@ -60,13 +62,13 @@ public class TurnSelectionGoldenSetTests
         if (!forcedMinPassRate.HasValue)
         {
             var evalRunRepository = scope.ServiceProvider.GetRequiredService<IEvalRunRepository>();
-            var baseline = await evalRunRepository.GetLatestAsync(GoldsetName, modelId);
+            var baseline = await evalRunRepository.GetLatestAsync(goldsetName, modelId);
             if (baseline != null && baseline.ItemsTotal > 0 && maxItems == null && baseline.ItemsTotal == goldsetItems.Count)
             {
                 var baselinePassRate = (double)baseline.ItemsPassed / baseline.ItemsTotal;
                 baselineThreshold = Math.Max(0.0, baselinePassRate - BaselineTolerance);
                 TestContext.WriteLine(
-                    $"Gate baseline: {baselinePassRate:P1} (latest {GoldsetName}/{modelId} run over {baseline.ItemsTotal} items) -> min pass rate {baselineThreshold:P1}");
+                    $"Gate baseline: {baselinePassRate:P1} (latest {goldsetName}/{modelId} run over {baseline.ItemsTotal} items) -> min pass rate {baselineThreshold:P1}");
             }
             else
             {
@@ -77,7 +79,7 @@ public class TurnSelectionGoldenSetTests
         }
 
         var result = await runner.RunAsync(
-            GoldsetName,
+            goldsetName,
             modelId,
             maxItems,
             userId: Guid.NewGuid().ToString(),
@@ -86,7 +88,7 @@ public class TurnSelectionGoldenSetTests
         result.Dimensions.ShouldNotBeNull();
         result.Dimensions!.ItemsTotal.ShouldBeGreaterThan(0);
 
-        WriteScorecard(modelId, result);
+        WriteScorecard(goldsetName, modelId, result);
 
         var passRate = ComputePassRate(result.Dimensions);
         if (forcedMinPassRate.HasValue)
@@ -130,11 +132,11 @@ public class TurnSelectionGoldenSetTests
         return (double)dimensions.ItemsPassed / activeItems;
     }
 
-    private static void WriteScorecard(string modelId, TurnEvalRunResult result)
+    private static void WriteScorecard(string goldsetName, string modelId, TurnEvalRunResult result)
     {
         var dimensions = result.Dimensions!;
 
-        TestContext.WriteLine($"Goldset:                {GoldsetName}");
+        TestContext.WriteLine($"Goldset:                {goldsetName}");
         TestContext.WriteLine($"Model:                  {modelId} (provider: {result.Run.Provider})");
         TestContext.WriteLine($"Composite:              {result.Run.CompositeScore:F4}");
         TestContext.WriteLine($"Regression vs baseline: {result.Run.RegressionVsBaseline?.ToString("F4") ?? "n/a"}");
