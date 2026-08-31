@@ -49,24 +49,29 @@ public class TurnSelectionGoldenSetTests
 
         using var scope = _factory.Services.CreateScope();
         var runner = scope.ServiceProvider.GetRequiredService<ITurnEvalRunnerService>();
+        var goldsetItems = await scope.ServiceProvider.GetRequiredService<ITurnGoldsetLoader>()
+            .LoadAsync(GoldsetName, CancellationToken.None);
 
         // Read the baseline BEFORE the run so the freshly persisted EvalRun is never its own baseline.
+        // W0.5/W4: the baseline only gates when it measured the same goldset size — a goldset build-out
+        // or a maxItems iteration is a calibration/subset run and must not be compared against a run
+        // over different items.
         double? baselineThreshold = null;
         if (!forcedMinPassRate.HasValue)
         {
             var evalRunRepository = scope.ServiceProvider.GetRequiredService<IEvalRunRepository>();
             var baseline = await evalRunRepository.GetLatestAsync(GoldsetName, modelId);
-            if (baseline != null && baseline.ItemsTotal > 0)
+            if (baseline != null && baseline.ItemsTotal > 0 && maxItems == null && baseline.ItemsTotal == goldsetItems.Count)
             {
                 var baselinePassRate = (double)baseline.ItemsPassed / baseline.ItemsTotal;
                 baselineThreshold = Math.Max(0.0, baselinePassRate - BaselineTolerance);
                 TestContext.WriteLine(
-                    $"Gate baseline: {baselinePassRate:P1} (latest {GoldsetName}/{modelId} run) -> min pass rate {baselineThreshold:P1}");
+                    $"Gate baseline: {baselinePassRate:P1} (latest {GoldsetName}/{modelId} run over {baseline.ItemsTotal} items) -> min pass rate {baselineThreshold:P1}");
             }
             else
             {
                 TestContext.WriteLine(
-                    "No baseline EvalRun found - this is the calibration run; gate skipped. " +
+                    $"No comparable baseline EvalRun found (baseline items {baseline?.ItemsTotal.ToString() ?? "n/a"}, goldset items {goldsetItems.Count}, maxItems {maxItems?.ToString() ?? "n/a"}) - this is a calibration/subset run; gate skipped. " +
                     $"Set {MinPassRateEnvironmentVariable} to force a threshold.");
             }
         }
