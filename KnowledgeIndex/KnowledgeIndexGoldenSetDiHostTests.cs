@@ -31,10 +31,27 @@ namespace Klacks.IntegrationTest.KnowledgeIndex;
 [Category("RealDatabase")]
 public class KnowledgeIndexGoldenSetDiHostTests
 {
-    private static readonly string GoldenSetPath =
-        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden.json");
+    // W0.5: single source of truth — the Api goldset under Klacks.Api/Application/Skills/Goldsets.
+    private static readonly string GoldenSetPath = LocateApiGoldset("knowledge-index-v1.json");
 
     private record GoldenItem(string Query, string ExpectedSourceId);
+
+    private static string LocateApiGoldset(string fileName)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            var candidate = Path.Combine(dir.FullName, "Klacks.Api", "Application", "Skills", "Goldsets", fileName);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            dir = dir.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not locate Klacks.Api/Application/Skills/Goldsets/{fileName} by walking up from the test base directory.");
+    }
 
     // Neutralizes AssistantExtensions.SeedUiControlsAsync (called unconditionally from Program.cs
     // startup) so the host can boot at all: UiControl audit columns are pre-existing on HEAD as
