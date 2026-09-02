@@ -11,6 +11,7 @@
 
 using Klacks.Api.Application.Services.Assistant.Evaluation.TurnEval;
 using Klacks.Api.Domain.Enums;
+using Klacks.Api.Domain.Interfaces.Assistant;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.IntegrationTest.SignalR;
@@ -28,8 +29,6 @@ namespace Klacks.IntegrationTest.Assistant;
 public class TurnNamesGoldenSetTests
 {
     private const string GoldsetName = "turn-names-v1";
-    private const string ModelIdEnvironmentVariable = "TURNEVAL_MODEL_ID";
-    private const string DefaultModelId = "deepseek-v4-pro";
     private const string AdminRight = "Admin";
     private const string SeedMarker = "INTEGRATION_TEST_TURNEVAL";
 
@@ -63,7 +62,7 @@ public class TurnNamesGoldenSetTests
     [Test]
     public async Task TurnNamesGoldset_SeedsPersonsRemapsPlaceholdersAndReportsNameResolution()
     {
-        var modelId = Environment.GetEnvironmentVariable(ModelIdEnvironmentVariable) ?? DefaultModelId;
+        var modelId = TurnEvalPassRateGate.ResolveModelId();
 
         await CleanupSeededClientsAsync();
         var placeholderToIdNumber = await SeedPersonsViaEfAsync();
@@ -75,6 +74,14 @@ public class TurnNamesGoldenSetTests
         var items = await loader.LoadAsync(GoldsetName);
         var remapped = RemapPlaceholders(items, placeholderToIdNumber);
 
+        // Threshold BEFORE the run so the freshly persisted EvalRun is never its own baseline.
+        var threshold = await TurnEvalPassRateGate.ResolveThresholdAsync(
+            scope.ServiceProvider.GetRequiredService<IEvalRunRepository>(),
+            GoldsetName,
+            modelId,
+            remapped.Count,
+            isPartial: false);
+
         var result = await runner.RunAsync(
             GoldsetName,
             remapped,
@@ -84,9 +91,16 @@ public class TurnNamesGoldenSetTests
             userRights: [AdminRight]);
 
         result.Dimensions.ShouldNotBeNull();
+
+        // The item count stays a precondition: it is what makes the pass rate below comparable.
         result.Dimensions!.ItemsTotal.ShouldBe(SeedPersons.Length);
 
         WriteScorecard(modelId, result);
+
+        var passRate = TurnEvalPassRateGate.ComputePassRate(result.Dimensions);
+        passRate.ShouldBeGreaterThanOrEqualTo(
+            threshold,
+            $"turn-names pass rate {passRate:P1} below the gate {threshold:P1}.");
     }
 
     private async Task<Dictionary<int, int>> SeedPersonsViaEfAsync()
@@ -165,11 +179,12 @@ public class TurnNamesGoldenSetTests
 
         TestContext.WriteLine($"Goldset:                {GoldsetName}");
         TestContext.WriteLine($"Model:                  {modelId} (provider: {result.Run.Provider})");
+        TestContext.WriteLine($"ScorerVersion:          {result.Run.ScorerVersion} (partial run: {result.Run.IsPartial})");
         TestContext.WriteLine($"Composite:              {result.Run.CompositeScore:F4}");
         TestContext.WriteLine($"ToolAccuracy:           {Format(dimensions.ToolAccuracy)}");
         TestContext.WriteLine($"SlotAccuracy:           {Format(dimensions.SlotAccuracy)}");
         TestContext.WriteLine($"NameResolutionAccuracy: {Format(dimensions.NameResolutionAccuracy)}");
-        TestContext.WriteLine($"AvgLatencyMs:           {dimensions.AvgLatencyMs:F0}");
+        TestContext.WriteLine($"AvgLatencyMs:           {dimensions.AvgLatencyMs:F0} (reported only, not in the composite)");
         TestContext.WriteLine(
             $"Items:                  total={dimensions.ItemsTotal}, passed={dimensions.ItemsPassed}, " +
             $"excluded={dimensions.ItemsExcluded}, errored={dimensions.ItemsErrored}");
