@@ -141,14 +141,21 @@ public class UspSettingsEffectivenessTests
     [Test]
     public async Task ClientContractDataProvider_NightWindowSettings_DriveContractlessDefaults()
     {
-        var provider = new ClientContractDataProvider(_context, NullLogger<ClientContractDataProvider>.Instance);
         var clientWithoutContract = Guid.NewGuid();
         var date = new DateOnly(2091, 3, 10);
 
         await UpsertSettingAsync(SettingKeys.SurchargeNightStart, "22:00");
         await UpsertSettingAsync(SettingKeys.SurchargeNightEnd, "05:00");
 
-        var dataA = await provider.GetEffectiveContractDataAsync(clientWithoutContract, date);
+        // A fresh provider instance per resolution, not one shared across both settings edits: the
+        // provider deliberately memoizes default settings for the lifetime of one DI scope
+        // (ClientContractDataProvider.cs, LoadDefaultSettingsAsync) because in production a settings
+        // write and a contract-data resolve never share a scope - the settings handler only queues a
+        // recalculation, which runs in its own fresh scope. Reusing one provider instance across both
+        // edits here would exercise a scope shape that never occurs in production and would just be
+        // testing the memoization cache instead of the resolver.
+        var providerA = new ClientContractDataProvider(_context, NullLogger<ClientContractDataProvider>.Instance);
+        var dataA = await providerA.GetEffectiveContractDataAsync(clientWithoutContract, date);
 
         dataA.NightStart.ShouldBe("22:00");
         dataA.NightEnd.ShouldBe("05:00");
@@ -156,7 +163,8 @@ public class UspSettingsEffectivenessTests
         await UpsertSettingAsync(SettingKeys.SurchargeNightStart, "23:15");
         await UpsertSettingAsync(SettingKeys.SurchargeNightEnd, "06:45");
 
-        var dataB = await provider.GetEffectiveContractDataAsync(clientWithoutContract, date);
+        var providerB = new ClientContractDataProvider(_context, NullLogger<ClientContractDataProvider>.Instance);
+        var dataB = await providerB.GetEffectiveContractDataAsync(clientWithoutContract, date);
 
         dataB.NightStart.ShouldBe("23:15", "editing SURCHARGE_NIGHT_START must move the effective night window start");
         dataB.NightEnd.ShouldBe("06:45", "editing SURCHARGE_NIGHT_END must move the effective night window end");

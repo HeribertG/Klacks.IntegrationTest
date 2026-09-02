@@ -68,7 +68,7 @@ public class GetWorkScheduleTests
         var client = new Klacks.Api.Domain.Models.Staffs.Client
         {
             Id = _testClientId,
-            Name = "TEST_WorkSchedule",
+            Name = "INTEGRATION_TEST_WorkSchedule",
             FirstName = "Integration",
             IsDeleted = false
         };
@@ -77,7 +77,7 @@ public class GetWorkScheduleTests
         var shift = new Shift
         {
             Id = _testShiftId,
-            Name = "TEST_Shift",
+            Name = "INTEGRATION_TEST_Shift",
             StartShift = new TimeOnly(8, 0, 0),
             EndShift = new TimeOnly(16, 0, 0),
             IsDeleted = false
@@ -154,7 +154,7 @@ public class GetWorkScheduleTests
         // Assert
         result.Count.ShouldBe(1);
         result[0].EntryType.ShouldBe(0);
-        result[0].EntryName.ShouldBe("TEST_Shift");
+        result[0].EntryName.ShouldBe("INTEGRATION_TEST_Shift");
         result[0].StartTime.ShouldBe(new TimeSpan(8, 0, 0));
         result[0].EndTime.ShouldBe(new TimeSpan(16, 0, 0));
     }

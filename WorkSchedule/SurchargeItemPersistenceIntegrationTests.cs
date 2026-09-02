@@ -213,7 +213,7 @@ OUTPUT 14, BonusHoliday
         _context.Set<Macro>().Add(new Macro
         {
             Id = _testMacroId,
-            Name = "TEST_TypedAllShift",
+            Name = "INTEGRATION_TEST_TypedAllShift",
             Type = 0,
             Content = TypedAllShiftMacro,
             IsDeleted = false
@@ -222,7 +222,7 @@ OUTPUT 14, BonusHoliday
         _context.Client.Add(new Klacks.Api.Domain.Models.Staffs.Client
         {
             Id = _testClientId,
-            Name = "TEST_SurchargeItem",
+            Name = "INTEGRATION_TEST_SurchargeItem",
             FirstName = "Integration",
             IsDeleted = false
         });
@@ -230,7 +230,7 @@ OUTPUT 14, BonusHoliday
         _context.Shift.Add(new Shift
         {
             Id = _testShiftId,
-            Name = "TEST_Shift",
+            Name = "INTEGRATION_TEST_Shift",
             MacroId = _testMacroId,
             StartShift = new TimeOnly(8, 0, 0),
             EndShift = new TimeOnly(16, 0, 0),

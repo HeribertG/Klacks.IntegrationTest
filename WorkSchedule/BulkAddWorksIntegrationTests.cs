@@ -262,7 +262,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
         var contract = new Contract
         {
             Id = _testContractId,
-            Name = "TEST_Contract",
+            Name = "INTEGRATION_TEST_Contract",
             WE1Rate = 0.1m,
             WE2Rate = 0.1m,
             NightRate = 0.1m,
@@ -277,7 +277,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
         var client = new Klacks.Api.Domain.Models.Staffs.Client
         {
             Id = _testClientId,
-            Name = "TEST_BulkAdd",
+            Name = "INTEGRATION_TEST_BulkAdd",
             FirstName = "Integration",
             IsDeleted = false
         };
@@ -297,7 +297,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
         var shift = new Shift
         {
             Id = _testShiftId,
-            Name = "TEST_Shift",
+            Name = "INTEGRATION_TEST_Shift",
             MacroId = _testMacroId,
             StartShift = new TimeOnly(8, 0, 0),
             EndShift = new TimeOnly(16, 0, 0),

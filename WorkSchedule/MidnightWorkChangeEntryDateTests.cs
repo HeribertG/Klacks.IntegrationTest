@@ -52,7 +52,7 @@ public class MidnightWorkChangeEntryDateTests
         _context.Client.Add(new Klacks.Api.Domain.Models.Staffs.Client
         {
             Id = _clientId,
-            Name = "TEST_MidnightWorkChange",
+            Name = "INTEGRATION_TEST_MidnightWorkChange",
             FirstName = "Integration",
             IsDeleted = false
         });
@@ -60,7 +60,7 @@ public class MidnightWorkChangeEntryDateTests
         _context.Shift.Add(new Shift
         {
             Id = _shiftId,
-            Name = "TEST_NightShift",
+            Name = "INTEGRATION_TEST_NightShift",
             StartShift = new TimeOnly(22, 0, 0),
             EndShift = new TimeOnly(6, 0, 0),
             IsDeleted = false

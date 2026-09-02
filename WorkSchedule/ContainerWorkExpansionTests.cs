@@ -68,7 +68,7 @@ public class ContainerWorkExpansionTests
         var client = new Client
         {
             Id = _testClientId,
-            Name = "TEST_ContainerExpansion",
+            Name = "INTEGRATION_TEST_ContainerExpansion",
             FirstName = "Integration",
             IsDeleted = false
         };
@@ -77,7 +77,7 @@ public class ContainerWorkExpansionTests
         var containerShift = new Shift
         {
             Id = _testContainerShiftId,
-            Name = "TEST_ContainerShift",
+            Name = "INTEGRATION_TEST_ContainerShift",
             ShiftType = ShiftType.IsContainer,
             StartShift = new TimeOnly(8, 0, 0),
             EndShift = new TimeOnly(16, 0, 0),
@@ -88,7 +88,7 @@ public class ContainerWorkExpansionTests
         var taskShift = new Shift
         {
             Id = _testTaskShiftId,
-            Name = "TEST_TaskShift",
+            Name = "INTEGRATION_TEST_TaskShift",
             ShiftType = ShiftType.IsTask,
             StartShift = new TimeOnly(8, 0, 0),
             EndShift = new TimeOnly(12, 0, 0),

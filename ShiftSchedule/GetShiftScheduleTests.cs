@@ -55,7 +55,7 @@ public class GetShiftScheduleTests
     private async Task CleanupTestData()
     {
         var testShiftIds = await _context.Shift
-            .Where(s => s.Name.StartsWith("TEST_"))
+            .Where(s => s.Name.StartsWith("INTEGRATION_TEST_"))
             .Select(s => s.Id)
             .ToListAsync();
 
@@ -73,7 +73,7 @@ public class GetShiftScheduleTests
         }
 
         var testGroups = await _context.Group
-            .Where(g => g.Name.StartsWith("TEST_GROUP_"))
+            .Where(g => g.Name.StartsWith("INTEGRATION_TEST_GROUP_"))
             .ToListAsync();
 
         if (testGroups.Count != 0)
@@ -102,7 +102,7 @@ public class GetShiftScheduleTests
         var shift = new Shift
         {
             Id = Guid.NewGuid(),
-            Name = $"TEST_{name}",
+            Name = $"INTEGRATION_TEST_{name}",
             Abbreviation = name[..Math.Min(3, name.Length)].ToUpper(),
             Status = ShiftStatus.OriginalShift,
             ShiftType = ShiftType.IsTask,
@@ -724,7 +724,7 @@ public class GetShiftScheduleTests
         var group = new Group
         {
             Id = Guid.NewGuid(),
-            Name = $"TEST_GROUP_{name}",
+            Name = $"INTEGRATION_TEST_GROUP_{name}",
             Description = $"Test group {name}",
             ValidFrom = DateTime.UtcNow.AddYears(-1),
             Parent = parentId,

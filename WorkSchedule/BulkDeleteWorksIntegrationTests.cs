@@ -112,7 +112,7 @@ public class BulkDeleteWorksIntegrationTests
         var client = new Klacks.Api.Domain.Models.Staffs.Client
         {
             Id = _testClientId,
-            Name = "TEST_BulkDelete",
+            Name = "INTEGRATION_TEST_BulkDelete",
             FirstName = "Integration",
             IsDeleted = false
         };
@@ -121,7 +121,7 @@ public class BulkDeleteWorksIntegrationTests
         var shift = new Shift
         {
             Id = _testShiftId,
-            Name = "TEST_Shift",
+            Name = "INTEGRATION_TEST_Shift",
             StartShift = new TimeOnly(8, 0, 0),
             EndShift = new TimeOnly(16, 0, 0),
             IsDeleted = false

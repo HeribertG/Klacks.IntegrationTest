@@ -17,7 +17,7 @@ namespace Klacks.IntegrationTest.ShiftSchedule;
 [TestFixture]
 public class SporadicShiftStatusTests
 {
-    private const string TestPrefix = "TEST_SPORADIC_";
+    private const string TestPrefix = "INTEGRATION_TEST_SPORADIC_";
 
     private DataBaseContext _context = null!;
     private ShiftScheduleService _service = null!;

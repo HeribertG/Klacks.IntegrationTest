@@ -127,7 +127,7 @@ public class BreakRepositoryGroupSealTests
         var shift1 = new Shift
         {
             Id = _shift1Id,
-            Name = "TEST_BreakGroupSeal_Shift1",
+            Name = "INTEGRATION_TEST_BreakGroupSeal_Shift1",
             StartShift = new TimeOnly(8, 0),
             EndShift = new TimeOnly(16, 0),
             IsDeleted = false
@@ -135,7 +135,7 @@ public class BreakRepositoryGroupSealTests
         var shift2 = new Shift
         {
             Id = _shift2Id,
-            Name = "TEST_BreakGroupSeal_Shift2",
+            Name = "INTEGRATION_TEST_BreakGroupSeal_Shift2",
             StartShift = new TimeOnly(8, 0),
             EndShift = new TimeOnly(16, 0),
             IsDeleted = false
@@ -145,7 +145,7 @@ public class BreakRepositoryGroupSealTests
         var group1 = new Group
         {
             Id = _group1Id,
-            Name = "TEST_BreakGroupSeal_Group1",
+            Name = "INTEGRATION_TEST_BreakGroupSeal_Group1",
             Description = "Integration test group 1",
             ValidFrom = DateTime.UtcNow.AddYears(-1),
             IsDeleted = false
@@ -153,7 +153,7 @@ public class BreakRepositoryGroupSealTests
         var group2 = new Group
         {
             Id = _group2Id,
-            Name = "TEST_BreakGroupSeal_Group2",
+            Name = "INTEGRATION_TEST_BreakGroupSeal_Group2",
             Description = "Integration test group 2",
             ValidFrom = DateTime.UtcNow.AddYears(-1),
             IsDeleted = false
@@ -179,14 +179,14 @@ public class BreakRepositoryGroupSealTests
         var client1 = new Client
         {
             Id = _client1Id,
-            Name = "TEST_BreakGroupSeal_Client1",
+            Name = "INTEGRATION_TEST_BreakGroupSeal_Client1",
             FirstName = "Seal",
             IsDeleted = false
         };
         var client2 = new Client
         {
             Id = _client2Id,
-            Name = "TEST_BreakGroupSeal_Client2",
+            Name = "INTEGRATION_TEST_BreakGroupSeal_Client2",
             FirstName = "Seal",
             IsDeleted = false
         };

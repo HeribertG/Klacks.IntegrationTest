@@ -259,7 +259,7 @@ public class WizardE2ETests
         var client = new Client
         {
             Id = _testClientId,
-            Name = "TEST_Wizard",
+            Name = "INTEGRATION_TEST_Wizard",
             FirstName = "Integration",
             IsDeleted = false,
         };
@@ -268,7 +268,7 @@ public class WizardE2ETests
         var contract = new Contract
         {
             Id = _testContractId,
-            Name = "TEST_Wizard_Contract",
+            Name = "INTEGRATION_TEST_Wizard_Contract",
             ValidFrom = DateTime.UtcNow.AddYears(-1),
             ValidUntil = null,
             GuaranteedHours = 16,
@@ -298,7 +298,7 @@ public class WizardE2ETests
         var shift = new Shift
         {
             Id = _testShiftId,
-            Name = "TEST_Wizard_Shift",
+            Name = "INTEGRATION_TEST_Wizard_Shift",
             Abbreviation = "TWS",
             StartShift = new TimeOnly(8, 0),
             EndShift = new TimeOnly(16, 0),

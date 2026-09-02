@@ -205,7 +205,7 @@ public class HolisticHarmonizerLlmSmokeTests
         var contract = new Contract
         {
             Id = _contractId,
-            Name = "TEST_Holistic_Contract",
+            Name = "INTEGRATION_TEST_Holistic_Contract",
             ValidFrom = DateTime.UtcNow.AddYears(-1),
             ValidUntil = null,
             GuaranteedHours = 80,
@@ -230,7 +230,7 @@ public class HolisticHarmonizerLlmSmokeTests
             _context.Client.Add(new Client
             {
                 Id = clientId,
-                Name = $"TEST_Holistic_{i}",
+                Name = $"INTEGRATION_TEST_Holistic_{i}",
                 FirstName = "Smoke",
                 IsDeleted = false,
             });
@@ -252,7 +252,7 @@ public class HolisticHarmonizerLlmSmokeTests
             _context.Shift.Add(new Shift
             {
                 Id = shiftId,
-                Name = $"TEST_Holistic_Shift_{s}",
+                Name = $"INTEGRATION_TEST_Holistic_Shift_{s}",
                 Abbreviation = $"H{s}",
                 StartShift = ShiftStart[s],
                 EndShift = ShiftEnd[s],

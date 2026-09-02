@@ -130,7 +130,7 @@ public class WorkNotificationHubTests
         var client = new Client
         {
             Id = _testClientId,
-            Name = "TEST_SignalR",
+            Name = "INTEGRATION_TEST_SignalR",
             FirstName = "Integration",
             IsDeleted = false
         };
@@ -139,7 +139,7 @@ public class WorkNotificationHubTests
         var shift = new Shift
         {
             Id = _testShiftId,
-            Name = "TEST_SignalR_Shift",
+            Name = "INTEGRATION_TEST_SignalR_Shift",
             Abbreviation = "TSS",
             StartShift = new TimeOnly(8, 0, 0),
             EndShift = new TimeOnly(16, 0, 0),

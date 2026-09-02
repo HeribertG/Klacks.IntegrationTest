@@ -80,7 +80,7 @@ public class ExpensesRefreshIntegrationTests
         _context.Client.Add(new Client
         {
             Id = _clientId,
-            Name = "TEST_ExpensesRefresh",
+            Name = "INTEGRATION_TEST_ExpensesRefresh",
             FirstName = "Integration",
             IsDeleted = false,
         });
@@ -88,7 +88,7 @@ public class ExpensesRefreshIntegrationTests
         _context.Shift.Add(new Shift
         {
             Id = _shiftId,
-            Name = "TEST_Shift_ExpensesRefresh",
+            Name = "INTEGRATION_TEST_Shift_ExpensesRefresh",
             StartShift = new TimeOnly(8, 0),
             EndShift = new TimeOnly(16, 0),
             IsDeleted = false,

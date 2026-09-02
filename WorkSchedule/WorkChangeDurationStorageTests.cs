@@ -82,7 +82,7 @@ public class WorkChangeDurationStorageTests
         _context.Client.Add(new Klacks.Api.Domain.Models.Staffs.Client
         {
             Id = _clientId,
-            Name = "TEST_WCDuration_Owner",
+            Name = "INTEGRATION_TEST_WCDuration_Owner",
             FirstName = "Integration",
             IsDeleted = false
         });
@@ -90,7 +90,7 @@ public class WorkChangeDurationStorageTests
         _context.Client.Add(new Klacks.Api.Domain.Models.Staffs.Client
         {
             Id = _replaceClientId,
-            Name = "TEST_WCDuration_Replace",
+            Name = "INTEGRATION_TEST_WCDuration_Replace",
             FirstName = "Integration",
             IsDeleted = false
         });
@@ -98,7 +98,7 @@ public class WorkChangeDurationStorageTests
         _context.Shift.Add(new Shift
         {
             Id = _shiftId,
-            Name = "TEST_DayShift_0800_1600",
+            Name = "INTEGRATION_TEST_DayShift_0800_1600",
             StartShift = ShiftStart,
             EndShift = ShiftEnd,
             IsDeleted = false

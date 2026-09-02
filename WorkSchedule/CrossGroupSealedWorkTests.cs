@@ -74,20 +74,20 @@ public class CrossGroupSealedWorkTests
         _context.Group.Add(new Group
         {
             Id = _visibleGroupId,
-            Name = "TEST_VisibleGroup",
+            Name = "INTEGRATION_TEST_VisibleGroup",
             IsDeleted = false
         });
         _context.Group.Add(new Group
         {
             Id = _foreignGroupId,
-            Name = "TEST_ForeignGroup",
+            Name = "INTEGRATION_TEST_ForeignGroup",
             IsDeleted = false
         });
 
         _context.Client.Add(new Client
         {
             Id = _clientId,
-            Name = "TEST_CrossGroupClient",
+            Name = "INTEGRATION_TEST_CrossGroupClient",
             FirstName = "Integration",
             IsDeleted = false
         });
@@ -95,7 +95,7 @@ public class CrossGroupSealedWorkTests
         _context.Shift.Add(new Shift
         {
             Id = _shiftInForeignGroupId,
-            Name = "TEST_ForeignShift",
+            Name = "INTEGRATION_TEST_ForeignShift",
             StartShift = new TimeOnly(14, 0, 0),
             EndShift = new TimeOnly(22, 0, 0),
             IsDeleted = false
@@ -165,7 +165,7 @@ public class CrossGroupSealedWorkTests
         result[0].IsGroupRestricted.ShouldBeTrue(
             "Work to a shift in a foreign group must be returned as sealed " +
             "so the calling group sees the booking and cannot double-book the client.");
-        result[0].EntryName.ShouldBe("TEST_ForeignShift");
+        result[0].EntryName.ShouldBe("INTEGRATION_TEST_ForeignShift");
     }
 
     [Test]
