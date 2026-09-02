@@ -12,8 +12,8 @@ using NUnit.Framework;
 // independent of which fixtures or filters are executed.
 
 /// <summary>
-/// Assembly-wide one-time setup for the integration tests. Two responsibilities, both required
-/// before any fixture touches the database:
+/// Assembly-wide one-time setup for the integration tests. Three responsibilities, the first two
+/// required before any fixture touches the database:
 /// (1) Enables Npgsql's legacy timestamp behaviour (mirrors the production runtime in Program.cs) so
 ///     DateTimes with Kind=Unspecified/Local can be written to timestamptz columns; the test host
 ///     never runs Program.cs, so without this any entity storing such a DateTime is rejected. The
@@ -26,6 +26,9 @@ using NUnit.Framework;
 ///     procedures, and the full seed set incl. the default agent that only full host startup creates)
 ///     removes that ordering dependency. On an already-migrated database (the shared local dev DB) the
 ///     pending-migration probe short-circuits to a fast no-op, so no host is booted here.
+/// (3) Purges leftover INTEGRATION_TEST_ fixture rows before and after the run. A fixture [TearDown]
+///     cannot clean up after a host that died mid-run, and leaked clients are live rows the dev app's
+///     production detectors then act on, see IntegrationTestFixturePurge.
 /// </summary>
 [SetUpFixture]
 public class IntegrationTestAssemblySetup
@@ -34,6 +37,13 @@ public class IntegrationTestAssemblySetup
     public async Task GlobalSetup()
     {
         await EnsureDatabaseInitializedAsync();
+        await IntegrationTestFixturePurge.RunAsync("before run");
+    }
+
+    [OneTimeTearDown]
+    public async Task GlobalTearDown()
+    {
+        await IntegrationTestFixturePurge.RunAsync("after run");
     }
 
     private static async Task EnsureDatabaseInitializedAsync()
