@@ -1,4 +1,4 @@
-// Copyright (c) Heribert Gasparoli Private. All rights reserved.
+﻿// Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 using System.Net.Http.Json;
 using Shouldly;
@@ -341,6 +341,7 @@ public class WizardE2ETests
             new(System.Security.Claims.ClaimTypes.Name, $"TestUser{userId}"),
             new("jti", Guid.NewGuid().ToString()),
             new("iat", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), System.Security.Claims.ClaimValueTypes.Integer64),
+            new(System.Security.Claims.ClaimTypes.Role, Klacks.Api.Domain.Constants.Roles.Admin),
         };
 
         var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
