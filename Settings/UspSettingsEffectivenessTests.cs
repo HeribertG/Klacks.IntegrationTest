@@ -13,6 +13,7 @@ using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces.Settings;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.Associations;
+using Klacks.Api.Infrastructure.Services.Settings;
 using Klacks.Api.Infrastructure.Services.Schedules;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +35,7 @@ public class UspSettingsEffectivenessTests
 
     private DataBaseContext _context = null!;
     private IDbContextTransaction _transaction = null!;
+    private ISettingsChangeVersion _settingsChangeVersion = null!;
 
     [SetUp]
     public async Task SetUp()
@@ -46,7 +48,12 @@ public class UspSettingsEffectivenessTests
             .UseSnakeCaseNamingConvention()
             .Options;
 
-        _context = new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
+        _settingsChangeVersion = new SettingsChangeVersion();
+        _context = new DataBaseContext(
+            options,
+            Substitute.For<IHttpContextAccessor>(),
+            settingsEncryptionService: null,
+            settingsChangeVersion: _settingsChangeVersion);
         _transaction = await _context.Database.BeginTransactionAsync();
     }
 
@@ -65,7 +72,7 @@ public class UspSettingsEffectivenessTests
     [Test]
     public async Task OvertimeConfigResolver_TierLadderSettings_DriveResolvedLadder()
     {
-        var resolver = new OvertimeConfigResolver(_context, new ClientContractDataProvider(_context, NullLogger<ClientContractDataProvider>.Instance));
+        var resolver = new OvertimeConfigResolver(_context, new ClientContractDataProvider(_context, NullLogger<ClientContractDataProvider>.Instance, new SettingsChangeVersion()));
         var clientWithoutContract = Guid.NewGuid();
         var date = new DateOnly(2091, 3, 10);
 
@@ -138,24 +145,23 @@ public class UspSettingsEffectivenessTests
             .ShouldBe(RuleEnforcementMode.Block, "the per-rule key must win over DEFAULT_MODE");
     }
 
+    // Guards the same-scope write-then-resolve path used by skill chains and plan runs:
+    // SkillExecutorService.ExecuteChainAsync and PlanStepExecutor run several skills in one DI scope,
+    // so a settings-writing skill followed by a contract-data resolve in the same chain shares this
+    // provider instance. ONE provider is deliberately reused across both settings edits below - a
+    // fresh provider per edit would only exercise the resolver, not the cache invalidation that keeps
+    // it correct when a write and a resolve land in the same scope.
     [Test]
     public async Task ClientContractDataProvider_NightWindowSettings_DriveContractlessDefaults()
     {
+        var provider = new ClientContractDataProvider(_context, NullLogger<ClientContractDataProvider>.Instance, _settingsChangeVersion);
         var clientWithoutContract = Guid.NewGuid();
         var date = new DateOnly(2091, 3, 10);
 
         await UpsertSettingAsync(SettingKeys.SurchargeNightStart, "22:00");
         await UpsertSettingAsync(SettingKeys.SurchargeNightEnd, "05:00");
 
-        // A fresh provider instance per resolution, not one shared across both settings edits: the
-        // provider deliberately memoizes default settings for the lifetime of one DI scope
-        // (ClientContractDataProvider.cs, LoadDefaultSettingsAsync) because in production a settings
-        // write and a contract-data resolve never share a scope - the settings handler only queues a
-        // recalculation, which runs in its own fresh scope. Reusing one provider instance across both
-        // edits here would exercise a scope shape that never occurs in production and would just be
-        // testing the memoization cache instead of the resolver.
-        var providerA = new ClientContractDataProvider(_context, NullLogger<ClientContractDataProvider>.Instance);
-        var dataA = await providerA.GetEffectiveContractDataAsync(clientWithoutContract, date);
+        var dataA = await provider.GetEffectiveContractDataAsync(clientWithoutContract, date);
 
         dataA.NightStart.ShouldBe("22:00");
         dataA.NightEnd.ShouldBe("05:00");
@@ -163,8 +169,7 @@ public class UspSettingsEffectivenessTests
         await UpsertSettingAsync(SettingKeys.SurchargeNightStart, "23:15");
         await UpsertSettingAsync(SettingKeys.SurchargeNightEnd, "06:45");
 
-        var providerB = new ClientContractDataProvider(_context, NullLogger<ClientContractDataProvider>.Instance);
-        var dataB = await providerB.GetEffectiveContractDataAsync(clientWithoutContract, date);
+        var dataB = await provider.GetEffectiveContractDataAsync(clientWithoutContract, date);
 
         dataB.NightStart.ShouldBe("23:15", "editing SURCHARGE_NIGHT_START must move the effective night window start");
         dataB.NightEnd.ShouldBe("06:45", "editing SURCHARGE_NIGHT_END must move the effective night window end");
