@@ -31,7 +31,7 @@ namespace Klacks.IntegrationTest.WorkSchedule;
 [NonParallelizable]
 public class WorkListClientScopeTests
 {
-    private const string TestPrefix = "TEST_WorkListScope_";
+    private const string TestPrefix = "INTEGRATION_TEST_WorkListScope_";
 
     private DataBaseContext _context = null!;
     private WorkRepository _repo = null!;
