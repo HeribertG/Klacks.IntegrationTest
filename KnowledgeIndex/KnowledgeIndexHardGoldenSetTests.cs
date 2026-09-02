@@ -47,10 +47,14 @@ public class KnowledgeIndexHardGoldenSetTests
     private static readonly string GoldenSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard.json");
 
-    // No baseline gate on purpose: this set exists to MEASURE the confusable-cluster gap, not to
-    // enforce a threshold yet. Once a baseline run has happened, replace this with a real number.
-    // The gate can be forced without code changes via KNOWLEDGEINDEX_HARD_MIN_PASS_RATE (0.0-1.0).
-    private const double MinPassRate = 0.0;
+    // A gate of 0.0 was a gate in name only - the assertion could never fail, so a total retrieval
+    // collapse read as green. There is still NO recorded top-3 measurement for this set (it writes
+    // no eval_runs row and no summary in docs/ or the nightly backups carries one), so this floor is
+    // a deliberate provisional target, not "measured value - 5 pp": half the queries of a set built
+    // from confusable clusters must land their expectation in the top 3. Replace it with
+    // "measured - 5 pp" as soon as a run is on record, and override per run without a code change
+    // via KNOWLEDGEINDEX_HARD_MIN_PASS_RATE (0.0-1.0).
+    private const double MinPassRate = 0.5;
 
     [SetUp]
     public void SkipOnUnsupportedOnnxPlatform()
