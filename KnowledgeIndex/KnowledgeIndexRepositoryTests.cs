@@ -1,6 +1,7 @@
-// Copyright (c) Heribert Gasparoli Private. All rights reserved.
+﻿// Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 using Shouldly;
+using Klacks.Api.KnowledgeIndex.Application.Constants;
 using Klacks.Api.KnowledgeIndex.Domain;
 using Klacks.Api.KnowledgeIndex.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
@@ -53,7 +54,7 @@ public class KnowledgeIndexRepositoryTests
     [Test]
     public async Task UpsertThenFindNearest_ReturnsInsertedEntryByEmbedding()
     {
-        var embedding = Enumerable.Range(0, 384).Select(i => i % 2 == 0 ? 1.0f : 0.0f).ToArray();
+        var embedding = Enumerable.Range(0, KnowledgeIndexConstants.EmbeddingDimension).Select(i => i % 2 == 0 ? 1.0f : 0.0f).ToArray();
         var norm = Math.Sqrt(embedding.Sum(x => (double)x * x));
         embedding = embedding.Select(x => (float)(x / norm)).ToArray();
 
@@ -84,7 +85,7 @@ public class KnowledgeIndexRepositoryTests
     [Test]
     public async Task FindNearestAsync_RespectsPermissionFilter()
     {
-        var embedding = Enumerable.Range(0, 384).Select(_ => 1.0f / (float)Math.Sqrt(384)).ToArray();
+        var embedding = Enumerable.Range(0, KnowledgeIndexConstants.EmbeddingDimension).Select(_ => 1.0f / (float)Math.Sqrt(KnowledgeIndexConstants.EmbeddingDimension)).ToArray();
 
         var restrictedSourceId = Prefixed("RestrictedSkill");
         var publicSourceId = Prefixed("PublicSkill");
@@ -129,7 +130,7 @@ public class KnowledgeIndexRepositoryTests
     [Test]
     public async Task FindNearestAsync_AdminBypassReturnsAllEntries()
     {
-        var embedding = Enumerable.Range(0, 384).Select(_ => 1.0f / (float)Math.Sqrt(384)).ToArray();
+        var embedding = Enumerable.Range(0, KnowledgeIndexConstants.EmbeddingDimension).Select(_ => 1.0f / (float)Math.Sqrt(KnowledgeIndexConstants.EmbeddingDimension)).ToArray();
 
         var sourceIdA = Prefixed("A");
         var sourceIdB = Prefixed("B");
@@ -151,7 +152,7 @@ public class KnowledgeIndexRepositoryTests
     [Test]
     public async Task GetAllHashesAsync_ReturnsInsertedHashes()
     {
-        var embedding = Enumerable.Range(0, 384).Select(_ => 1.0f / (float)Math.Sqrt(384)).ToArray();
+        var embedding = Enumerable.Range(0, KnowledgeIndexConstants.EmbeddingDimension).Select(_ => 1.0f / (float)Math.Sqrt(KnowledgeIndexConstants.EmbeddingDimension)).ToArray();
         var hash = new byte[] { 9, 8, 7 };
         var sourceId = Prefixed("HashSkill");
 
@@ -169,7 +170,7 @@ public class KnowledgeIndexRepositoryTests
     [Test]
     public async Task DeleteAsync_RemovesSpecifiedEntries()
     {
-        var embedding = Enumerable.Range(0, 384).Select(_ => 1.0f / (float)Math.Sqrt(384)).ToArray();
+        var embedding = Enumerable.Range(0, KnowledgeIndexConstants.EmbeddingDimension).Select(_ => 1.0f / (float)Math.Sqrt(KnowledgeIndexConstants.EmbeddingDimension)).ToArray();
 
         var toDeleteSourceId = Prefixed("ToDelete");
         var toKeepSourceId = Prefixed("ToKeep");
