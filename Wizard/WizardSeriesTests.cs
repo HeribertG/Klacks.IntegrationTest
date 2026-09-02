@@ -45,16 +45,45 @@ public class WizardSeriesTests : WizardHarnessTestBase
     }
 
     [Test]
-    public async Task FourClients_HeadcountInfeasible()
+    public async Task FourClients_MinimumFullCoverage()
     {
-        // 4 agents structurally cannot tile FD/SD/ND 24/7 under the default rest rules: ND ends
-        // 07:00 and MinPause=11h blocks the same agent's next-day FD(07:00)/SD(15:00), so the
-        // canonical continental rotation needs >= 5 agents. The engine must leave gaps rather than
-        // break a rest rule -> the only violations are UnderSupply, never MinPause/MaxConsecutive/
-        // Overlap/MaxDaily. This documents the 5-agent minimum for 24/7 coverage.
+        // 93 slots (31 days x FD/SD/ND @ 8h) need >= 3 agents per calendar day, since MinPause=12h
+        // caps one shift per agent per day. MaxConsecutiveDays=6 (with MinRestDays=2) caps an agent
+        // at 6 of every 8 days, so N >= 3 / (6/8) = 4: 4 agents are the exact minimum, not merely
+        // feasible. The forward rotation F->S->N->rest is allowed (rest gaps of 24/24/48h); only the
+        // backward N->F/S turnaround on the following day is blocked. MaxWorkDays=5 would push the
+        // minimum to 5, but it is a soft constraint (Stage1SoftConstraintChecker, no ViolationKind)
+        // and therefore does not surface here.
         var spec = BuildSpec(
-            scenarioName: "FourClients_HeadcountInfeasible",
+            scenarioName: "FourClients_MinimumFullCoverage",
             clientCount: 4,
+            guaranteedHoursPerClient: _ => FlatGuaranteedHours,
+            shiftQuantity: 1);
+
+        // Full budget (early-stop = generations): confirms the minimum is actually reachable.
+        var result = await RunScenarioAsync(spec, maxGenerations: 100, earlyStop: 100);
+
+        result.Metrics.TheoreticalMaxCoverage.ShouldBe(1.0);
+        result.Metrics.CoveragePercent.ShouldBe(1.0, "4 agents are the exact minimum for 24/7 coverage");
+        result.Uncovered.ShouldBeEmpty("4 agents must fully cover the schedule");
+        foreach (var restKind in new[] { "MinPauseHours", "MaxConsecutiveDays", "Overlap", "MaxDailyHours" })
+        {
+            result.Metrics.ViolationsByKind.ContainsKey(restKind).ShouldBeFalse(
+                $"engine must not break the {restKind} rule to cover");
+        }
+    }
+
+    [Test]
+    public async Task ThreeClients_HeadcountInfeasible()
+    {
+        // Same scenario as FourClients_MinimumFullCoverage, one agent short. With only 3 agents,
+        // covering every day (3 shifts/day) would require all 3 to work all 31 days, which breaks
+        // MaxConsecutiveDays=6. The hard upper bound is 3 agents x 27 of 31 working days (6-on/2-off)
+        // = 81/93 slots ~= 0.871. The engine must leave gaps rather than break a rest rule -> the
+        // only violations are UnderSupply, never MinPause/MaxConsecutive/Overlap/MaxDaily.
+        var spec = BuildSpec(
+            scenarioName: "ThreeClients_HeadcountInfeasible",
+            clientCount: 3,
             guaranteedHoursPerClient: _ => FlatGuaranteedHours,
             shiftQuantity: 1);
 
@@ -63,7 +92,7 @@ public class WizardSeriesTests : WizardHarnessTestBase
 
         // Data is feasible (theoretical-max ignores headcount-vs-quantity); the shortfall is capacity.
         result.Metrics.TheoreticalMaxCoverage.ShouldBe(1.0);
-        result.Metrics.CoveragePercent.ShouldBeLessThan(1.0, "4 agents cannot cover 24/7 under rest rules");
+        result.Metrics.CoveragePercent.ShouldBeLessThan(1.0, "3 agents cannot cover 24/7 under rest rules");
         result.Uncovered.ShouldNotBeEmpty("uncovered slots prove the headcount shortfall");
         result.Metrics.ViolationsByKind.Keys.ShouldContain("UnderSupply");
         foreach (var restKind in new[] { "MinPauseHours", "MaxConsecutiveDays", "Overlap", "MaxDailyHours" })
