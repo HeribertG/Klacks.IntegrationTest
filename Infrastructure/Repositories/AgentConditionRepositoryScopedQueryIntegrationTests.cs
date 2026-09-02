@@ -286,26 +286,30 @@ public class AgentConditionRepositoryScopedQueryIntegrationTests
 
     private static async Task CleanupAsync()
     {
-        // Every filter is this fixture's own marker: conditions carry the prefix in fingerprint (and, for
+        // Every filter is bound to THIS fixture's own prefix: conditions carry it in fingerprint (and, for
         // the rows that keep the synthetic kind, in trigger_kind too), groups in name. Fingerprint is the
         // load-bearing one since the RequiresGroupScope tests plant real trigger_kind values - matching on
         // trigger_kind alone would leave those rows behind in the shared dev DB, and widening the match to
-        // the kind itself would delete the dev app's own 52 live rows. payload_json is matched as well:
-        // scenario fixtures that keep a REAL kind (e.g. target_hours_drift) carry the prefix only in their
-        // payload, and the dev app's own detectors once created 26 target_hours_drift conditions whose
-        // payloads referenced INTEGRATION_TEST_ client names planted by Az0 (deleted manually 2026-08-30) -
-        // hence the contains-match on payload_json with the generic marker, not this fixture's prefix.
-        // No pattern can reach dev-app data, because real clients never carry the marker in their names.
+        // the kind itself would delete the dev app's own live rows.
+        // NOT matched any more: a contains-match on payload_json with the generic INTEGRATION_TEST_ marker.
+        // It existed to mop up conditions the DEV APP's detectors wrote about leaked fixture clients - rows
+        // this fixture never created. That root cause is handled at its source since e6c2973: the
+        // assembly-wide IntegrationTestFixturePurge removes the leaked fixture clients themselves in
+        // OneTimeSetUp and OneTimeTearDown, so the detectors have nothing left to report on. Deleting
+        // foreign rows from a single fixture's cleanup is exactly the over-broad pattern the shared-database
+        // rule forbids (.claude/rules/project-overview.md, incident 2026-07-03).
+        // starts_with instead of LIKE: the prefix ends in '_', which LIKE reads as a single-character
+        // wildcard, so LIKE would also match prefixes of other fixtures that differ in that position.
         await using var context = NewContext();
         await context.Database.ExecuteSqlRawAsync(
             "DELETE FROM agent_condition_events WHERE condition_id IN "
-            + "(SELECT id FROM agent_conditions WHERE trigger_kind LIKE {0} OR fingerprint LIKE {0} OR payload_json LIKE {1})",
-            TestPrefix + "%", "%INTEGRATION_TEST_%");
+            + "(SELECT id FROM agent_conditions WHERE starts_with(trigger_kind, {0}) OR starts_with(fingerprint, {0}))",
+            TestPrefix);
         await context.Database.ExecuteSqlRawAsync(
-            "DELETE FROM agent_conditions WHERE trigger_kind LIKE {0} OR fingerprint LIKE {0} OR payload_json LIKE {1}",
-            TestPrefix + "%", "%INTEGRATION_TEST_%");
+            "DELETE FROM agent_conditions WHERE starts_with(trigger_kind, {0}) OR starts_with(fingerprint, {0})",
+            TestPrefix);
         await context.Database.ExecuteSqlRawAsync(
-            "DELETE FROM \"group\" WHERE name LIKE {0}",
-            TestPrefix + "%");
+            "DELETE FROM \"group\" WHERE starts_with(name, {0})",
+            TestPrefix);
     }
 }

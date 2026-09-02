@@ -12,6 +12,9 @@
 /// ever reach rows dated before 1950 - and no real cluster the dev app ever wrote is that old. Rows that
 /// must stay untouched carry current dates, which are past the threshold by construction. Cleanup deletes
 /// ONLY rows carrying this fixture's cluster_key prefix.
+/// The inverted clock used to be convention only. It is now enforced: every call goes through the private
+/// SweepAsync wrapper, which throws ArgumentOutOfRangeException for any cutoff above the threshold, so a
+/// later test cannot reach live dev-DB rows by passing a realistic cutoff.
 /// </summary>
 
 using Klacks.Api.Domain.Constants;
@@ -73,8 +76,8 @@ public class SkillLearningClusterRepositoryRetentionTests
         await using var context = NewContext();
         var repository = new SkillLearningClusterRepository(context);
 
-        var affected = await repository.SoftDeleteRetentionEligibleOlderThanAsync(SweepThresholdUtc);
-        var secondPass = await repository.SoftDeleteRetentionEligibleOlderThanAsync(SweepThresholdUtc);
+        var affected = await SweepAsync(repository, SweepThresholdUtc);
+        var secondPass = await SweepAsync(repository, SweepThresholdUtc);
 
         affected.ShouldBe(3);
         secondPass.ShouldBe(0);
@@ -111,7 +114,7 @@ public class SkillLearningClusterRepositoryRetentionTests
         await using var context = NewContext();
         var repository = new SkillLearningClusterRepository(context);
 
-        var affected = await repository.SoftDeleteRetentionEligibleOlderThanAsync(SweepThresholdUtc);
+        var affected = await SweepAsync(repository, SweepThresholdUtc);
 
         affected.ShouldBe(0);
 
@@ -125,6 +128,30 @@ public class SkillLearningClusterRepositoryRetentionTests
         rows.Select(c => c.Id).ShouldBe(
             new[] { stillCounting.Id, collecting.Id, ready.Id, learnedPhrase.Id },
             ignoreOrder: true);
+    }
+
+    /// <summary>
+    /// The ONLY way this fixture may call the retention sweep. The sweep has no caller-side scoping and
+    /// soft-deletes every eligible row older than the cutoff, including the dev app's own clusters on the
+    /// shared 5434 database. The inverted clock (threshold 1950, fixture rows 1900) is what keeps that
+    /// safe, and a future test that passes a realistic cutoff would silently destroy live data. This
+    /// wrapper turns that mistake into a loud ArgumentOutOfRangeException instead of a silent one.
+    /// </summary>
+    /// <param name="repository">Repository under test.</param>
+    /// <param name="cutoffUtc">Retention cutoff; SweepThresholdUtc is the highest value allowed.</param>
+    private static Task<int> SweepAsync(SkillLearningClusterRepository repository, DateTime cutoffUtc)
+    {
+        if (cutoffUtc > SweepThresholdUtc)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(cutoffUtc),
+                cutoffUtc,
+                "The retention sweep is unscoped and runs against the shared dev database. Only a cutoff "
+                + $"of at most {SweepThresholdUtc:yyyy-MM-dd} keeps it inside this fixture's own rows; a "
+                + "realistic cutoff would soft-delete the dev app's live skill learning clusters.");
+        }
+
+        return repository.SoftDeleteRetentionEligibleOlderThanAsync(cutoffUtc);
     }
 
     private static async Task<SkillLearningCluster> GivenClusterAsync(

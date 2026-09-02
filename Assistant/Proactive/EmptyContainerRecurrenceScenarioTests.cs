@@ -29,6 +29,13 @@
 ///
 /// Cleanup deletes ONLY rows this fixture created, by its own fingerprint prefix, plus the dispatch
 /// rows the package-F extension writes, by its own trigger-kind prefix.
+///
+/// OPERATING CONSTRAINT - DO NOT RUN THIS FIXTURE WHILE THE DEV APP IS RUNNING AGAINST 5434.
+/// The package-F part arms dispatch rows on due dates that lie in the REAL past, and the dev app's
+/// own reminder sweep has no kind filter, so it can claim those rows through the same compare-and-swap
+/// this fixture uses. The loser sees a row that was already advanced and its assertions fail. That is
+/// flakiness, not data damage: both sweeps are the same production code path, and every row involved
+/// carries this fixture's prefix.
 /// </summary>
 
 using System.Text.Json;
@@ -383,17 +390,20 @@ public class EmptyContainerRecurrenceScenarioTests
 
     private static async Task CleanupAsync()
     {
+        // starts_with instead of LIKE: the fixture prefix ends in '_', which LIKE reads as a
+        // single-character wildcard, so LIKE would also match a sibling fixture's prefix that differs
+        // in exactly that position.
         await using var context = NewContext();
         await context.Database.ExecuteSqlRawAsync(
-            "DELETE FROM agent_trigger_dispatches WHERE trigger_kind LIKE {0}",
-            TestPrefix + "%");
+            "DELETE FROM agent_trigger_dispatches WHERE starts_with(trigger_kind, {0})",
+            TestPrefix);
         await context.Database.ExecuteSqlRawAsync(
             "DELETE FROM agent_condition_events WHERE condition_id IN "
-            + "(SELECT id FROM agent_conditions WHERE fingerprint LIKE {0})",
-            TestPrefix + "%");
+            + "(SELECT id FROM agent_conditions WHERE starts_with(fingerprint, {0}))",
+            TestPrefix);
         await context.Database.ExecuteSqlRawAsync(
-            "DELETE FROM agent_conditions WHERE fingerprint LIKE {0}",
-            TestPrefix + "%");
+            "DELETE FROM agent_conditions WHERE starts_with(fingerprint, {0})",
+            TestPrefix);
     }
 
     /// <summary>

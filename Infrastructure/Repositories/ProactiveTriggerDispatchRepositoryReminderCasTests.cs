@@ -11,7 +11,9 @@
 /// SHARED-DATABASE SAFETY: the two CAS statements are scoped to a single row by primary key, so they
 /// can only ever touch rows this fixture inserted. AcknowledgeAllForKindAsync is scoped by
 /// (user, kind) instead, so its tests use trigger kinds that carry the fixture prefix and a synthetic
-/// user id - no production row can share both. All fixture rows carry the DedupKey prefix
+/// user id - no production row can share both. MarkAllReadAsync is covered here for the same reason and
+/// is scoped by user alone, which is safe because the fixture user id is synthetic; its test is the F1
+/// negative case (reading is not acknowledging, so the mark-all-read sweep may touch read_at_utc only). All fixture rows carry the DedupKey prefix
 /// INTEGRATION_TEST_DISPATCH_, and cleanup deletes only rows with that prefix.
 /// </summary>
 
@@ -34,6 +36,7 @@ public class ProactiveTriggerDispatchRepositoryReminderCasTests
 
     private const string AcknowledgeAllKind = TestPrefix + "ack_all";
     private const string ForeignKind = TestPrefix + "ack_all_other";
+    private const string MarkAllReadKind = TestPrefix + "mark_all_read";
 
     private static readonly Guid TestUserId = new("8f8b22ef-0000-4000-8000-0000000000c2");
     private static readonly Guid ForeignUserId = new("8f8b22ef-0000-4000-8000-0000000000c3");
@@ -256,6 +259,32 @@ public class ProactiveTriggerDispatchRepositoryReminderCasTests
             .AcknowledgeAllForKindAsync(TestUserId.ToString(), TestPrefix + "never_used");
 
         acknowledged.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task MarkAllReadAsync_LeavesTheAcknowledgementAndTheReminderScheduleUntouched()
+    {
+        // F1 negative case, the ExecuteUpdateAsync half the in-memory unit tests cannot run.
+        // Acknowledgement is the ONLY stop truth of the reminder backoff: emptying the inbox badge must
+        // not silence a finding nobody has dealt with, so the SET clause may touch read_at_utc alone.
+        var due = DateTime.UtcNow.AddHours(4);
+        var first = await GivenDispatchAsync(nextReminderAtUtc: due, reminderCount: 2, triggerKind: MarkAllReadKind);
+        var second = await GivenDispatchAsync(nextReminderAtUtc: due.AddHours(1), reminderCount: 0, triggerKind: MarkAllReadKind);
+
+        await using var context = NewContext();
+        await NewRepository(context).MarkAllReadAsync(TestUserId.ToString());
+
+        var reloadedFirst = await ReloadAsync(first.Id);
+        reloadedFirst.ReadAtUtc.ShouldNotBeNull();
+        reloadedFirst.AcknowledgedAtUtc.ShouldBeNull();
+        reloadedFirst.NextReminderAtUtc.ShouldNotBeNull().ShouldBe(due, TimeSpan.FromSeconds(2));
+        reloadedFirst.ReminderCount.ShouldBe(2);
+
+        var reloadedSecond = await ReloadAsync(second.Id);
+        reloadedSecond.ReadAtUtc.ShouldNotBeNull();
+        reloadedSecond.AcknowledgedAtUtc.ShouldBeNull();
+        reloadedSecond.NextReminderAtUtc.ShouldNotBeNull().ShouldBe(due.AddHours(1), TimeSpan.FromSeconds(2));
+        reloadedSecond.ReminderCount.ShouldBe(0);
     }
 
     private static async Task<ProactiveTriggerDispatchRow> GivenDispatchAsync(

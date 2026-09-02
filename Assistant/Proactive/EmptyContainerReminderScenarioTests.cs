@@ -34,6 +34,13 @@
 ///
 /// Cleanup deletes ONLY rows this fixture created: dispatches by trigger_kind prefix, ledger rows
 /// (and their events) by fingerprint prefix.
+///
+/// OPERATING CONSTRAINT - DO NOT RUN THIS FIXTURE WHILE THE DEV APP IS RUNNING AGAINST 5434.
+/// The fixture arms its dispatch rows on due dates that lie in the REAL past (T0 = 2026-08-01), and
+/// the dev app's own reminder sweep has no kind filter, so it can claim those rows through the same
+/// compare-and-swap this fixture uses. The loser sees a row that was already advanced and the
+/// assertions on ReminderCount and NextReminderAtUtc fail. That is flakiness, not data damage: both
+/// sweeps are the same production code path, and every row involved carries this fixture's prefix.
 /// </summary>
 
 using Klacks.Api.Application.Commands.Assistant;
@@ -190,7 +197,7 @@ public class EmptyContainerReminderScenarioTests
         row.ReminderCount.ShouldBe(4);
         row.LastRemindedAtUtc.ShouldBe(T0.AddHours(77));
         row.NextReminderAtUtc.ShouldBe(T0.AddHours(125),
-            "RepeatLastStepUntilAcknowledged: counts beyond the ladder keep the last backoff interval.");
+            "Counts beyond the ladder keep repeating its last backoff interval.");
 
         // The user finally acknowledges: AcknowledgedAtUtc is stamped and the loop ends.
         await using (var ackContext = NewContext())
@@ -341,7 +348,10 @@ public class EmptyContainerReminderScenarioTests
 
         _timeProvider.Now = T0.AddHours(5);
         var afterDismiss = await RunSweepAsync();
-        afterDismiss.Due.ShouldBe(0, "Neither the acknowledged row nor a terminal condition can be reminded.");
+        afterDismiss.Due.ShouldBe(0,
+            "The dismissal acknowledged the row and cleared its due date, so GetDueForReminderAsync "
+            + "no longer returns it. The row never reaches the terminal-condition gate at all - that "
+            + "gate is covered by ProactiveReminderServiceTests, not here.");
         afterDismiss.Reminded.ShouldBe(0);
     }
 
@@ -419,17 +429,20 @@ public class EmptyContainerReminderScenarioTests
 
     private static async Task CleanupAsync()
     {
+        // starts_with instead of LIKE: the fixture prefix ends in '_', which LIKE reads as a
+        // single-character wildcard, so LIKE would also match a sibling fixture's prefix that differs
+        // in exactly that position.
         await using var context = NewContext();
         await context.Database.ExecuteSqlRawAsync(
-            "DELETE FROM agent_trigger_dispatches WHERE trigger_kind LIKE {0}",
-            TestPrefix + "%");
+            "DELETE FROM agent_trigger_dispatches WHERE starts_with(trigger_kind, {0})",
+            TestPrefix);
         await context.Database.ExecuteSqlRawAsync(
             "DELETE FROM agent_condition_events WHERE condition_id IN "
-            + "(SELECT id FROM agent_conditions WHERE fingerprint LIKE {0})",
-            TestPrefix + "%");
+            + "(SELECT id FROM agent_conditions WHERE starts_with(fingerprint, {0}))",
+            TestPrefix);
         await context.Database.ExecuteSqlRawAsync(
-            "DELETE FROM agent_conditions WHERE fingerprint LIKE {0}",
-            TestPrefix + "%");
+            "DELETE FROM agent_conditions WHERE starts_with(fingerprint, {0})",
+            TestPrefix);
     }
 
     /// <summary>
