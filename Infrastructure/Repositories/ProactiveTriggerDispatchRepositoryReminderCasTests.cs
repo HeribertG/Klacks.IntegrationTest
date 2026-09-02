@@ -1,13 +1,17 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 /// <summary>
-/// Integration tests for ProactiveTriggerDispatchRepository.TryAdvanceReminderAsync and
-/// TryRescheduleReminderAsync against the real PostgreSQL database. Both methods are compare-and-swap
-/// ExecuteUpdateAsync statements (WHERE next_reminder_at_utc = expected AND acknowledged_at_utc IS NULL),
-/// and the EF InMemory provider cannot execute that shape - only a real database proves the conditional
-/// update, the affected-row count, and that the optimistic-concurrency semantics hold.
-/// SHARED-DATABASE SAFETY: both CAS statements are scoped to a single row by primary key, so they can
-/// only ever touch rows this fixture inserted. All fixture rows carry the DedupKey prefix
+/// Integration tests for the ExecuteUpdateAsync surface of ProactiveTriggerDispatchRepository against
+/// the real PostgreSQL database: the compare-and-swap pair TryAdvanceReminderAsync /
+/// TryRescheduleReminderAsync (WHERE next_reminder_at_utc = expected AND acknowledged_at_utc IS NULL)
+/// and the set-based AcknowledgeAllForKindAsync of F1, which acknowledges every open row of one user
+/// for one trigger kind when that user mutes the kind. The EF InMemory provider cannot execute that
+/// shape at all, so only a real database proves the conditional update, the affected-row count, and
+/// that the optimistic-concurrency semantics hold.
+/// SHARED-DATABASE SAFETY: the two CAS statements are scoped to a single row by primary key, so they
+/// can only ever touch rows this fixture inserted. AcknowledgeAllForKindAsync is scoped by
+/// (user, kind) instead, so its tests use trigger kinds that carry the fixture prefix and a synthetic
+/// user id - no production row can share both. All fixture rows carry the DedupKey prefix
 /// INTEGRATION_TEST_DISPATCH_, and cleanup deletes only rows with that prefix.
 /// </summary>
 
@@ -28,7 +32,11 @@ public class ProactiveTriggerDispatchRepositoryReminderCasTests
 {
     private const string TestPrefix = "INTEGRATION_TEST_DISPATCH_";
 
+    private const string AcknowledgeAllKind = TestPrefix + "ack_all";
+    private const string ForeignKind = TestPrefix + "ack_all_other";
+
     private static readonly Guid TestUserId = new("8f8b22ef-0000-4000-8000-0000000000c2");
+    private static readonly Guid ForeignUserId = new("8f8b22ef-0000-4000-8000-0000000000c3");
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp()
@@ -182,17 +190,87 @@ public class ProactiveTriggerDispatchRepositoryReminderCasTests
         reloaded.ReminderCount.ShouldBe(1);
     }
 
+    [Test]
+    public async Task AcknowledgeAllForKindAsync_AcknowledgesEveryOpenRowOfThatUserAndKindAndStopsTheirReminders()
+    {
+        var due = DateTime.UtcNow.AddMinutes(-5);
+        var first = await GivenDispatchAsync(nextReminderAtUtc: due, triggerKind: AcknowledgeAllKind);
+        var second = await GivenDispatchAsync(nextReminderAtUtc: due.AddHours(3), triggerKind: AcknowledgeAllKind);
+
+        var before = DateTime.UtcNow;
+        await using var context = NewContext();
+
+        var acknowledged = await NewRepository(context)
+            .AcknowledgeAllForKindAsync(TestUserId.ToString(), AcknowledgeAllKind);
+
+        acknowledged.ShouldBe(2);
+
+        foreach (var id in new[] { first.Id, second.Id })
+        {
+            var reloaded = await ReloadAsync(id);
+            reloaded.AcknowledgedAtUtc.ShouldNotBeNull().ShouldBeGreaterThanOrEqualTo(before.AddSeconds(-2));
+            reloaded.NextReminderAtUtc.ShouldBeNull();
+        }
+    }
+
+    [Test]
+    public async Task AcknowledgeAllForKindAsync_LeavesOtherKindsOtherUsersAndAlreadyAcknowledgedRowsAlone()
+    {
+        var due = DateTime.UtcNow.AddMinutes(-5);
+        var firstAcknowledgedAt = DateTime.UtcNow.AddHours(-3);
+
+        var target = await GivenDispatchAsync(nextReminderAtUtc: due, triggerKind: AcknowledgeAllKind);
+        var alreadyAcknowledged = await GivenDispatchAsync(
+            nextReminderAtUtc: null, acknowledgedAtUtc: firstAcknowledgedAt, triggerKind: AcknowledgeAllKind);
+        var otherKind = await GivenDispatchAsync(nextReminderAtUtc: due, triggerKind: ForeignKind);
+        var otherUser = await GivenDispatchAsync(
+            nextReminderAtUtc: due, triggerKind: AcknowledgeAllKind, userId: ForeignUserId);
+
+        await using var context = NewContext();
+
+        var acknowledged = await NewRepository(context)
+            .AcknowledgeAllForKindAsync(TestUserId.ToString(), AcknowledgeAllKind);
+
+        acknowledged.ShouldBe(1, "Only the one still open row of that user and kind is acknowledged.");
+        (await ReloadAsync(target.Id)).AcknowledgedAtUtc.ShouldNotBeNull();
+
+        (await ReloadAsync(alreadyAcknowledged.Id)).AcknowledgedAtUtc
+            .ShouldNotBeNull().ShouldBe(firstAcknowledgedAt, TimeSpan.FromSeconds(2),
+                "An acknowledged row keeps its first timestamp.");
+
+        var untouchedKind = await ReloadAsync(otherKind.Id);
+        untouchedKind.AcknowledgedAtUtc.ShouldBeNull();
+        untouchedKind.NextReminderAtUtc.ShouldNotBeNull().ShouldBe(due, TimeSpan.FromSeconds(2));
+
+        var untouchedUser = await ReloadAsync(otherUser.Id);
+        untouchedUser.AcknowledgedAtUtc.ShouldBeNull();
+        untouchedUser.NextReminderAtUtc.ShouldNotBeNull().ShouldBe(due, TimeSpan.FromSeconds(2));
+    }
+
+    [Test]
+    public async Task AcknowledgeAllForKindAsync_NothingOpen_ReturnsZero()
+    {
+        await using var context = NewContext();
+
+        var acknowledged = await NewRepository(context)
+            .AcknowledgeAllForKindAsync(TestUserId.ToString(), TestPrefix + "never_used");
+
+        acknowledged.ShouldBe(0);
+    }
+
     private static async Task<ProactiveTriggerDispatchRow> GivenDispatchAsync(
         DateTime? nextReminderAtUtc,
         DateTime? acknowledgedAtUtc = null,
         DateTime? readAtUtc = null,
-        int reminderCount = 0)
+        int reminderCount = 0,
+        string triggerKind = "IntegrationTest",
+        Guid? userId = null)
     {
         var row = new ProactiveTriggerDispatchRow
         {
             Id = Guid.NewGuid(),
-            UserId = TestUserId.ToString(),
-            TriggerKind = "IntegrationTest",
+            UserId = (userId ?? TestUserId).ToString(),
+            TriggerKind = triggerKind,
             DedupKey = TestPrefix + Guid.NewGuid().ToString("N")[..16],
             NextReminderAtUtc = nextReminderAtUtc,
             AcknowledgedAtUtc = acknowledgedAtUtc,

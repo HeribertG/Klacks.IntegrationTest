@@ -4,7 +4,10 @@
 /// Az4 of the Klacksy-Autonomie test spec extended by package F (B11, "repeat until acknowledged"):
 /// a condition-linked proactive message that the planner never reacts to is re-delivered on the
 /// reminder backoff schedule (first due +1h, then +4h, +24h, +48h, last step repeating) until the
-/// acknowledgement - explicit or implied by a reaction - ends the loop.
+/// acknowledgement - explicit, implied by a reaction, or implied by muting the kind (F1) - ends the
+/// loop. Muting is deliberately verified through MuteTriggerKindCommandHandler rather than through
+/// IAgentTriggerPreferenceService directly: the preference alone would only defer the row, and it is
+/// the handler that turns the mute into the acknowledgement which survives a later unmute.
 ///
 /// REAL COMPOSITION, unlike every sibling fixture in this directory: no existing integration test
 /// drives the actual AgentTriggerService, so this fixture composes the genuine pipeline - real
@@ -212,7 +215,7 @@ public class EmptyContainerReminderScenarioTests
     }
 
     [Test]
-    public async Task Az4_AMutedUser_DefersTheReminderWithoutBurningABackoffStep()
+    public async Task Az4_MutingTheKind_AcknowledgesTheOpenRowsAndEndsTheLoopForGood()
     {
         var shiftId = Guid.NewGuid();
         await GivenReportedConditionAsync(shiftId);
@@ -224,29 +227,62 @@ public class EmptyContainerReminderScenarioTests
 
         // The mute is set AFTER the dispatch on purpose: OnEventAsync applies the same preference
         // gate, and muting before it would swallow the initial message instead of the reminder.
-        await _preferences.MuteAsync(PlannerUserIdString, Kind, true);
-
-        _timeProvider.Now = T0.AddHours(1);
-        var muted = await RunSweepAsync();
-        muted.Due.ShouldBe(1);
-        muted.Skipped.ShouldBe(1, "A muted user's due row is deferred, not delivered.");
-        muted.Reminded.ShouldBe(0);
+        _timeProvider.Now = T0.AddMinutes(30);
+        await using (var muteContext = NewContext())
+        {
+            var acknowledged = await new MuteTriggerKindCommandHandler(
+                    _preferences,
+                    new ProactiveTriggerDispatchRepository(muteContext, _timeProvider))
+                .Handle(
+                    new MuteTriggerKindCommand
+                    {
+                        UserId = PlannerUserIdString,
+                        TriggerKind = Kind,
+                        Muted = true
+                    },
+                    CancellationToken.None);
+            acknowledged.ShouldBe(1, "The one open row of that user and kind is acknowledged by the mute.");
+        }
 
         var row = await ReloadDispatchAsync(shiftId);
-        row.ReminderCount.ShouldBe(0, "A muted deferral must not burn a backoff step.");
+        row.AcknowledgedAtUtc.ShouldBe(T0.AddMinutes(30),
+            "F1: muting a kind IS an acknowledgement, stamped from the injected clock.");
+        row.NextReminderAtUtc.ShouldBeNull("The acknowledgement takes the row out of the reminder loop.");
+        row.ReminderCount.ShouldBe(0, "No reminder ever went out.");
         row.LastRemindedAtUtc.ShouldBeNull();
-        row.NextReminderAtUtc.ShouldBe(T0.AddHours(2),
-            "Deferred to NextDueAfter(count = 0, now) = T0+1h + BackoffHours[0].");
 
-        // Unmuted again, the row continues on the FIRST backoff step, not a later one.
-        await _preferences.MuteAsync(PlannerUserIdString, Kind, false);
+        // The due date the initial dispatch had set comes and goes with no delivery and no deferral.
+        _timeProvider.Now = T0.AddHours(1);
+        var muted = await RunSweepAsync();
+        muted.Due.ShouldBe(0, "An acknowledged row is not due any more, so the sweep never sees it.");
+        muted.Reminded.ShouldBe(0);
+        muted.Skipped.ShouldBe(0, "F1 stops the row outright; the preference deferral is not reached at all.");
+
+        // Unmuting does NOT revive the acknowledged row - that is the whole point of F1 over B5.
+        await using (var unmuteContext = NewContext())
+        {
+            var acknowledged = await new MuteTriggerKindCommandHandler(
+                    _preferences,
+                    new ProactiveTriggerDispatchRepository(unmuteContext, _timeProvider))
+                .Handle(
+                    new MuteTriggerKindCommand
+                    {
+                        UserId = PlannerUserIdString,
+                        TriggerKind = Kind,
+                        Muted = false
+                    },
+                    CancellationToken.None);
+            acknowledged.ShouldBe(0, "Unmuting must never touch a dispatch row.");
+        }
+
         _timeProvider.Now = T0.AddHours(2);
-        (await RunSweepAsync()).Reminded.ShouldBe(1);
+        var afterUnmute = await RunSweepAsync();
+        afterUnmute.Due.ShouldBe(0);
+        afterUnmute.Reminded.ShouldBe(0);
 
         row = await ReloadDispatchAsync(shiftId);
-        row.ReminderCount.ShouldBe(1);
-        row.LastRemindedAtUtc.ShouldBe(T0.AddHours(2));
-        row.NextReminderAtUtc.ShouldBe(T0.AddHours(6), "T0+2h + BackoffHours[1] - the mute cost time, not a step.");
+        row.AcknowledgedAtUtc.ShouldBe(T0.AddMinutes(30), "The unmute keeps the first acknowledgement.");
+        row.NextReminderAtUtc.ShouldBeNull();
     }
 
     [Test]
