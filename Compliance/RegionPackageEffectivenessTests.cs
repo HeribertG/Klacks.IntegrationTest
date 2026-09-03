@@ -532,6 +532,7 @@ public class RegionPackageEffectivenessTests
         services.AddSingleton<IRegionEntityImportService>(sp => sp.GetRequiredService<RegionSetupService>());
 
         services.AddSingleton<ISettingsReader, TransactionalSettingsReader>();
+        services.AddSingleton<ISettingsChangeVersion, SettingsChangeVersion>();
         services.AddSingleton<IClientContractDataProvider, ClientContractDataProvider>();
         services.AddSingleton<ISchedulingPolicyResolver, SchedulingPolicyResolver>();
         services.AddSingleton<IOvertimeConfigResolver, OvertimeConfigResolver>();

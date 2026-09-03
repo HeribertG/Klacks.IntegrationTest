@@ -960,6 +960,7 @@ public sealed class CompliancePackageEffectivenessTests
         services.AddSingleton(Substitute.For<IClientGroupFilterService>());
         services.AddSingleton<ISettingsReader, TransactionalSettingsReader>();
         services.AddSingleton<ITimelineCalculationService, TimelineCalculationService>();
+        services.AddSingleton<ISettingsChangeVersion, SettingsChangeVersion>();
         services.AddSingleton<IClientContractDataProvider, ClientContractDataProvider>();
         services.AddSingleton<ISchedulingPolicyResolver, SchedulingPolicyResolver>();
         services.AddSingleton<IComplianceEnforcementResolver, ComplianceEnforcementResolver>();

@@ -23,6 +23,7 @@ using Klacks.Api.Domain.Interfaces.Associations;
 using Klacks.Api.Domain.Interfaces.Schedules;
 using Klacks.Api.Domain.Interfaces.Scheduling;
 using Klacks.Api.Domain.Interfaces.Settings;
+using Klacks.Api.Infrastructure.Services.Settings;
 using Klacks.Api.Domain.Models.Scheduling;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Common;
@@ -337,6 +338,7 @@ public class RuleEntityEffectivenessTests
         services.AddSingleton(Substitute.For<IClientGroupFilterService>());
         services.AddSingleton<ISettingsReader, TransactionalSettingsReader>();
         services.AddSingleton<ITimelineCalculationService, TimelineCalculationService>();
+        services.AddSingleton<ISettingsChangeVersion, SettingsChangeVersion>();
         services.AddSingleton<IClientContractDataProvider, ClientContractDataProvider>();
         services.AddSingleton<ISchedulingPolicyResolver, SchedulingPolicyResolver>();
         services.AddSingleton<IComplianceEnforcementResolver, ComplianceEnforcementResolver>();
