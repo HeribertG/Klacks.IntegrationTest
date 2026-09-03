@@ -506,8 +506,12 @@ public class ErpOrderImportFlowIntegrationTests
             unitOfWork,
             Substitute.For<ILogger<OrderSupersessionService>>());
 
+        var dropPointRepository = new ErpDropPointRepository(context, Substitute.For<ILogger<ErpDropPoint>>());
+        var defaultDropPointProvider = new ErpDefaultDropPointProvider(dropPointRepository, unitOfWork);
+
         return new ErpOrderImportRunner(
-            new ErpDropPointRepository(context, Substitute.For<ILogger<ErpDropPoint>>()),
+            dropPointRepository,
+            defaultDropPointProvider,
             _objectStorage,
             new XmlOrderImportParser(),
             new ErpCustomerResolver(clientRepository),

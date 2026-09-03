@@ -97,6 +97,11 @@ public class InMemoryObjectStorageService : IObjectStorageService
         return Task.CompletedTask;
     }
 
+    public string ResolvePath(string key)
+    {
+        return $"in-memory://{key}";
+    }
+
     public Task<ObjectStorageHealthResult> CheckHealthAsync(
         IReadOnlyList<string> requiredPrefixes,
         CancellationToken cancellationToken = default)
