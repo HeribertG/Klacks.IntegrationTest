@@ -573,12 +573,13 @@ public class SkillLearningEndToEndTests
 
     // A learned phrase changes the embedding text of a real skill, so the index has to be rebuilt after
     // the rollback as well. Skipping this would leave the shared index describing a phrase that no
-    // longer exists.
+    // longer exists. The awaiting variant, because the plain refresh only schedules the sync in the
+    // background and the host is disposed right after this fixture - the rollback would never land.
     private async Task RefreshCatalogueAsync()
     {
         using var scope = _factory.Services.CreateScope();
         var refresher = scope.ServiceProvider.GetRequiredService<ISkillCatalogRefresher>();
-        await refresher.RefreshAsync("integration test rollback");
+        await refresher.RefreshAndWaitForIndexAsync("integration test rollback");
     }
 
     private async Task AssertDatabaseIsCleanAsync()

@@ -97,7 +97,8 @@ public class LanguageConfigIntegrationTests
         var settingsReader = Substitute.For<Klacks.Api.Domain.Interfaces.Settings.ISettingsReader>();
         settingsReader.GetSetting(Arg.Any<string>()).Returns((Klacks.Api.Domain.Models.Settings.Settings?)null);
         var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<LanguageConfigController>>();
-        var controller = new LanguageConfigController(configuration, languagePluginService, featurePluginService, marketplaceClient, settingsReader, logger);
+        var knowledgeIndexSyncScheduler = Substitute.For<Klacks.Api.KnowledgeIndex.Application.Interfaces.IKnowledgeIndexSyncScheduler>();
+        var controller = new LanguageConfigController(configuration, languagePluginService, featurePluginService, marketplaceClient, settingsReader, knowledgeIndexSyncScheduler, logger);
 
         // Act
         var result = await controller.GetLanguages();
