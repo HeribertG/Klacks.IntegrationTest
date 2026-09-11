@@ -21,6 +21,7 @@ using Klacks.Api.Infrastructure.Mediator;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Services.Schedules;
+using Klacks.IntegrationTest.TestHelpers;
 using Klacks.ScheduleOptimizer.Harmonizer.Bitmap;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -210,6 +211,7 @@ public class HarmonizerApplyRepointCloneTests
             Substitute.For<IScenarioComplianceService>(),
             Substitute.For<IScheduleTimelineService>(),
             Substitute.For<IScheduleSnapshotMarkerService>(),
+            TestCompanyClock.Utc(),
             Substitute.For<ILogger<HarmonizerApplyService>>());
 
         var repointed = await apply.RepointClonedWorksAsync(
@@ -284,6 +286,7 @@ public class HarmonizerApplyRepointCloneTests
             Substitute.For<IScenarioComplianceService>(),
             Substitute.For<IScheduleTimelineService>(),
             Substitute.For<IScheduleSnapshotMarkerService>(),
+            TestCompanyClock.Utc(),
             Substitute.For<ILogger<HarmonizerApplyService>>());
 
         var repointed = await apply.RepointClonedWorksAsync(

@@ -23,6 +23,7 @@ using Klacks.Api.Infrastructure.Services;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Services.Schedules;
 using Klacks.Api.Infrastructure.Services.Shifts;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -94,7 +95,8 @@ public class AnalyseScenarioShiftReadFilterTests
             groupManagementService,
             entityCollectionUpdateService,
             shiftValidator,
-            _scheduleMapper);
+            _scheduleMapper,
+            TestCompanyClock.Utc());
     }
 
     [TearDown]
@@ -176,7 +178,7 @@ public class AnalyseScenarioShiftReadFilterTests
             SortOrder = string.Empty,
         };
 
-        var filtered = await _shiftRepository.FilterShifts(filter)
+        var filtered = await _shiftRepository.FilterShifts(filter, DateOnly.FromDateTime(DateTime.UtcNow))
             .Where(s => s.Name.StartsWith(TestPrefix))
             .ToListAsync();
 

@@ -18,6 +18,7 @@ using Klacks.Api.Infrastructure.Services;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Services.Schedules;
 using Klacks.Api.Infrastructure.Services.Shifts;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -93,7 +94,8 @@ public class AnalyseScenarioShiftDeleteGuardTests
             groupManagementService,
             entityCollectionUpdateService,
             shiftValidator,
-            scheduleMapper);
+            scheduleMapper,
+            TestCompanyClock.Utc());
     }
 
     [TearDown]

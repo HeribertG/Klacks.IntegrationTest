@@ -33,6 +33,7 @@ using Klacks.Api.Application.Services.Assistant.Triggers;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Interfaces.Schedules;
+using Klacks.Api.Domain.Interfaces.Settings;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Services.ContainerTemplates;
 using Klacks.Api.Infrastructure.Persistence;
@@ -122,6 +123,7 @@ public class EmptyContainerDetectorLiveScanTests
         var shiftLogger = NullLogger<Shift>.Instance;
         var containerTemplateLogger = NullLogger<ContainerTemplate>.Instance;
         var detectorLogger = NullLogger<EmptyContainerDetector>.Instance;
+        var companyClock = Klacks.IntegrationTest.TestHelpers.TestCompanyClock.Utc();
 
         var collectionUpdateService = new EntityCollectionUpdateService(context);
         var shiftRepository = new ShiftRepository(
@@ -131,7 +133,8 @@ public class EmptyContainerDetectorLiveScanTests
             Substitute.For<IShiftGroupManagementService>(),
             collectionUpdateService,
             Substitute.For<IShiftValidator>(),
-            new ScheduleMapper());
+            new ScheduleMapper(),
+            companyClock);
 
         var containerTemplateService = new ContainerTemplateService(
             Substitute.For<IUnitOfWork>(), NullLogger<ContainerTemplateService>.Instance);
@@ -143,7 +146,7 @@ public class EmptyContainerDetectorLiveScanTests
 
         return new EmptyContainerDetector(
             shiftRepository, containerTemplateRepository, groupScopeReader, agentConditionRepository,
-            TimeProvider.System, detectorLogger);
+            companyClock, detectorLogger);
     }
 
     private static DataBaseContext NewContext()

@@ -13,6 +13,7 @@ using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Common;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Staffs;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
@@ -57,7 +58,8 @@ public class FillGroupByCriteriaSearchTests
             .FilterClientsByGroupId(Arg.Any<Guid?>(), Arg.Any<IQueryable<Client>>(), Arg.Any<bool>())
             .Returns(call => Task.FromResult((IQueryable<Client>)call[1]));
 
-        _repository = new ClientSearchRepository(_context, groupFilterService, Substitute.For<IClientFuzzySearchService>());
+        _repository = new ClientSearchRepository(
+            _context, groupFilterService, Substitute.For<IClientFuzzySearchService>(), TestCompanyClock.Utc());
 
         await CleanupTestDataAsync();
         await SeedTestDataAsync();

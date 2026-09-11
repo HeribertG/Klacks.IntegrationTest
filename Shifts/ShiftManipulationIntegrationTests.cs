@@ -30,6 +30,7 @@ using Klacks.Api.Application.Queries.Settings.Macros;
 using Klacks.Api.Application.DTOs.Settings;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Infrastructure.Mediator;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -138,7 +139,8 @@ public class ShiftManipulationIntegrationTests
             shiftGroupManagementService,
             entityCollectionUpdateService,
             shiftValidator,
-            _scheduleMapper);
+            _scheduleMapper,
+            TestCompanyClock.Utc());
 
         // Create ShiftResetService
         var shiftResetServiceLogger = Substitute.For<ILogger<ShiftResetService>>();
@@ -1201,7 +1203,8 @@ public class ShiftManipulationIntegrationTests
             Substitute.For<Klacks.Api.Domain.Interfaces.Assistant.IKlacksSelfApiClient>(),
             new Klacks.Api.Infrastructure.Services.Assistant.SelfApiRouteResolver(),
             countryResolver,
-            Substitute.For<Klacks.Api.Domain.Interfaces.Assistant.IPendingConfirmationStore>());
+            Substitute.For<Klacks.Api.Domain.Interfaces.Assistant.IPendingConfirmationStore>(),
+            Klacks.IntegrationTest.TestHelpers.TestCompanyClock.Utc());
     }
 
     [Test]

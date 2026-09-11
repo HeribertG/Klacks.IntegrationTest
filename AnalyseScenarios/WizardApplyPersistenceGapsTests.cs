@@ -28,6 +28,7 @@ using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Infrastructure.Mediator;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Schedules;
+using Klacks.IntegrationTest.TestHelpers;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Services.Schedules;
 using Klacks.ScheduleOptimizer.Harmonizer.Bitmap;
@@ -200,6 +201,7 @@ public class WizardApplyPersistenceGapsTests
             partitionService,
             _context,
             Substitute.For<IScheduleTimelineService>(),
+            TestCompanyClock.Utc(),
             Substitute.For<ILogger<WizardApplyService>>());
     }
 

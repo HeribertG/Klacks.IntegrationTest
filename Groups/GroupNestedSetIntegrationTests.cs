@@ -11,6 +11,7 @@ using Klacks.Api.Infrastructure.Repositories;
 using Klacks.Api.Infrastructure.Repositories.Associations;
 using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Infrastructure.Repositories.Settings;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -92,7 +93,7 @@ public class GroupNestedSetIntegrationTests
         var treeService = new GroupTreeService(_context, treeServiceLogger, databaseAdapter);
 
         var hierarchyServiceLogger = Substitute.For<ILogger<GroupHierarchyService>>();
-        _hierarchyService = new GroupHierarchyService(_context, hierarchyServiceLogger, mockVisibilityService);
+        _hierarchyService = new GroupHierarchyService(_context, hierarchyServiceLogger, mockVisibilityService, TestCompanyClock.Utc());
 
         var validityServiceLogger = Substitute.For<ILogger<GroupValidityService>>();
         var validityService = new GroupValidityService(_context, validityServiceLogger);
@@ -122,7 +123,7 @@ public class GroupNestedSetIntegrationTests
 
         // Create repository
         var repositoryLogger = Substitute.For<ILogger<Group>>();
-        _groupRepository = new GroupRepository(_context, _groupServiceFacade, cacheService, repositoryLogger);
+        _groupRepository = new GroupRepository(_context, _groupServiceFacade, cacheService, repositoryLogger, TestCompanyClock.Utc());
     }
 
     [TearDown]

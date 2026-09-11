@@ -479,7 +479,8 @@ public class ErpOrderImportFlowIntegrationTests
             new ShiftGroupManagementService(context, Substitute.For<ILogger<ShiftGroupManagementService>>()),
             collectionUpdateService,
             new ShiftValidator(),
-            new ScheduleMapper());
+            new ScheduleMapper(),
+            Klacks.IntegrationTest.TestHelpers.TestCompanyClock.Utc());
 
         var workRepository = new WorkRepository(
             context,
@@ -497,6 +498,9 @@ public class ErpOrderImportFlowIntegrationTests
 
         var triggerService = Substitute.For<IAgentTriggerService>();
 
+        var companyClock = new CompanyClock(
+            settingsRepository, TimeProvider.System, new Klacks.Api.Infrastructure.Services.Settings.SettingsChangeVersion());
+
         var supersessionService = new OrderSupersessionService(
             shiftRepository,
             workRepository,
@@ -504,6 +508,7 @@ public class ErpOrderImportFlowIntegrationTests
             triggerService,
             new ShiftGroupScopeReadRepository(context),
             unitOfWork,
+            companyClock,
             Substitute.For<ILogger<OrderSupersessionService>>());
 
         var dropPointRepository = new ErpDropPointRepository(context, Substitute.For<ILogger<ErpDropPoint>>());
@@ -520,6 +525,7 @@ public class ErpOrderImportFlowIntegrationTests
             new ErpImportExceptionRepository(context, Substitute.For<ILogger<ErpImportException>>()),
             triggerService,
             settingsRepository,
+            companyClock,
             unitOfWork,
             new Klacks.Api.Application.Services.Imports.ErpImportRunState(),
             Substitute.For<ILogger<ErpOrderImportRunner>>());
