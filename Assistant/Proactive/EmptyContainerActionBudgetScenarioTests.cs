@@ -16,7 +16,13 @@
 /// AgentConditionRepository.CountActionClaimsAsync's date-scoped query rather than the tick cap - is the
 /// ROLLOVER on Day 2: the clock moves +24h, CountActionClaimsAsync(..., sinceUtc: Day2 00:00 UTC, ...) no
 /// longer sees Day 1's five klacksy-claim: events (their AtUtc is < Day2 00:00), so the 6th condition, still
-/// Reported from Day 1, is claimed and executed on the very next tick.
+/// Reported from Day 1, is claimed and executed on the very next tick. "Day2 00:00 UTC" is literally the
+/// company's own midnight here, not a UTC-day approximation of it: NewService wires TestCompanyClock.Utc()
+/// (see below), so the company zone IS UTC and AgentConditionActionService's company-day-start resolution
+/// (2026-09-11 review: bucketing by the company's calendar day, not nowUtc.Date) coincides with the UTC
+/// calendar day by construction. A non-UTC company zone is covered separately by
+/// Klacks.UnitTest.Application.Services.Assistant.Conditions.AgentConditionActionServiceCompanyDayBudgetTests
+/// (Pacific/Auckland and America/New_York cases).
 ///
 /// Governance's WindowActionLimit is set generously above 5 so the 60-minute sliding window cannot also
 /// explain the Day-1 block, keeping the tick-cap the one and only reason - DailyActionBudget stays at the
@@ -206,6 +212,7 @@ public class EmptyContainerActionBudgetScenarioTests
             executor,
             reporter,
             timeProvider,
+            TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);
     }
 

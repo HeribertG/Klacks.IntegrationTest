@@ -332,6 +332,7 @@ public class EmptyContainerRecurrenceScenarioTests
             executor,
             reporter,
             timeProvider,
+            TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);
     }
 

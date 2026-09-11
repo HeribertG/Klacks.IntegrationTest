@@ -999,7 +999,7 @@ public sealed class CompliancePackageEffectivenessTests
             return _context.Settings.AsNoTracking().FirstOrDefaultAsync(s => s.Type == type);
         }
 
-        public async Task<IReadOnlyDictionary<string, string>> GetSettingsByTypesAsync(IEnumerable<string> types)
+        public async Task<IReadOnlyDictionary<string, string>> GetSettingsByTypesAsync(IEnumerable<string> types, CancellationToken cancellationToken = default)
         {
             var typeList = types.ToList();
             return await _context.Settings

@@ -57,6 +57,7 @@ using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Assistant;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -413,6 +414,7 @@ public class EmptyContainerActionScenarioTests
             executor,
             reporter,
             TimeProvider.System,
+            TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);
     }
 

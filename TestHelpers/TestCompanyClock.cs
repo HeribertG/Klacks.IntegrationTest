@@ -14,7 +14,7 @@ public static class TestCompanyClock
     public static ICompanyClock Utc()
     {
         var settingsReader = Substitute.For<ISettingsReader>();
-        settingsReader.GetSettingsByTypesAsync(Arg.Any<IEnumerable<string>>())
+        settingsReader.GetSettingsByTypesAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyDictionary<string, string>>(
                 new Dictionary<string, string>()));
 

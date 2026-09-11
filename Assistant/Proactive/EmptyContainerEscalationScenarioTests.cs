@@ -240,6 +240,7 @@ public class EmptyContainerEscalationScenarioTests
             executor,
             reporter,
             timeProvider,
+            TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);
     }
 
