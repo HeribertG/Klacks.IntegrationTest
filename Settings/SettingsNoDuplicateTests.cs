@@ -2,6 +2,7 @@ using Shouldly;
 using Klacks.Api.Application.Commands.Settings.Settings;
 using Klacks.Api.Application.Handlers.Settings.Setting;
 using Klacks.Api.Application.Interfaces;
+using Klacks.Api.Application.Interfaces.Klacksy;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Interfaces.Settings;
 using Klacks.Api.Infrastructure.Persistence;
@@ -84,9 +85,10 @@ public class SettingsNoDuplicateTests
         var unitOfWork = CreateUnitOfWork();
         var encryptionService = CreateEncryptionService();
         var logger = Substitute.For<ILogger<PostCommandHandler>>();
+        var navigationTargetCache = Substitute.For<INavigationTargetCacheService>();
         var settingValueValidator = Substitute.For<ISettingValueValidator>();
 
-        var handler = new PostCommandHandler(settingsRepository, encryptionService, unitOfWork, settingValueValidator, logger);
+        var handler = new PostCommandHandler(settingsRepository, encryptionService, unitOfWork, settingValueValidator, navigationTargetCache, logger);
 
         var firstSetting = new Klacks.Api.Domain.Models.Settings.Settings
         {
@@ -141,9 +143,10 @@ public class SettingsNoDuplicateTests
         var unitOfWork = CreateUnitOfWork();
         var encryptionService = CreateEncryptionService();
         var logger = Substitute.For<ILogger<PostCommandHandler>>();
+        var navigationTargetCache = Substitute.For<INavigationTargetCacheService>();
         var settingValueValidator = Substitute.For<ISettingValueValidator>();
 
-        var handler = new PostCommandHandler(settingsRepository, encryptionService, unitOfWork, settingValueValidator, logger);
+        var handler = new PostCommandHandler(settingsRepository, encryptionService, unitOfWork, settingValueValidator, navigationTargetCache, logger);
 
         var setting = new Klacks.Api.Domain.Models.Settings.Settings
         {
@@ -175,9 +178,10 @@ public class SettingsNoDuplicateTests
         var unitOfWork = CreateUnitOfWork();
         var encryptionService = CreateEncryptionService();
         var logger = Substitute.For<ILogger<PostCommandHandler>>();
+        var navigationTargetCache = Substitute.For<INavigationTargetCacheService>();
         var settingValueValidator = Substitute.For<ISettingValueValidator>();
 
-        var handler = new PostCommandHandler(settingsRepository, encryptionService, unitOfWork, settingValueValidator, logger);
+        var handler = new PostCommandHandler(settingsRepository, encryptionService, unitOfWork, settingValueValidator, navigationTargetCache, logger);
 
         // Act - Send 5 POSTs with the same type
         for (int i = 1; i <= 5; i++)
