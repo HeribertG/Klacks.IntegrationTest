@@ -4,6 +4,7 @@ using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Services.Groups;
 using Klacks.Api.Infrastructure.Services.Groups;
+using Klacks.Api.Infrastructure.Services.Groups.Integrity;
 using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Persistence.Adapters;
@@ -616,6 +617,90 @@ public class GroupNestedSetIntegrationTests
         savedChild1.Root.ShouldBe(root1.Id);
         savedChild2.Root.ShouldBe(root2.Id);
         savedChild1.Root.ShouldNotBe(savedChild2.Root!.Value, "Different trees should have different roots");
+
+        Console.WriteLine("=== TEST PASSED ===");
+    }
+
+    #endregion
+
+    #region Test 12: Two Siblings And Grandchildren In One Scope
+
+    [Test]
+    public async Task AddChildNodes_TwoSiblingsAndGrandchildrenInOneScope_ProduceValidNestedSet()
+    {
+        // Arrange & Act - Build tree through the SAME repository/context instance,
+        // mirroring PartitionClientsByAddressCommandHandler's top-down bulk creation:
+        //   R
+        //   ├── A
+        //   │   └── A1
+        //   └── B
+        //       └── B1
+
+        var root = CreateTestGroup("Sibling_R");
+        await _groupRepository.Add(root);
+
+        var childA = CreateTestGroup("Sibling_A", root.Id);
+        await _groupRepository.Add(childA);
+
+        var childB = CreateTestGroup("Sibling_B", root.Id);
+        await _groupRepository.Add(childB);
+
+        var grandchildA1 = CreateTestGroup("Sibling_A1", childA.Id);
+        await _groupRepository.Add(grandchildA1);
+
+        var grandchildB1 = CreateTestGroup("Sibling_B1", childB.Id);
+        await _groupRepository.Add(grandchildB1);
+
+        // Assert - Reload every node fresh from the database with a brand-new context,
+        // independent of the tracked (potentially stale) entities used above.
+        var options = new DbContextOptionsBuilder<DataBaseContext>()
+            .UseNpgsql(_connectionString)
+            .UseSnakeCaseNamingConvention()
+            .Options;
+        var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
+        using var verificationContext = new DataBaseContext(options, mockHttpContextAccessor);
+
+        var savedRoot = await verificationContext.Group.AsNoTracking().FirstAsync(g => g.Id == root.Id);
+        var savedA = await verificationContext.Group.AsNoTracking().FirstAsync(g => g.Id == childA.Id);
+        var savedB = await verificationContext.Group.AsNoTracking().FirstAsync(g => g.Id == childB.Id);
+        var savedA1 = await verificationContext.Group.AsNoTracking().FirstAsync(g => g.Id == grandchildA1.Id);
+        var savedB1 = await verificationContext.Group.AsNoTracking().FirstAsync(g => g.Id == grandchildB1.Id);
+
+        Console.WriteLine("=== TWO SIBLINGS AND GRANDCHILDREN IN ONE SCOPE TEST ===");
+        Console.WriteLine($"R:  Lft={savedRoot.Lft}, Rgt={savedRoot.Rgt}");
+        Console.WriteLine($"A:  Lft={savedA.Lft}, Rgt={savedA.Rgt}");
+        Console.WriteLine($"A1: Lft={savedA1.Lft}, Rgt={savedA1.Rgt}");
+        Console.WriteLine($"B:  Lft={savedB.Lft}, Rgt={savedB.Rgt}");
+        Console.WriteLine($"B1: Lft={savedB1.Lft}, Rgt={savedB1.Rgt}");
+
+        var nodes = new[] { savedRoot, savedA, savedA1, savedB, savedB1 };
+
+        foreach (var node in nodes)
+        {
+            node.Lft.ShouldBeLessThan(node.Rgt, $"Node {node.Name} must have Lft < Rgt");
+        }
+
+        savedRoot.Lft.ShouldBeLessThan(savedA.Lft, "Root must contain A");
+        savedA.Rgt.ShouldBeLessThan(savedRoot.Rgt, "Root must contain A");
+        savedRoot.Lft.ShouldBeLessThan(savedB.Lft, "Root must contain B");
+        savedB.Rgt.ShouldBeLessThan(savedRoot.Rgt, "Root must contain B");
+        savedA.Lft.ShouldBeLessThan(savedA1.Lft, "A must contain A1");
+        savedA1.Rgt.ShouldBeLessThan(savedA.Rgt, "A must contain A1");
+        savedB.Lft.ShouldBeLessThan(savedB1.Lft, "B must contain B1");
+        savedB1.Rgt.ShouldBeLessThan(savedB.Rgt, "B must contain B1");
+
+        var siblingsDoNotOverlap = savedA.Rgt < savedB.Lft || savedB.Rgt < savedA.Lft;
+        siblingsDoNotOverlap.ShouldBeTrue("Siblings A and B must not overlap");
+
+        (savedRoot.Rgt - savedRoot.Lft + 1).ShouldBe(10, "Root subtree with 5 nodes must have width 10");
+
+        var allValues = nodes.SelectMany(n => new[] { n.Lft, n.Rgt }).ToList();
+        allValues.Distinct().Count().ShouldBe(allValues.Count, "All Lft/Rgt values within the subtree must be distinct");
+
+        var validationLogger = Substitute.For<ILogger<NestedSetValidationService>>();
+        var validationService = new NestedSetValidationService(verificationContext, validationLogger);
+        var isValid = await validationService.ValidateNestedSetIntegrityAsync(root.Id);
+        isValid.ShouldBeTrue("NestedSetValidationService must confirm integrity for the whole subtree");
 
         Console.WriteLine("=== TEST PASSED ===");
     }
