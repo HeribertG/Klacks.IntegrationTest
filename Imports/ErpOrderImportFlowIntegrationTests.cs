@@ -528,7 +528,8 @@ public class ErpOrderImportFlowIntegrationTests
             companyClock,
             unitOfWork,
             new Klacks.Api.Application.Services.Imports.ErpImportRunState(),
-            Substitute.For<ILogger<ErpOrderImportRunner>>());
+            Substitute.For<ILogger<ErpOrderImportRunner>>(),
+            new ErpCronTimeZoneDriftNotifier());
     }
 
     private string ReadFixtureXml()
