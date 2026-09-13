@@ -3,9 +3,10 @@
 /// <summary>
 /// Verifies that the golden-case repository can read the holdout partition on its own, count it, list a
 /// whole origin for the seeder, insert in bulk and write back a corrected expectation. Two behaviours
-/// only a real database shows: the holdout budget has to be spent on the seeded goldset cases before the
-/// learned ones, and the seeder's write-back updates rows it read without tracking. Runs against the
-/// shared integration database and only ever touches rows whose query starts with INTEGRATION_TEST_.
+/// only a real database shows: the holdout budget has to be spent on the cases of the prioritised skill and
+/// on the seeded goldset cases before the learned ones, and the seeder's write-back updates rows it read
+/// without tracking. Runs against the shared integration database and only ever touches rows whose query
+/// starts with INTEGRATION_TEST_.
 /// </summary>
 
 using Klacks.Api.Domain.Constants;
@@ -82,7 +83,7 @@ public class GoldenCasePartitionRepositoryTests
         ]);
 
         var holdout = await _repository.ListHoldoutAsync(
-            SkillLearningDefaults.MaxGoldenCasesPerRegressionCheck);
+            SkillLearningDefaults.MaxGoldenCasesPerRegressionCheck, ExpectedSkill);
         var ours = holdout.Where(c => c.Query.StartsWith(TestPrefix, StringComparison.Ordinal)).ToList();
 
         ours.Count.ShouldBe(2);
@@ -139,7 +140,7 @@ public class GoldenCasePartitionRepositoryTests
         var budget = await _context.SkillLearningGoldenCases.CountAsync(
             c => c.Partition == GoldenCasePartitions.Holdout && c.Origin == GoldenCaseOrigins.Goldset);
 
-        var holdout = await _repository.ListHoldoutAsync(budget);
+        var holdout = await _repository.ListHoldoutAsync(budget, null);
 
         holdout.Select(c => c.Query).ShouldContain(HoldoutQuery);
         holdout.Select(c => c.Query).ShouldNotContain(ClusterQuery);
