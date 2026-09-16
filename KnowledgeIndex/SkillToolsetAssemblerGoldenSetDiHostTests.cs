@@ -1,4 +1,4 @@
-// Copyright (c) Heribert Gasparoli Private. All rights reserved.
+﻿// Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 /// <summary>
 /// Recall report for the REAL production toolset: the hard golden sets scored through
@@ -78,7 +78,11 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 
     private sealed class NoOpPendingConfirmationStore : IPendingConfirmationStore
     {
-        public string Create(Guid userId, string skillName, IReadOnlyDictionary<string, object> parameters) =>
+        public string Create(
+            Guid userId,
+            string skillName,
+            IReadOnlyDictionary<string, object> parameters,
+            string purpose = PendingConfirmationPurposes.GateReplay) =>
             string.Empty;
 
         public PendingConfirmation? Consume(string token, Guid userId, string? expectedSkillName = null) => null;
@@ -91,6 +95,10 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
         }
 
         public void DiscardProposalHints(Guid userId, string? applySkillName = null)
+        {
+        }
+
+        public void DiscardCorrectionUndo(Guid userId)
         {
         }
     }
