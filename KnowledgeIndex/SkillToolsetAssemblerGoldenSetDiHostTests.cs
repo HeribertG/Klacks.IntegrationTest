@@ -1,4 +1,4 @@
-﻿// Copyright (c) Heribert Gasparoli Private. All rights reserved.
+// Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 /// <summary>
 /// Recall report for the REAL production toolset: the hard golden sets scored through
