@@ -21,7 +21,6 @@ public class LanguageConfigIntegrationTests
         var coreLanguages = MultiLanguage.CoreLanguages;
 
         // Assert
-        coreLanguages.ShouldNotBeNull();
         coreLanguages.Count().ShouldBe(4, "MultiLanguage should support exactly 4 core languages");
         coreLanguages.ShouldContain("de", "German should be supported");
         coreLanguages.ShouldContain("en", "English should be supported");
