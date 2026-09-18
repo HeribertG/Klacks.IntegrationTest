@@ -18,7 +18,7 @@ internal static class TurnEvalPassRateGate
     public const string MaxItemsEnvironmentVariable = "TURNEVAL_MAX_ITEMS";
     public const string MinPassRateEnvironmentVariable = "TURNEVAL_MIN_PASS_RATE";
 
-    public const string DefaultModelId = "deepseek-v4-pro";
+    public const string DefaultModelId = "deepseek-flash";
 
     /// <summary>Pass-rate drop tolerated against the best comparable earlier run.</summary>
     public const double BaselineTolerance = 0.05;
