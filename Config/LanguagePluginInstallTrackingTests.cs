@@ -26,25 +26,26 @@ public class LanguagePluginInstallTrackingTests
 {
     private const string FillGroupSkillName = "fill_group_by_criteria";
 
-    [Test]
-    public async Task InstallAsync_WritesBothSynonymsAndLabels_ForTheSameSkillInOneScope()
+    [TestCase("es")]
+    [TestCase("zh-CN")]
+    public async Task InstallAsync_WritesBothSynonymsAndLabels_ForTheSameSkillInOneScope(string code)
     {
         using var factory = new SignalRTestWebApplicationFactory();
         using var scope = factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<ILanguagePluginService>();
         var skillRepo = scope.ServiceProvider.GetRequiredService<IAgentSkillRepository>();
 
-        await service.InstallAsync("es");
+        await service.InstallAsync(code);
 
         var skills = await skillRepo.GetAllEnabledAsync();
         var fillGroup = skills.SingleOrDefault(s => s.Name == FillGroupSkillName);
 
         fillGroup.ShouldNotBeNull($"skill '{FillGroupSkillName}' must exist and be enabled");
         fillGroup!.Synonyms.ShouldNotBeNull();
-        fillGroup.Synonyms!.ShouldContainKey("es", "InstallSkillSynonymsAsync must have written the es pack");
+        fillGroup.Synonyms!.ShouldContainKey(code, "InstallSkillSynonymsAsync must have written the pack");
         fillGroup.Labels.ShouldNotBeNull();
-        fillGroup.Labels!.ShouldContainKey("es",
-            "InstallSkillLabelsAsync must have written the es label - this is the call that previously " +
+        fillGroup.Labels!.ShouldContainKey(code,
+            "InstallSkillLabelsAsync must have written the label - this is the call that previously " +
             "collided with InstallSkillSynonymsAsync's tracked instance of the same row");
     }
 }
