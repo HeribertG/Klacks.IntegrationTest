@@ -124,7 +124,9 @@ public class GroupNestedSetIntegrationTests
 
         // Create repository
         var repositoryLogger = Substitute.For<ILogger<Group>>();
-        _groupRepository = new GroupRepository(_context, _groupServiceFacade, cacheService, repositoryLogger, TestCompanyClock.Utc());
+        _groupRepository = new GroupRepository(
+            _context, _groupServiceFacade, cacheService, repositoryLogger, TestCompanyClock.Utc(),
+            Substitute.For<IGroupVisibilityPreservationService>());
     }
 
     [TearDown]
@@ -143,6 +145,7 @@ public class GroupNestedSetIntegrationTests
     {
         var sql = $@"
             DELETE FROM group_item WHERE group_id IN (SELECT id FROM ""group"" WHERE name LIKE '{TestGroupPrefix}%');
+            DELETE FROM group_visibility WHERE group_id IN (SELECT id FROM ""group"" WHERE name LIKE '{TestGroupPrefix}%');
             DELETE FROM ""group"" WHERE name LIKE '{TestGroupPrefix}%';
         ";
 
