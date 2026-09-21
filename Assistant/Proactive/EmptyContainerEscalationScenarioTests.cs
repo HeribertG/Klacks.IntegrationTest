@@ -27,6 +27,12 @@
 /// EmptyContainerRemediationBinder) with its own TestPrefix, but a FAILING executor instead of a capturing
 /// one.
 ///
+/// Since the approval chain (design 2026-09-20) there is no stored owner: the row is seeded with an approval
+/// stamp a few minutes before the first tick, and every attempt, the escalation and every report run under
+/// that approver. The stamp's ApprovalExecutionWindowMinutes freshness is checked only while the row is
+/// Reported, i.e. on the first tick; a failed attempt leaves the row Prepared WITH its stamp, and the
+/// retries take it over through the stale-claim path, which does not re-check the stamp's age.
+///
 /// Cleanup deletes ONLY rows this fixture created, by its own fingerprint prefix.
 /// </summary>
 
@@ -56,9 +62,11 @@ public class EmptyContainerEscalationScenarioTests
     private const string TestPrefix = "INTEGRATION_TEST_AZ6_";
     private const string Kind = TestPrefix + "empty_container_like";
     private const string FailureMessage = "simulated remediation failure";
+    private const int ApprovalLeadMinutes = 5;
 
-    private static readonly Guid OwnerUserId = Guid.Parse("77777777-7777-7777-7777-777777777777");
+    private static readonly Guid ApproverUserId = Guid.Parse("77777777-7777-7777-7777-777777777777");
     private static readonly DateTime FarPastUtc = new(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime FirstTickUtc = new(2026, 9, 1, 10, 0, 0, DateTimeKind.Utc);
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp() => await CleanupAsync();
@@ -74,8 +82,10 @@ public class EmptyContainerEscalationScenarioTests
 
         var executor = new FailingSkillExecutor();
         var reporter = Substitute.For<IProactiveActionReporter>();
-        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
-        var timeProvider = new SettableTimeProvider(new DateTime(2026, 9, 1, 10, 0, 0, DateTimeKind.Utc));
+        reporter
+            .ReportToApprovalAudienceAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(1);
+        var timeProvider = new SettableTimeProvider(FirstTickUtc);
 
         for (var attempt = 1; attempt <= 3; attempt++)
         {
@@ -115,8 +125,10 @@ public class EmptyContainerEscalationScenarioTests
         events.Count(e => e.EventType == AgentConditionEventTypes.AttemptFailed).ShouldBe(3);
         events.Count(e => e.EventType == AgentConditionStatus.Escalated.ToString()).ShouldBe(1);
 
-        // 3 failure reports plus 1 escalation report, all to the same owner (GroupId is null throughout).
-        await reporter.Received(4).ReportAsync(OwnerUserId, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        // 3 failure reports plus 1 escalation report, all to the same approver and the group-less
+        // audience (GroupId is null throughout).
+        await reporter.Received(4).ReportToApprovalAudienceAsync(
+            ApproverUserId, null, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -135,8 +147,10 @@ public class EmptyContainerEscalationScenarioTests
 
         var executor = new ThrowingSkillExecutor();
         var reporter = Substitute.For<IProactiveActionReporter>();
-        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
-        var timeProvider = new SettableTimeProvider(new DateTime(2026, 9, 1, 10, 0, 0, DateTimeKind.Utc));
+        reporter
+            .ReportToApprovalAudienceAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(1);
+        var timeProvider = new SettableTimeProvider(FirstTickUtc);
 
         await using (var context = NewContext())
         {
@@ -154,7 +168,8 @@ public class EmptyContainerEscalationScenarioTests
         var events = await verify.AgentConditionEvents.Where(e => e.ConditionId == condition.Id).AsNoTracking().ToListAsync();
         events.Count(e => e.EventType == AgentConditionEventTypes.AttemptFailed).ShouldBe(1);
 
-        await reporter.Received(1).ReportAsync(OwnerUserId, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await reporter.Received(1).ReportToApprovalAudienceAsync(
+            ApproverUserId, null, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     private static async Task<AgentCondition> GivenReportedConditionAsync(Guid shiftId)
@@ -180,6 +195,8 @@ public class EmptyContainerEscalationScenarioTests
             Status = AgentConditionStatus.Reported,
             DetectedAtUtc = FarPastUtc,
             LastSeenAtUtc = FarPastUtc,
+            ApprovedByUserId = ApproverUserId,
+            ApprovedAtUtc = FirstTickUtc.AddMinutes(-ApprovalLeadMinutes),
             PayloadJson = JsonSerializer.Serialize(triggerEvent.Payload),
         };
 
@@ -206,7 +223,6 @@ public class EmptyContainerEscalationScenarioTests
                 ConfiguredMaxAction: ProactiveMaxAction.Execute,
                 Enabled: true,
                 KillSwitchActive: false,
-                ResponsibleOwnerUserId: OwnerUserId,
                 DailyActionBudget: 50,
                 WindowActionLimit: 50,
                 WindowMinutes: 60,
@@ -218,11 +234,11 @@ public class EmptyContainerEscalationScenarioTests
 
         var identityProvider = Substitute.For<IProactiveActionIdentityProvider>();
         identityProvider
-            .ResolveForSkillAsync(Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ResolveForSkillAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ProactiveActionIdentity.Resolved(
                 new SkillExecutionContext
                 {
-                    UserId = OwnerUserId,
+                    UserId = ApproverUserId,
                     TenantId = Guid.Empty,
                     UserName = KlacksyIdentity.SystemUserName,
                     UserPermissions = ["some.permission"],
@@ -239,6 +255,7 @@ public class EmptyContainerEscalationScenarioTests
             identityProvider,
             executor,
             reporter,
+            Substitute.For<IConditionApprovalChainStarter>(),
             timeProvider,
             TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);

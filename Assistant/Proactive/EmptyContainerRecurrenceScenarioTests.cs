@@ -27,6 +27,14 @@
 /// EF InMemory does not enforce it, so only Postgres can prove the re-arm insert actually succeeds once the
 /// old row is terminal, and would actually reject a genuine duplicate while the old row is still open.
 ///
+/// Since the approval chain (design 2026-09-20) there is no stored owner: the dispatcher claims a Reported
+/// row only under the approver stamped on it, and only while the stamp lies within
+/// AgentConditionActionDefaults.ApprovalExecutionWindowMinutes of the tick. The first row is therefore
+/// seeded with a stamp a few minutes before the first tick, and the recurrence - a genuinely NEW row that
+/// inherits nothing from the first, its approval included - is stamped through the real ledger
+/// (TryApproveAsync) before the second tick, exactly as its own approval chain would stamp it. That the
+/// recurrence needs its own approval is part of what "independent of the first pass" means here.
+///
 /// Cleanup deletes ONLY rows this fixture created, by its own fingerprint prefix, plus the dispatch
 /// rows the package-F extension writes, by its own trigger-kind prefix.
 ///
@@ -64,10 +72,12 @@ public class EmptyContainerRecurrenceScenarioTests
 {
     private const string TestPrefix = "INTEGRATION_TEST_AZ5_";
     private const string Kind = TestPrefix + "empty_container_like";
+    private const int ApprovalLeadMinutes = 5;
 
-    private static readonly Guid OwnerUserId = Guid.Parse("66666666-6666-6666-6666-666666666666");
+    private static readonly Guid ApproverUserId = Guid.Parse("66666666-6666-6666-6666-666666666666");
     private static readonly Guid PlannerUserId = Guid.Parse("99999999-9999-9999-9999-999999999999");
     private static readonly DateTime FarPastUtc = new(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime FirstTickUtc = new(2026, 9, 1, 10, 0, 0, DateTimeKind.Utc);
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp() => await CleanupAsync();
@@ -86,8 +96,10 @@ public class EmptyContainerRecurrenceScenarioTests
 
         var executor = new CapturingSkillExecutor();
         var reporter = Substitute.For<IProactiveActionReporter>();
-        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
-        var timeProvider = new SettableTimeProvider(new DateTime(2026, 9, 1, 10, 0, 0, DateTimeKind.Utc));
+        reporter
+            .ReportToApprovalAudienceAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(1);
+        var timeProvider = new SettableTimeProvider(FirstTickUtc);
 
         await using (var firstContext = NewContext())
         {
@@ -134,6 +146,13 @@ public class EmptyContainerRecurrenceScenarioTests
             await ledgerService.TryTransitionAsync(
                 upsertResult.SecondCondition.Id, AgentConditionStatus.Detected, AgentConditionStatus.Reported,
                 cancellationToken: CancellationToken.None);
+
+            // The fresh row carries no approval - the first row's stamp is the first row's alone. Stamp it
+            // through the real ledger, as the recurrence's own approval chain would, at the clock the
+            // second tick runs on; without this the tick would ask for a chain instead of executing.
+            var approved = await ledgerService.TryApproveAsync(
+                upsertResult.SecondCondition.Id, ApproverUserId, CancellationToken.None);
+            approved.ShouldBeTrue("A Reported row without a stamp must accept exactly one approval.");
         }
 
         await using (var secondContext = NewContext())
@@ -143,7 +162,8 @@ public class EmptyContainerRecurrenceScenarioTests
         }
 
         executor.Invocations.Count.ShouldBe(2, "Two separate executions: one per row, dedup did not suppress the recurrence.");
-        await reporter.Received(2).ReportAsync(OwnerUserId, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await reporter.Received(2).ReportToApprovalAudienceAsync(
+            ApproverUserId, null, Arg.Any<string>(), Arg.Any<CancellationToken>());
 
         await using var verify = NewContext();
         var rows = await verify.AgentConditions.Where(c => c.Fingerprint == fingerprint).ToListAsync();
@@ -179,7 +199,7 @@ public class EmptyContainerRecurrenceScenarioTests
         var dedupKey = shiftId.ToString();
         var fingerprint = AgentConditionLedgerPolicy.FingerprintFor(Kind, dedupKey);
         var payloadJson = BuildPayloadJson(shiftId);
-        var timeProvider = new SettableTimeProvider(new DateTime(2026, 9, 1, 10, 0, 0, DateTimeKind.Utc));
+        var timeProvider = new SettableTimeProvider(FirstTickUtc);
 
         var firstCondition = await GivenReportedConditionAsync(shiftId, fingerprint, payloadJson);
 
@@ -272,6 +292,8 @@ public class EmptyContainerRecurrenceScenarioTests
             Status = AgentConditionStatus.Reported,
             DetectedAtUtc = FarPastUtc,
             LastSeenAtUtc = FarPastUtc,
+            ApprovedByUserId = ApproverUserId,
+            ApprovedAtUtc = FirstTickUtc.AddMinutes(-ApprovalLeadMinutes),
             PayloadJson = payloadJson,
         };
 
@@ -298,7 +320,6 @@ public class EmptyContainerRecurrenceScenarioTests
                 ConfiguredMaxAction: ProactiveMaxAction.Execute,
                 Enabled: true,
                 KillSwitchActive: false,
-                ResponsibleOwnerUserId: OwnerUserId,
                 DailyActionBudget: 50,
                 WindowActionLimit: 50,
                 WindowMinutes: 60,
@@ -310,11 +331,11 @@ public class EmptyContainerRecurrenceScenarioTests
 
         var identityProvider = Substitute.For<IProactiveActionIdentityProvider>();
         identityProvider
-            .ResolveForSkillAsync(Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ResolveForSkillAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ProactiveActionIdentity.Resolved(
                 new SkillExecutionContext
                 {
-                    UserId = OwnerUserId,
+                    UserId = ApproverUserId,
                     TenantId = Guid.Empty,
                     UserName = KlacksyIdentity.SystemUserName,
                     UserPermissions = ["some.permission"],
@@ -331,6 +352,7 @@ public class EmptyContainerRecurrenceScenarioTests
             identityProvider,
             executor,
             reporter,
+            Substitute.For<IConditionApprovalChainStarter>(),
             timeProvider,
             TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);

@@ -44,6 +44,13 @@
 /// KLACKSY_PROACTIVE_AUTONOMY_LEVEL is a singleton the INTEGRATION_TEST_ prefix cleanup rule cannot legally
 /// touch, so this fixture never writes one.
 ///
+/// Since the approval chain (design 2026-09-20) Execute means execute AFTER approval and there is no stored
+/// owner: the dispatcher claims a Reported row only under the approver stamped on it (ApprovedByUserId) and
+/// only while the stamp (ApprovedAtUtc) lies within AgentConditionActionDefaults.ApprovalExecutionWindowMinutes
+/// of the tick. Every condition this fixture seeds therefore carries a fresh stamp - the approval chain
+/// itself is not under test here, the dispatch that follows it is - and every report is asserted against
+/// IProactiveActionReporter.ReportToApprovalAudienceAsync with that approver and the condition's group.
+///
 /// Cleanup deletes ONLY rows this fixture created, by its own fingerprint prefix.
 /// </summary>
 
@@ -74,7 +81,7 @@ public class EmptyContainerActionScenarioTests
     private const string TestPrefix = "INTEGRATION_TEST_AZ1_";
     private const string Kind = TestPrefix + "empty_container_like";
 
-    private static readonly Guid OwnerUserId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+    private static readonly Guid ApproverUserId = Guid.Parse("44444444-4444-4444-4444-444444444444");
     private static readonly DateTime FarPastUtc = new(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     [OneTimeSetUp]
@@ -96,7 +103,9 @@ public class EmptyContainerActionScenarioTests
         var executor = new CapturingSkillExecutor();
         await using var context = NewContext();
         var reporter = Substitute.For<IProactiveActionReporter>();
-        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        reporter
+            .ReportToApprovalAudienceAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(1);
 
         var result = await NewService(context, executor, reporter, ProactiveMaxAction.Execute)
             .RunAsync(CancellationToken.None);
@@ -117,7 +126,8 @@ public class EmptyContainerActionScenarioTests
         AssertInvocation(executor, containerB.Id, expectedWeekday: 1);
         AssertInvocation(executor, containerC.Id, expectedWeekday: 2);
 
-        await reporter.Received(3).ReportAsync(OwnerUserId, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await reporter.Received(3).ReportToApprovalAudienceAsync(
+            ApproverUserId, null, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -133,7 +143,9 @@ public class EmptyContainerActionScenarioTests
         var executor = new CapturingSkillExecutor();
         await using var context = NewContext();
         var reporter = Substitute.For<IProactiveActionReporter>();
-        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        reporter
+            .ReportToApprovalAudienceAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(1);
 
         var result = await NewService(context, executor, reporter, ProactiveMaxAction.Prepare)
             .RunAsync(CancellationToken.None);
@@ -145,7 +157,7 @@ public class EmptyContainerActionScenarioTests
         var stored = await verify.AgentConditions.SingleAsync(c => c.Id == container.Id);
         stored.Status.ShouldBe(AgentConditionStatus.Reported);
 
-        await reporter.DidNotReceive().ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await reporter.DidNotReceiveWithAnyArgs().ReportToApprovalAudienceAsync(default, default, default!, default);
     }
 
     [Test]
@@ -154,16 +166,18 @@ public class EmptyContainerActionScenarioTests
         // Two halves of Az9: the scope query a planner-relevant skill reads from (GetOpenForScopeAsync,
         // already proven against real Postgres in AgentConditionRepositoryScopedQueryIntegrationTests)
         // must withhold a Group-B-scoped row from a caller whose visible roots are Group A only; and the
-        // action dispatcher, when it does act, must borrow ONLY Planner B's rights - governance's
-        // ResponsibleOwnerUserId is what IProactiveActionIdentityProvider is asked to resolve for, so
-        // asserting the identity call was made for plannerB proves "im Auftrag von Planer B" directly,
-        // without needing a real AppUser/Group membership join this repository method does not use.
+        // action dispatcher, when it does act, must borrow ONLY Planner B's rights - the approver stamped
+        // on the row (ApprovedByUserId, the approval chain's answer) is what IProactiveActionIdentityProvider
+        // is asked to resolve for, so stamping plannerB and asserting the identity call was made for
+        // plannerB proves "im Auftrag von Planer B" directly, without needing a real AppUser/Group
+        // membership join this repository method does not use.
         var groupA = await GivenGroupAsync();
         var groupB = await GivenGroupAsync();
         var plannerB = Guid.NewGuid();
 
         var condition = await GivenEmptyContainerConditionAsync(
-            isoWeekdays: [5], startShift: new TimeOnly(6, 0), endShift: new TimeOnly(14, 0), groupId: groupB.Id);
+            isoWeekdays: [5], startShift: new TimeOnly(6, 0), endShift: new TimeOnly(14, 0),
+            groupId: groupB.Id, approverUserId: plannerB);
 
         await using (var scopeContext = NewContext())
         {
@@ -181,10 +195,12 @@ public class EmptyContainerActionScenarioTests
         var executor = new CapturingSkillExecutor();
         await using var context = NewContext();
         var reporter = Substitute.For<IProactiveActionReporter>();
-        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        reporter
+            .ReportToApprovalAudienceAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(1);
         var identityProvider = Substitute.For<IProactiveActionIdentityProvider>();
         identityProvider
-            .ResolveForSkillAsync(Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ResolveForSkillAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ProactiveActionIdentity.Resolved(
                 new SkillExecutionContext
                 {
@@ -196,11 +212,16 @@ public class EmptyContainerActionScenarioTests
                 },
                 ["some.permission"]));
 
-        await NewService(context, executor, reporter, ProactiveMaxAction.Execute, plannerB, identityProvider)
+        var result = await NewService(context, executor, reporter, ProactiveMaxAction.Execute, identityProvider)
             .RunAsync(CancellationToken.None);
 
+        result.Executed.ShouldBe(1);
         await identityProvider.Received(1).ResolveForSkillAsync(
             plannerB, condition.Id, CreateContainerTemplateParameters.SkillName, Arg.Any<CancellationToken>());
+        await identityProvider.DidNotReceive().ResolveForSkillAsync(
+            ApproverUserId, Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await reporter.Received(1).ReportToApprovalAudienceAsync(
+            plannerB, groupB.Id, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -215,7 +236,9 @@ public class EmptyContainerActionScenarioTests
 
         var executor = new CapturingSkillExecutor();
         var reporter = Substitute.For<IProactiveActionReporter>();
-        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        reporter
+            .ReportToApprovalAudienceAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(1);
 
         await using (var firstContext = NewContext())
         {
@@ -248,7 +271,9 @@ public class EmptyContainerActionScenarioTests
 
         var executor = new CapturingSkillExecutor();
         var reporter = Substitute.For<IProactiveActionReporter>();
-        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        reporter
+            .ReportToApprovalAudienceAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(1);
 
         await using var firstContext = NewContext();
         await using var secondContext = NewContext();
@@ -301,7 +326,8 @@ public class EmptyContainerActionScenarioTests
     }
 
     private static async Task<AgentCondition> GivenEmptyContainerConditionAsync(
-        IReadOnlyCollection<int> isoWeekdays, TimeOnly startShift, TimeOnly endShift, Guid? groupId = null)
+        IReadOnlyCollection<int> isoWeekdays, TimeOnly startShift, TimeOnly endShift, Guid? groupId = null,
+        Guid? approverUserId = null)
     {
         var shiftId = Guid.NewGuid();
         var triggerEvent = new EmptyContainerTriggerEvent(
@@ -330,6 +356,11 @@ public class EmptyContainerActionScenarioTests
             // regardless of real volume, matching AgentConditionRepositoryScopedQueryIntegrationTests.
             DetectedAtUtc = FarPastUtc,
             LastSeenAtUtc = FarPastUtc,
+            // The approval stamp is "now" rather than far past: NewService ticks on TimeProvider.System,
+            // and a Reported row is executed only while its stamp is within
+            // ApprovalExecutionWindowMinutes of the tick - an older one is withdrawn instead.
+            ApprovedByUserId = approverUserId ?? ApproverUserId,
+            ApprovedAtUtc = DateTime.UtcNow,
             PayloadJson = payloadJson,
         };
 
@@ -359,10 +390,8 @@ public class EmptyContainerActionScenarioTests
 
     private static AgentConditionActionService NewService(
         DataBaseContext context, ISkillExecutor executor, IProactiveActionReporter reporter,
-        ProactiveMaxAction globalAutonomyCap, Guid? ownerUserId = null,
-        IProactiveActionIdentityProvider? identityProviderOverride = null)
+        ProactiveMaxAction globalAutonomyCap, IProactiveActionIdentityProvider? identityProviderOverride = null)
     {
-        var owner = ownerUserId ?? OwnerUserId;
         var repository = new AgentConditionRepository(context);
         var ledger = new AgentConditionLedgerService(
             repository, TimeProvider.System, NullLogger<AgentConditionLedgerService>.Instance);
@@ -377,7 +406,6 @@ public class EmptyContainerActionScenarioTests
                 ConfiguredMaxAction: ProactiveMaxAction.Execute,
                 Enabled: true,
                 KillSwitchActive: false,
-                ResponsibleOwnerUserId: owner,
                 DailyActionBudget: 5,
                 WindowActionLimit: 5,
                 WindowMinutes: 60,
@@ -391,11 +419,11 @@ public class EmptyContainerActionScenarioTests
         if (identityProviderOverride is null)
         {
             identityProvider
-                .ResolveForSkillAsync(Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .ResolveForSkillAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
                 .Returns(ProactiveActionIdentity.Resolved(
                     new SkillExecutionContext
                     {
-                        UserId = owner,
+                        UserId = ApproverUserId,
                         TenantId = Guid.Empty,
                         UserName = KlacksyIdentity.SystemUserName,
                         UserPermissions = ["some.permission"],
@@ -413,6 +441,7 @@ public class EmptyContainerActionScenarioTests
             identityProvider,
             executor,
             reporter,
+            Substitute.For<IConditionApprovalChainStarter>(),
             TimeProvider.System,
             TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);

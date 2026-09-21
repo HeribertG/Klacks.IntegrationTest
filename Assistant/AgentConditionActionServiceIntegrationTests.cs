@@ -18,6 +18,10 @@
 ///     accepts LINQ that Npgsql rejects - this project has been caught by that twice - so the query has
 ///     to be executed against Postgres, not merely written.
 ///
+/// Every seeded row carries a fresh approval stamp (ApprovedByUserId/ApprovedAtUtc): since the approval
+/// chain there is no owner path, and the dispatcher claims a Reported row only under a stamped approver
+/// whose stamp lies within AgentConditionActionDefaults.ApprovalExecutionWindowMinutes of the tick.
+///
 /// Cleanup deletes ONLY rows this fixture created, by its own trigger-kind prefix. The dev app shares
 /// this database, so nothing is ever deleted by a production-plausible value.
 /// </summary>
@@ -25,6 +29,7 @@
 using Klacks.Api.Application.Services.Assistant.Conditions;
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
+using Klacks.Api.Domain.Interfaces.Assistant;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Assistant;
@@ -47,7 +52,7 @@ public class AgentConditionActionServiceIntegrationTests
     private const string SkillName = TestPrefix + "demo_skill";
     private const string RequiredArgument = "containerId";
 
-    private static readonly Guid OwnerUserId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+    private static readonly Guid ApproverUserId = Guid.Parse("33333333-3333-3333-3333-333333333333");
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp()
@@ -237,7 +242,6 @@ public class AgentConditionActionServiceIntegrationTests
                 ConfiguredMaxAction: ProactiveMaxAction.Execute,
                 Enabled: true,
                 KillSwitchActive: false,
-                ResponsibleOwnerUserId: OwnerUserId,
                 DailyActionBudget: 50,
                 WindowActionLimit: 50,
                 WindowMinutes: 60,
@@ -248,11 +252,11 @@ public class AgentConditionActionServiceIntegrationTests
 
         var identityProvider = Substitute.For<IProactiveActionIdentityProvider>();
         identityProvider
-            .ResolveForSkillAsync(Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ResolveForSkillAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ProactiveActionIdentity.Resolved(
                 new SkillExecutionContext
                 {
-                    UserId = OwnerUserId,
+                    UserId = ApproverUserId,
                     TenantId = Guid.Empty,
                     UserName = KlacksyIdentity.SystemUserName,
                     UserPermissions = ["some.permission"],
@@ -261,7 +265,9 @@ public class AgentConditionActionServiceIntegrationTests
                 ["some.permission"]));
 
         var reporter = Substitute.For<IProactiveActionReporter>();
-        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        reporter
+            .ReportToApprovalAudienceAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(1);
 
         return new AgentConditionActionService(
             repository,
@@ -272,6 +278,7 @@ public class AgentConditionActionServiceIntegrationTests
             identityProvider,
             executor,
             reporter,
+            Substitute.For<IConditionApprovalChainStarter>(),
             TimeProvider.System,
             TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);
@@ -300,6 +307,8 @@ public class AgentConditionActionServiceIntegrationTests
             DetectedAtUtc = nowUtc.AddHours(-2),
             LastSeenAtUtc = nowUtc,
             LastAttemptAtUtc = lastAttemptAtUtc,
+            ApprovedByUserId = ApproverUserId,
+            ApprovedAtUtc = nowUtc,
             PayloadJson = "{}"
         };
 

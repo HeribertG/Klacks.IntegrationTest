@@ -28,6 +28,15 @@
 /// explain the Day-1 block, keeping the tick-cap the one and only reason - DailyActionBudget stays at the
 /// spec's literal 5 and is what the Day-2 assertions actually turn on.
 ///
+/// Since the approval chain (design 2026-09-20) there is no stored owner: a Reported row is claimed only
+/// under the approver stamped on it, and only while ApprovedAtUtc lies within
+/// AgentConditionActionDefaults.ApprovalExecutionWindowMinutes of the tick - an older stamp is WITHDRAWN,
+/// not executed. All six rows are therefore seeded with a stamp a few minutes before the Day-1 tick, and
+/// the 6th row's stamp is renewed right before the Day-2 tick: 24 hours later its Day-1 approval would be
+/// stale, and in production the withdrawal followed by the next company day's chain is what would put a
+/// fresh stamp on it. The renewal is the test standing in for that chain, so the Day-2 tick still
+/// measures the budget rollover and nothing else (asserted through ApprovalsWithdrawn == 0).
+///
 /// Cleanup deletes ONLY rows this fixture created, by its own fingerprint prefix.
 /// </summary>
 
@@ -58,9 +67,11 @@ public class EmptyContainerActionBudgetScenarioTests
     private const string Kind = TestPrefix + "empty_container_like";
     private const int SeededContainerCount = 6;
     private const int DailyActionBudget = 5;
+    private const int ApprovalLeadMinutes = 5;
 
-    private static readonly Guid OwnerUserId = Guid.Parse("55555555-5555-5555-5555-555555555555");
+    private static readonly Guid ApproverUserId = Guid.Parse("55555555-5555-5555-5555-555555555555");
     private static readonly DateTime Day1NowUtc = new(2026, 9, 1, 10, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime Day2NowUtc = Day1NowUtc.AddHours(24);
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp() => await CleanupAsync();
@@ -75,7 +86,9 @@ public class EmptyContainerActionBudgetScenarioTests
 
         var executor = new CapturingSkillExecutor();
         var reporter = Substitute.For<IProactiveActionReporter>();
-        reporter.ReportAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        reporter
+            .ReportToApprovalAudienceAsync(Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(1);
         var timeProvider = new SettableTimeProvider(Day1NowUtc);
 
         await using (var day1Context = NewContext())
@@ -97,17 +110,31 @@ public class EmptyContainerActionBudgetScenarioTests
                 1, "The 6th condition must stay Reported, not fail or vanish, while the budget is used up.");
         }
 
-        // 5 success reports (one per Executed condition, AgentConditionActionService.cs:645) plus 1
-        // budget-stop report (ReportBudgetStopAsync) for the 6th - both address the same owner, since
-        // GroupId is null for every seeded condition here.
-        await reporter.Received(6).ReportAsync(OwnerUserId, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        // 5 success reports (one per Executed condition, AgentConditionActionService.ExecuteAsync) plus 1
+        // budget-stop report (ReportBudgetStopAsync) for the 6th - all address the same approver and the
+        // group-less audience, since every seeded condition carries the same stamp and GroupId is null.
+        await reporter.Received(6).ReportToApprovalAudienceAsync(
+            ApproverUserId, null, Arg.Any<string>(), Arg.Any<CancellationToken>());
 
-        timeProvider.Now = Day1NowUtc.AddHours(24);
+        timeProvider.Now = Day2NowUtc;
+
+        // The 6th row still carries its Day-1 stamp, which is now 24 hours old - older than
+        // ApprovalExecutionWindowMinutes, so the Day-2 tick would withdraw it rather than execute it.
+        // Renew the stamp as the next company day's approval chain would, so Day 2 measures the budget
+        // rollover alone (see the fixture-level doc comment).
+        await using (var reapproval = NewContext())
+        {
+            await reapproval.AgentConditions
+                .Where(c => seededIds.Contains(c.Id) && c.Status == AgentConditionStatus.Reported)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(
+                    c => c.ApprovedAtUtc, Day2NowUtc.AddMinutes(-ApprovalLeadMinutes)));
+        }
 
         await using (var day2Context = NewContext())
         {
             var day2Result = await NewService(day2Context, executor, reporter, timeProvider)
                 .RunAsync(CancellationToken.None);
+            day2Result.ApprovalsWithdrawn.ShouldBe(0, "The renewed stamp is fresh; nothing may be withdrawn on Day 2.");
             day2Result.Executed.ShouldBe(
                 1, "The day rolled: CountActionClaimsAsync no longer counts yesterday's 5 claims, so the "
                 + "one remaining condition is claimable again.");
@@ -150,6 +177,8 @@ public class EmptyContainerActionBudgetScenarioTests
                 Status = AgentConditionStatus.Reported,
                 DetectedAtUtc = FarPastUtc,
                 LastSeenAtUtc = FarPastUtc,
+                ApprovedByUserId = ApproverUserId,
+                ApprovedAtUtc = Day1NowUtc.AddMinutes(-ApprovalLeadMinutes),
                 PayloadJson = JsonSerializer.Serialize(triggerEvent.Payload),
             });
         }
@@ -178,7 +207,6 @@ public class EmptyContainerActionBudgetScenarioTests
                 ConfiguredMaxAction: ProactiveMaxAction.Execute,
                 Enabled: true,
                 KillSwitchActive: false,
-                ResponsibleOwnerUserId: OwnerUserId,
                 DailyActionBudget: DailyActionBudget,
                 WindowActionLimit: 50,
                 WindowMinutes: 60,
@@ -190,11 +218,11 @@ public class EmptyContainerActionBudgetScenarioTests
 
         var identityProvider = Substitute.For<IProactiveActionIdentityProvider>();
         identityProvider
-            .ResolveForSkillAsync(Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ResolveForSkillAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ProactiveActionIdentity.Resolved(
                 new SkillExecutionContext
                 {
-                    UserId = OwnerUserId,
+                    UserId = ApproverUserId,
                     TenantId = Guid.Empty,
                     UserName = KlacksyIdentity.SystemUserName,
                     UserPermissions = ["some.permission"],
@@ -211,6 +239,7 @@ public class EmptyContainerActionBudgetScenarioTests
             identityProvider,
             executor,
             reporter,
+            Substitute.For<IConditionApprovalChainStarter>(),
             timeProvider,
             TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);
