@@ -348,6 +348,11 @@ public class EmptyContainerActionScenarioTests
             Fingerprint = TestPrefix + shiftId,
             EntityId = shiftId,
             GroupId = groupId,
+            // The group also gets its agent_condition_groups row: GroupId is only the row's primary group
+            // now, and the scoped reads Az9 asserts through resolve visibility through the join table.
+            Groups = groupId.HasValue
+                ? [new AgentConditionGroup { ConditionId = shiftId, GroupId = groupId.Value }]
+                : [],
             Severity = AgentTriggerSeverity.High,
             Status = AgentConditionStatus.Reported,
             // Far past, not "now": GetOpenForScopeAsync orders oldest-first within a severity tier, and
@@ -442,6 +447,7 @@ public class EmptyContainerActionScenarioTests
             executor,
             reporter,
             Substitute.For<IConditionApprovalChainStarter>(),
+            Substitute.For<IStandingApprovalRepository>(),
             TimeProvider.System,
             TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);

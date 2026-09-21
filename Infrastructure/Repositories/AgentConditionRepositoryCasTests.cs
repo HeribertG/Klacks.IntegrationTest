@@ -153,7 +153,7 @@ public class AgentConditionRepositoryCasTests
         await using var context = NewContext();
         var duplicate = NewCondition(fingerprint, AgentConditionStatus.Detected);
         var inserted = await new AgentConditionRepository(context)
-            .InsertAsync(duplicate, DetectionEvent(duplicate.Id));
+            .InsertAsync(duplicate, DetectionEvent(duplicate.Id), new HashSet<Guid>());
 
         inserted.ShouldBeNull();
 
@@ -181,7 +181,7 @@ public class AgentConditionRepositoryCasTests
             AuditEvent(first.Id, AgentConditionStatus.Resolved, "gone"))).ShouldBeTrue();
 
         var reArmed = NewCondition(fingerprint, AgentConditionStatus.Detected);
-        var inserted = await repository.InsertAsync(reArmed, DetectionEvent(reArmed.Id));
+        var inserted = await repository.InsertAsync(reArmed, DetectionEvent(reArmed.Id), new HashSet<Guid>());
 
         inserted.ShouldNotBeNull();
 

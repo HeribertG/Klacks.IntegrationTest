@@ -398,7 +398,7 @@ public class EmptyContainerReminderScenarioTests
             NullLogger<AgentConditionLedgerService>.Instance);
 
         var (condition, isNew) = await ledger.UpsertDetectedAsync(
-            Kind, fingerprint, shiftId, groupId: null, AgentTriggerSeverity.High, "{}",
+            Kind, fingerprint, shiftId, new HashSet<Guid>(), AgentTriggerSeverity.High, "{}",
             CancellationToken.None);
         isNew.ShouldBeTrue();
 

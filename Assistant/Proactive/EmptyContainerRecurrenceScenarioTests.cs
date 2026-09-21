@@ -133,7 +133,7 @@ public class EmptyContainerRecurrenceScenarioTests
                 NullLogger<AgentConditionLedgerService>.Instance);
 
             upsertResult = await ledgerService.UpsertDetectedAsync(
-                Kind, fingerprint, shiftId, groupId: null, AgentTriggerSeverity.High, payloadJson,
+                Kind, fingerprint, shiftId, new HashSet<Guid>(), AgentTriggerSeverity.High, payloadJson,
                 CancellationToken.None);
 
             upsertResult.IsNew.ShouldBeTrue(
@@ -231,7 +231,7 @@ public class EmptyContainerRecurrenceScenarioTests
             resolved.ShouldBeTrue();
 
             var (upserted, isNew) = await ledgerService.UpsertDetectedAsync(
-                Kind, fingerprint, shiftId, groupId: null, AgentTriggerSeverity.High, payloadJson,
+                Kind, fingerprint, shiftId, new HashSet<Guid>(), AgentTriggerSeverity.High, payloadJson,
                 CancellationToken.None);
             isNew.ShouldBeTrue();
             upserted.Id.ShouldNotBe(firstCondition.Id);
@@ -353,6 +353,7 @@ public class EmptyContainerRecurrenceScenarioTests
             executor,
             reporter,
             Substitute.For<IConditionApprovalChainStarter>(),
+            Substitute.For<IStandingApprovalRepository>(),
             timeProvider,
             TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);

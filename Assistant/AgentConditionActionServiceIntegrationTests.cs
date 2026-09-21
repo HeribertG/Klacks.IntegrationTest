@@ -279,6 +279,7 @@ public class AgentConditionActionServiceIntegrationTests
             executor,
             reporter,
             Substitute.For<IConditionApprovalChainStarter>(),
+            Substitute.For<IStandingApprovalRepository>(),
             TimeProvider.System,
             TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);

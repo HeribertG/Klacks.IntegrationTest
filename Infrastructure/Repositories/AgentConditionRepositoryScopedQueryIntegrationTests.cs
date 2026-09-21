@@ -23,6 +23,7 @@ using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Domain.Models.Associations;
+using Klacks.Api.Domain.Services.Assistant;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Assistant;
 using Microsoft.AspNetCore.Http;
@@ -229,6 +230,87 @@ public class AgentConditionRepositoryScopedQueryIntegrationTests
         ungroupedGlobal.ShouldAllBe(condition => plannerIds.Contains(condition.Id));
     }
 
+    /// <summary>
+    /// The multi-group fix against real Postgres. Two translation risks the InMemory provider cannot
+    /// expose: the id-membership subquery over agent_condition_groups joined to "group" with the
+    /// "g.Root ?? g.Id" fallback and a parameterized visibleRootIds.Contains inside it, and whether that
+    /// subquery composes with the outer "group_id IS NULL OR ..." disjunction the way the previous LEFT
+    /// JOIN did. Each of the finding's two groups is a separate Nested Set root, one of them reached only
+    /// through a child, so neither direction can pass by accident.
+    /// </summary>
+    [Test]
+    public async Task RestrictedScope_MultiGroupFinding_IsVisibleToEveryOneOfItsGroups_AgainstRealPostgres()
+    {
+        var firstRoot = await GivenGroupAsync(root: null);
+        var secondRoot = await GivenGroupAsync(root: null);
+        var secondChild = await GivenGroupAsync(root: secondRoot.Id);
+        var foreignRoot = await GivenGroupAsync(root: null);
+
+        var multiGroup = await GivenMultiGroupConditionAsync(
+            "high",
+            new HashSet<Guid> { firstRoot.Id, secondChild.Id },
+            AgentTriggerKinds.EmptyContainer);
+
+        await using var context = NewContext();
+        var repository = new AgentConditionRepository(context);
+
+        var firstPlanner = await repository.GetOpenForScopeAsync(
+            isUnrestricted: false, visibleRootIds: new HashSet<Guid> { firstRoot.Id }, take: 500);
+        var secondPlanner = await repository.GetOpenForScopeAsync(
+            isUnrestricted: false, visibleRootIds: new HashSet<Guid> { secondRoot.Id }, take: 500);
+        // Uncapped: a "not contained" assertion against a capped read could pass merely because the cap
+        // cut the row off, and the shared dev DB carries thousands of ungated rows this scope does admit.
+        var foreignPlanner = await repository.GetOpenForScopeAsync(
+            isUnrestricted: false, visibleRootIds: new HashSet<Guid> { foreignRoot.Id }, take: int.MaxValue);
+        var contextBlock = await repository.GetTopForContextAsync(
+            isUnrestricted: false,
+            visibleRootIds: new HashSet<Guid> { secondRoot.Id },
+            preferredGroupId: null,
+            take: 500);
+        var single = await repository.GetOpenForScopeByIdAsync(
+            multiGroup.Id, isUnrestricted: false, new HashSet<Guid> { secondRoot.Id });
+
+        firstPlanner.Select(c => c.Id).ShouldContain(multiGroup.Id);
+        secondPlanner.Select(c => c.Id).ShouldContain(
+            multiGroup.Id,
+            "The planner of the second group must find the finding - that is the whole point of the join table.");
+        foreignPlanner.Select(c => c.Id).ShouldNotContain(multiGroup.Id);
+        contextBlock.Select(c => c.Id).ShouldContain(multiGroup.Id);
+        single.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// The counterpart: a row that carries a primary group but no join rows at all - a row written before
+    /// the backfill migration, or one whose backfill did not reach it. It must fall back to Admins, which
+    /// is where a group-scoped kind with no group already falls, and never become visible to every
+    /// planner.
+    /// </summary>
+    [Test]
+    public async Task RestrictedScope_RowWithoutJoinRows_StaysWithAdmins_AgainstRealPostgres()
+    {
+        var visibleRoot = await GivenGroupAsync(root: null);
+        var withoutJoinRows = await GivenMultiGroupConditionAsync(
+            "high", new HashSet<Guid>(), AgentTriggerKinds.EmptyContainer);
+
+        await using var seed = NewContext();
+        await seed.Database.ExecuteSqlRawAsync(
+            "UPDATE agent_conditions SET group_id = {0} WHERE id = {1}",
+            visibleRoot.Id,
+            withoutJoinRows.Id);
+
+        await using var context = NewContext();
+        var repository = new AgentConditionRepository(context);
+
+        // Both uncapped: the negative assertion must not be able to pass because a cap cut the row off.
+        var planner = await repository.GetOpenForScopeAsync(
+            isUnrestricted: false, visibleRootIds: new HashSet<Guid> { visibleRoot.Id }, take: int.MaxValue);
+        var admin = await repository.GetOpenForScopeAsync(
+            isUnrestricted: true, visibleRootIds: new HashSet<Guid>(), take: int.MaxValue);
+
+        planner.Select(c => c.Id).ShouldNotContain(withoutJoinRows.Id);
+        admin.Select(c => c.Id).ShouldContain(withoutJoinRows.Id);
+    }
+
     private static async Task<Group> GivenGroupAsync(Guid? root)
     {
         var group = new Group
@@ -249,19 +331,35 @@ public class AgentConditionRepositoryScopedQueryIntegrationTests
     /// <param name="triggerKind">Defaults to this fixture's own synthetic kind. The RequiresGroupScope
     /// tests must plant REAL kind strings instead, because that is what the query classifies on - which is
     /// why cleanup keys on the Fingerprint prefix as well, the only marker such a row still carries.</param>
-    private static async Task<AgentCondition> GivenConditionAsync(string severity, Guid? groupId, string? triggerKind = null)
+    private static Task<AgentCondition> GivenConditionAsync(string severity, Guid? groupId, string? triggerKind = null) =>
+        GivenMultiGroupConditionAsync(
+            severity,
+            groupId.HasValue ? new HashSet<Guid> { groupId.Value } : new HashSet<Guid>(),
+            triggerKind);
+
+    /// <param name="groupIds">The row's full group set, written into agent_condition_groups the way
+    /// detection does. GroupId keeps the smallest as the primary group, so the pair is exactly the one the
+    /// ledger service produces.</param>
+    private static async Task<AgentCondition> GivenMultiGroupConditionAsync(
+        string severity, IReadOnlySet<Guid> groupIds, string? triggerKind = null)
     {
+        var groupId = AgentConditionLedgerPolicy.PrimaryGroupIdFor(groupIds);
+
         // Dated far in the past (not DateTime.UtcNow) so this row always sorts first under
         // GetTopForContextAsync's oldest-first tiebreak, no matter how many real, newer rows already sit
         // in the shared dev DB - see the fixture-level remarks.
+        var conditionId = Guid.NewGuid();
         var condition = new AgentCondition
         {
-            Id = Guid.NewGuid(),
+            Id = conditionId,
             TriggerKind = triggerKind ?? TestPrefix + "kind",
             Fingerprint = TestPrefix + Guid.NewGuid(),
             Severity = severity,
             Status = AgentConditionStatus.Detected,
             GroupId = groupId,
+            Groups = groupIds
+                .Select(memberGroupId => new AgentConditionGroup { ConditionId = conditionId, GroupId = memberGroupId })
+                .ToList(),
             DetectedAtUtc = FarPastUtc,
             LastSeenAtUtc = FarPastUtc,
             PayloadJson = "{}",
@@ -303,6 +401,14 @@ public class AgentConditionRepositoryScopedQueryIntegrationTests
         await using var context = NewContext();
         await context.Database.ExecuteSqlRawAsync(
             "DELETE FROM agent_condition_events WHERE condition_id IN "
+            + "(SELECT id FROM agent_conditions WHERE starts_with(trigger_kind, {0}) OR starts_with(fingerprint, {0}))",
+            TestPrefix);
+        // Deleted explicitly although the foreign key cascades, for the same reason the events above are:
+        // the condition DELETE below is keyed on this fixture's own prefixes, so anything selected by the
+        // same prefixes is this fixture's to remove, and an explicit statement keeps the cleanup readable
+        // if the cascade is ever weakened.
+        await context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM agent_condition_groups WHERE condition_id IN "
             + "(SELECT id FROM agent_conditions WHERE starts_with(trigger_kind, {0}) OR starts_with(fingerprint, {0}))",
             TestPrefix);
         await context.Database.ExecuteSqlRawAsync(

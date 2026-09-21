@@ -256,6 +256,7 @@ public class EmptyContainerEscalationScenarioTests
             executor,
             reporter,
             Substitute.For<IConditionApprovalChainStarter>(),
+            Substitute.For<IStandingApprovalRepository>(),
             timeProvider,
             TestCompanyClock.Utc(),
             NullLogger<AgentConditionActionService>.Instance);
