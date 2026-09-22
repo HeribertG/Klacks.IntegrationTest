@@ -1,10 +1,11 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
+using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Assistant;
-using Klacks.Api.Domain.Models.Email;
+using Klacks.Api.Domain.Models.Inbound;
 using Klacks.Api.Domain.Models.Schedules;
-using Klacks.Api.Infrastructure.Email;
+using Klacks.Api.Infrastructure.Inbound;
 using Klacks.IntegrationTest;
 using Klacks.IntegrationTest.SignalR;
 using Klacks.IntegrationTest.TestHelpers;
@@ -16,7 +17,7 @@ using Shouldly;
 namespace Klacks.IntegrationTest.Assistant;
 
 /// <summary>
-/// Runs the real email-intent JSON-extraction prompt (EmailIntentAnalysisService.BuildPrompt) against
+/// Runs the real email-intent JSON-extraction prompt (InboundIntentAnalysisService.BuildPrompt) against
 /// every currently-enabled model in the Dev DB, one NUnit test case per model, so a specific provider
 /// can be re-run on demand ("on the fly") whenever the prompt or the non-conversational system-prompt
 /// handling changes. Only checks structural JSON validity (the object parses and carries a non-empty
@@ -92,17 +93,13 @@ public class EmailAnalysisLlmJsonRobustnessTests
             Assert.Ignore("No admin user configured in the Dev DB — cannot open an LLM conversation.");
         }
 
-        var email = new ReceivedEmail
-        {
-            FromAddress = TestFromAddress,
-            Subject = TestSubject,
-            BodyText = TestBody,
-            ReceivedDate = DateTime.UtcNow,
-        };
+        var source = new InboundSource(
+            Guid.NewGuid(), InboundSourceKind.Email, EmailConstants.InboundChannel,
+            TestFromAddress, TestSubject, TestBody, DateTime.UtcNow);
 
         var context = new LLMContext
         {
-            Message = EmailIntentAnalysisService.BuildPrompt(email, EntityTypeEnum.Employee, TestBody, DefaultKeywords),
+            Message = InboundIntentAnalysisService.BuildPrompt(source, EntityTypeEnum.Employee, TestBody, DefaultKeywords),
             ModelId = modelId,
             UserId = userId,
             IsNonConversational = true,
@@ -125,7 +122,7 @@ public class EmailAnalysisLlmJsonRobustnessTests
             return;
         }
 
-        var parsed = EmailIntentAnalysisService.ParseReply(response.Message);
+        var parsed = InboundIntentAnalysisService.ParseReply(response.Message);
 
         parsed.ShouldNotBeNull(
             $"Model '{modelId}' did not return parsable JSON. Raw reply: {Truncate(response.Message)}");
