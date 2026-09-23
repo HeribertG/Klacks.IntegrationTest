@@ -2,7 +2,6 @@
 
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
-using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Domain.Models.Inbound;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Infrastructure.Inbound;
@@ -19,10 +18,12 @@ namespace Klacks.IntegrationTest.Assistant;
 /// <summary>
 /// Runs the real email-intent JSON-extraction prompt (InboundIntentAnalysisService.BuildPrompt) against
 /// every currently-enabled model in the Dev DB, one NUnit test case per model, so a specific provider
-/// can be re-run on demand ("on the fly") whenever the prompt or the non-conversational system-prompt
-/// handling changes. Only checks structural JSON validity (the object parses and carries a non-empty
-/// intent) — model choice of intent/content is out of scope, this guards the parsing contract that
-/// broke in production when the full Klacksy agent persona leaked into a one-shot extraction call.
+/// can be re-run on demand ("on the fly") whenever the prompt changes. Goes through the same
+/// IOneShotCompletionService production uses (system prompt + user message, no chat pipeline), with the
+/// model pinned per test case. Only checks structural JSON validity (the object parses and carries a
+/// non-empty intent) — model choice of intent/content is out of scope, this guards the parsing contract
+/// that broke in production when the full Klacksy chat pipeline (agent persona, later the recipe engine)
+/// processed the extraction call.
 ///
 /// [Explicit] + [Category("Llm")] + [Category("RealDatabase")]: makes real LLM API calls against
 /// whatever providers are configured in the Dev DB (5434), costs money, needs network. A model with no
@@ -84,50 +85,37 @@ public class EmailAnalysisLlmJsonRobustnessTests
     public async Task EmailIntentPrompt_OnEnabledModel_ReturnsParsableJson(string modelId)
     {
         using var scope = _factory.Services.CreateScope();
-        var llmService = scope.ServiceProvider.GetRequiredService<ILLMService>();
-        var audienceResolver = scope.ServiceProvider.GetRequiredService<IPlanningAudienceResolver>();
+        var completionService = scope.ServiceProvider.GetRequiredService<IOneShotCompletionService>();
+        var companyClock = scope.ServiceProvider.GetRequiredService<ICompanyClock>();
 
-        var userId = await audienceResolver.GetFirstAdminUserIdAsync();
-        if (string.IsNullOrEmpty(userId))
-        {
-            Assert.Ignore("No admin user configured in the Dev DB — cannot open an LLM conversation.");
-        }
-
+        var receivedAt = DateTime.UtcNow;
         var source = new InboundSource(
             Guid.NewGuid(), InboundSourceKind.Email, EmailConstants.InboundChannel,
-            TestFromAddress, TestSubject, TestBody, DateTime.UtcNow);
+            TestFromAddress, TestSubject, TestBody, receivedAt);
+        var receivedDate = InboundIntentAnalysisService.ToCompanyLocalDate(
+            receivedAt, await companyClock.GetTimeZoneAsync());
+        var prompt = InboundIntentAnalysisService.BuildPrompt(
+            source, EntityTypeEnum.Employee, TestBody, receivedDate, DefaultKeywords);
 
-        var context = new LLMContext
+        var result = await completionService.CompleteAsync(prompt.SystemPrompt, prompt.UserMessage, modelId);
+        if (!result.Success)
         {
-            Message = InboundIntentAnalysisService.BuildPrompt(source, EntityTypeEnum.Employee, TestBody, DefaultKeywords),
-            ModelId = modelId,
-            UserId = userId,
-            IsNonConversational = true,
-        };
+            var error = result.Error ?? string.Empty;
+            if (LooksLikeProviderUnavailable(error))
+            {
+                Assert.Ignore($"Model '{modelId}' has no usable provider: {error}");
+                return;
+            }
 
-        LLMResponse response;
-        try
-        {
-            response = await llmService.ProcessAsync(context);
-        }
-        catch (Exception ex) when (LooksLikeProviderUnavailable(ex.Message))
-        {
-            Assert.Ignore($"Model '{modelId}' has no usable provider: {ex.Message}");
-            return;
+            Assert.Fail($"Model '{modelId}' call failed: {error}");
         }
 
-        if (LooksLikeProviderUnavailable(response.Message))
-        {
-            Assert.Ignore($"Model '{modelId}' reported unavailable: {response.Message}");
-            return;
-        }
-
-        var parsed = InboundIntentAnalysisService.ParseReply(response.Message);
+        var parsed = InboundIntentAnalysisService.ParseReply(result.Content);
 
         parsed.ShouldNotBeNull(
-            $"Model '{modelId}' did not return parsable JSON. Raw reply: {Truncate(response.Message)}");
+            $"Model '{modelId}' did not return parsable JSON. Raw reply: {Truncate(result.Content)}");
         parsed!.Intent.ShouldNotBeNullOrWhiteSpace(
-            $"Model '{modelId}' returned JSON without an 'intent' field. Raw reply: {Truncate(response.Message)}");
+            $"Model '{modelId}' returned JSON without an 'intent' field. Raw reply: {Truncate(result.Content)}");
 
         TestContext.Out.WriteLine($"Model '{modelId}': intent={parsed.Intent}, summary={parsed.Summary}");
     }
