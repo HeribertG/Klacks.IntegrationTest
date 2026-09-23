@@ -4,8 +4,9 @@
 /// Integration tests for the inbound_clarifications table against the real PostgreSQL schema: the
 /// partial unique index allows at most one Open clarification per client (resolved or soft-deleted
 /// rows do not count), the conditional status transition only moves an Open row, the due query only
-/// returns overdue Open rows, and the two new inbound_analyses columns round-trip. Rows are scoped by
-/// the INTEGRATION_TEST_ prefix on Recipient (clarifications) and Channel (analyses).
+/// returns overdue Open rows, the rate-limit window counts a round by either its start (AskedAt) or its
+/// end (ResolvedAt) and never Suggested rows, and the two new inbound_analyses columns round-trip. Rows
+/// are scoped by the INTEGRATION_TEST_ prefix on Recipient (clarifications) and Channel (analyses).
 /// </summary>
 
 using Klacks.Api.Domain.Enums;
@@ -54,7 +55,12 @@ public class InboundClarificationPersistenceTests
         await _context.DisposeAsync();
     }
 
-    private static InboundClarification Row(Guid clientId, InboundClarificationStatus status = InboundClarificationStatus.Open, DateTime? deadlineAt = null)
+    private static InboundClarification Row(
+        Guid clientId,
+        InboundClarificationStatus status = InboundClarificationStatus.Open,
+        DateTime? deadlineAt = null,
+        DateTime? askedAt = null,
+        DateTime? resolvedAt = null)
     {
         var now = DateTime.UtcNow;
         return new InboundClarification
@@ -70,9 +76,10 @@ public class InboundClarificationPersistenceTests
             OriginalText = "Ich fühle mich nicht gut.",
             OriginalReceivedAt = now,
             Question = "Heißt das, du kannst heute nicht arbeiten?",
-            AskedAt = now,
+            AskedAt = askedAt ?? now,
             DeadlineAt = deadlineAt ?? now.AddMinutes(60),
-            Status = status
+            Status = status,
+            ResolvedAt = resolvedAt
         };
     }
 
@@ -159,11 +166,34 @@ public class InboundClarificationPersistenceTests
     public async Task CountAskedSince_IgnoresSuggestedRows()
     {
         var clientId = Guid.NewGuid();
-        var since = DateTime.UtcNow.AddMinutes(-60);
-        await _repository.AddAsync(Row(clientId, InboundClarificationStatus.Suggested));
+        var now = DateTime.UtcNow;
+        var since = now.AddMinutes(-60);
+        await _repository.AddAsync(Row(clientId, InboundClarificationStatus.Suggested, askedAt: now.AddMinutes(-90), resolvedAt: now.AddMinutes(-10)));
         await _repository.AddAsync(Row(clientId, InboundClarificationStatus.Unresolved));
 
         (await _repository.CountAskedSinceAsync(clientId, since)).ShouldBe(1);
+    }
+
+    [Test]
+    public async Task CountAskedSince_CountsARoundThatEndedWithinTheWindow_EvenThoughItWasAskedBeforeIt()
+    {
+        var clientId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var since = now.AddMinutes(-60);
+        await _repository.AddAsync(Row(clientId, InboundClarificationStatus.Unresolved, askedAt: now.AddMinutes(-90), resolvedAt: now.AddMinutes(-10)));
+
+        (await _repository.CountAskedSinceAsync(clientId, since)).ShouldBe(1);
+    }
+
+    [Test]
+    public async Task CountAskedSince_ExcludesARoundThatWasAskedAndEndedLongAgo()
+    {
+        var clientId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var since = now.AddMinutes(-60);
+        await _repository.AddAsync(Row(clientId, InboundClarificationStatus.Expired, askedAt: now.AddMinutes(-200), resolvedAt: now.AddMinutes(-150)));
+
+        (await _repository.CountAskedSinceAsync(clientId, since)).ShouldBe(0);
     }
 
     [Test]
