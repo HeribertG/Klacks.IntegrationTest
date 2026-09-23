@@ -14,7 +14,8 @@ namespace Klacks.IntegrationTest.Messaging;
 public class TelegramWebhookIntegrationTest
 {
     private const string WebhookUrl = "http://localhost:5000/api/messaging/webhook/telegram";
-    private const string WebhookUrlGet = "http://localhost:5000/api/messaging/webhook/telegram?hub.challenge=klacks";
+    private const string WebhookUrlGet = "http://localhost:5000/api/messaging/webhook/telegram";
+    private const string WebhookUrlGetWithChallenge = "http://localhost:5000/api/messaging/webhook/telegram?hub.challenge=klacks";
 
     private static readonly HttpClient _httpClient = new()
     {
@@ -44,13 +45,35 @@ public class TelegramWebhookIntegrationTest
 
         var body = await response.Content.ReadAsStringAsync();
         TestContext.Out.WriteLine($"Verification body: {body}");
-        Assert.That(body, Does.Contain("klacks").Or.Contain("Webhook").IgnoreCase);
+        Assert.That(body, Does.Contain("Webhook").IgnoreCase);
     }
 
     [Test]
-    public async Task StartCommand_WithUnknownToken_ReturnsOk()
+    public async Task VerificationChallenge_ForProviderWithoutSubscriptionHandshake_ReturnsForbidden()
     {
-        TestContext.Out.WriteLine("=== /start with unknown token is handled gracefully ===");
+        TestContext.Out.WriteLine("=== Telegram has no hub.challenge handshake: a challenge is refused with 403, not a login redirect ===");
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _httpClient.GetAsync(WebhookUrlGetWithChallenge);
+        }
+        catch (HttpRequestException ex)
+        {
+            Assert.Inconclusive($"Backend API not reachable at {WebhookUrlGetWithChallenge}: {ex.Message}");
+            return;
+        }
+
+        Assert.That(
+            response.StatusCode,
+            Is.EqualTo(HttpStatusCode.Forbidden),
+            "A challenge no provider can answer must be refused with a plain 403");
+    }
+
+    [Test]
+    public async Task StartCommand_WithoutSecretTokenHeader_IsRejected()
+    {
+        TestContext.Out.WriteLine("=== /start without the Telegram secret-token header is rejected before any redemption ===");
 
         var payload = new
         {
@@ -76,8 +99,8 @@ public class TelegramWebhookIntegrationTest
 
         Assert.That(
             response.StatusCode,
-            Is.EqualTo(HttpStatusCode.OK),
-            "Webhook should always return 200 for a structurally valid /start payload, even when the token is unknown");
+            Is.EqualTo(HttpStatusCode.Unauthorized),
+            "An invitation or pairing code may only be redeemed from a request that carries the provider's Telegram secret token");
     }
 
     [Test]
