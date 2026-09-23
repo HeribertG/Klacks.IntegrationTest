@@ -97,6 +97,30 @@ public class InboundClarificationPersistenceTests
     }
 
     [Test]
+    public async Task SoftDeletedOpenClarification_DoesNotBlockANewOpenOne()
+    {
+        var clientId = Guid.NewGuid();
+        var deleted = Row(clientId);
+        (await _repository.TryAddOpenAsync(deleted)).ShouldBeTrue();
+
+        await _context.InboundClarifications
+            .IgnoreQueryFilters()
+            .Where(c => c.Id == deleted.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.IsDeleted, true));
+
+        (await _repository.TryAddOpenAsync(Row(clientId))).ShouldBeTrue();
+    }
+
+    [Test]
+    public async Task AddAsync_WithOpenStatus_Throws()
+    {
+        var clientId = Guid.NewGuid();
+
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(
+            async () => await _repository.AddAsync(Row(clientId, InboundClarificationStatus.Open)));
+    }
+
+    [Test]
     public async Task TryResolve_MovesOnlyAnOpenRow()
     {
         var row = Row(Guid.NewGuid());
@@ -109,6 +133,8 @@ public class InboundClarificationPersistenceTests
         var reread = await _repository.GetByIdAsync(row.Id);
         reread!.Status.ShouldBe(InboundClarificationStatus.Expired);
         reread.ResolvedAt.ShouldNotBeNull();
+        reread.AnswerSourceId.ShouldBeNull();
+        reread.ResultAnalysisId.ShouldBeNull();
     }
 
     [Test]
