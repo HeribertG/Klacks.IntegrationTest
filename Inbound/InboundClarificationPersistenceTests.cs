@@ -5,8 +5,11 @@
 /// partial unique index allows at most one Open clarification per client (resolved or soft-deleted
 /// rows do not count), the conditional status transition only moves an Open row, the due query only
 /// returns overdue Open rows, the rate-limit window counts a round by either its start (AskedAt) or its
-/// end (ResolvedAt) and never Suggested rows, and the two new inbound_analyses columns round-trip. Rows
-/// are scoped by the INTEGRATION_TEST_ prefix on Recipient (clarifications) and Channel (analyses).
+/// end (ResolvedAt) and never Suggested rows, and the two new inbound_analyses columns round-trip. Also
+/// covers InboundAnalysisRepository.ExistsBySourceAsync against the real unique index on
+/// inbound_analyses(source_kind, source_id), which has no is_deleted filter: a soft-deleted row still
+/// counts, unlike GetBySourceAsync which applies the global query filter. Rows are scoped by the
+/// INTEGRATION_TEST_ prefix on Recipient (clarifications) and Channel (analyses).
 /// </summary>
 
 using Klacks.Api.Domain.Enums;
@@ -220,5 +223,41 @@ public class InboundClarificationPersistenceTests
 
         reread.NeedsClarification.ShouldBeTrue();
         reread.ClarificationQuestion.ShouldBe("Kannst du heute arbeiten?");
+    }
+
+    [Test]
+    public async Task ExistsBySource_SoftDeletedAnalysis_StillCounts()
+    {
+        var sourceId = Guid.NewGuid();
+        var analysis = new InboundAnalysis
+        {
+            Id = Guid.NewGuid(),
+            SourceKind = InboundSourceKind.Email,
+            SourceId = sourceId,
+            Channel = TestPrefix + "Email",
+            Intent = EmailIntent.Other,
+            Confidence = EmailConfidence.Low,
+            Summary = "Soft-deleted analysis",
+            AnalyzedAt = DateTime.UtcNow
+        };
+        _context.InboundAnalyses.Add(analysis);
+        await _context.SaveChangesAsync();
+        await _context.InboundAnalyses.IgnoreQueryFilters()
+            .Where(a => a.Id == analysis.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(a => a.IsDeleted, true));
+        _context.ChangeTracker.Clear();
+
+        var analysisRepository = new InboundAnalysisRepository(_context);
+
+        (await analysisRepository.ExistsBySourceAsync(InboundSourceKind.Email, sourceId)).ShouldBeTrue();
+        (await analysisRepository.GetBySourceAsync(InboundSourceKind.Email, sourceId)).ShouldBeNull();
+    }
+
+    [Test]
+    public async Task ExistsBySource_UnknownSourceId_ReturnsFalse()
+    {
+        var analysisRepository = new InboundAnalysisRepository(_context);
+
+        (await analysisRepository.ExistsBySourceAsync(InboundSourceKind.Email, Guid.NewGuid())).ShouldBeFalse();
     }
 }
