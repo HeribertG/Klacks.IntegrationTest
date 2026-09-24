@@ -11,10 +11,12 @@
 /// counts, unlike GetBySourceAsync which applies the global query filter. GetByAnalysisIdAsync matches
 /// a row by OriginalAnalysisId or ResultAnalysisId, returns the most recently asked one when several
 /// match, and null for no match or a soft-deleted row. ClearOriginalTextAsync (retention) empties the text
-/// of exactly the closed rows resolved before the cutoff - soft-deleted ones included - and leaves young
-/// closed rows, Open rows and Suggested rows (also one with a resolved_at) alone, keeps every row with its
-/// status and deadlines, and is idempotent; its rows use resolved_at values in 1990/1996 with a 1995 cutoff,
-/// so the global update can never reach a real row of the shared database. The recipient column holds a
+/// of exactly the ended rows before the cutoff - closed rows by resolved_at, Suggested rows by asked_at,
+/// soft-deleted ones included - and leaves young closed rows, young Suggested rows, a Suggested row whose
+/// resolved_at is old but whose asked_at is young, a closed row asked long ago but resolved recently, and
+/// Open rows (also one asked long ago) alone, keeps every row with its status and deadlines, and is
+/// idempotent; its rows use timestamps in 1990/1996 with a 1995 cutoff, so the global update can never
+/// reach a real row of the shared database. The recipient column holds a
 /// 254-character email address and rejects 255 characters. Rows are scoped by the
 /// INTEGRATION_TEST_ prefix on Recipient (clarifications) and Channel (analyses).
 /// </summary>
@@ -282,18 +284,20 @@ public class InboundClarificationPersistenceTests
     }
 
     [Test]
-    public async Task ClearOriginalText_ClearsOnlyClosedRowsResolvedBeforeTheCutoff_AndKeepsTheRows()
+    public async Task ClearOriginalText_ClearsOnlyEndedRowsBeforeTheCutoff_AndKeepsTheRows()
     {
         var oldAnswered = Row(Guid.NewGuid(), InboundClarificationStatus.Answered, resolvedAt: LongAgo);
         var oldExpired = Row(Guid.NewGuid(), InboundClarificationStatus.Expired, resolvedAt: LongAgo);
         var oldTakenOver = Row(Guid.NewGuid(), InboundClarificationStatus.TakenOver, resolvedAt: LongAgo);
         var oldUnresolved = Row(Guid.NewGuid(), InboundClarificationStatus.Unresolved, resolvedAt: LongAgo);
         var oldSoftDeleted = Row(Guid.NewGuid(), InboundClarificationStatus.Answered, resolvedAt: LongAgo);
+        var oldSuggested = Row(Guid.NewGuid(), InboundClarificationStatus.Suggested, askedAt: LongAgo);
         var youngAnswered = Row(Guid.NewGuid(), InboundClarificationStatus.Answered, resolvedAt: YoungerThanCutoff);
-        var open = Row(Guid.NewGuid(), resolvedAt: LongAgo);
-        var suggestedWithResolvedAt = Row(Guid.NewGuid(), InboundClarificationStatus.Suggested, resolvedAt: LongAgo);
-        var suggestedWithoutResolvedAt = Row(Guid.NewGuid(), InboundClarificationStatus.Suggested);
-        foreach (var row in new[] { oldAnswered, oldExpired, oldTakenOver, oldUnresolved, oldSoftDeleted, youngAnswered, suggestedWithResolvedAt, suggestedWithoutResolvedAt })
+        var askedLongAgoResolvedYoung = Row(Guid.NewGuid(), InboundClarificationStatus.Answered, askedAt: LongAgo, resolvedAt: YoungerThanCutoff);
+        var youngSuggested = Row(Guid.NewGuid(), InboundClarificationStatus.Suggested, askedAt: YoungerThanCutoff);
+        var suggestedAskedYoungResolvedOld = Row(Guid.NewGuid(), InboundClarificationStatus.Suggested, askedAt: YoungerThanCutoff, resolvedAt: LongAgo);
+        var open = Row(Guid.NewGuid(), askedAt: LongAgo, resolvedAt: LongAgo);
+        foreach (var row in new[] { oldAnswered, oldExpired, oldTakenOver, oldUnresolved, oldSoftDeleted, oldSuggested, youngAnswered, askedLongAgoResolvedYoung, youngSuggested, suggestedAskedYoungResolvedOld })
         {
             await _repository.AddAsync(row);
         }
@@ -304,19 +308,19 @@ public class InboundClarificationPersistenceTests
             .Where(c => c.Id == oldSoftDeleted.Id)
             .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.IsDeleted, true));
 
-        (await _repository.ClearOriginalTextAsync(RetentionCutoff)).ShouldBe(5);
+        (await _repository.ClearOriginalTextAsync(RetentionCutoff)).ShouldBe(6);
 
-        foreach (var cleared in new[] { oldAnswered, oldExpired, oldTakenOver, oldUnresolved, oldSoftDeleted })
+        foreach (var cleared in new[] { oldAnswered, oldExpired, oldTakenOver, oldUnresolved, oldSoftDeleted, oldSuggested })
         {
             var reread = await RereadIgnoringFilters(cleared.Id);
             reread.OriginalText.ShouldBeEmpty();
             reread.Status.ShouldBe(cleared.Status);
             reread.Question.ShouldBe(cleared.Question);
             reread.DeadlineAt.ShouldBe(cleared.DeadlineAt, TimeSpan.FromMilliseconds(1));
-            reread.ResolvedAt.ShouldBe(LongAgo);
+            reread.ResolvedAt.ShouldBe(cleared.ResolvedAt);
         }
 
-        foreach (var untouched in new[] { youngAnswered, open, suggestedWithResolvedAt, suggestedWithoutResolvedAt })
+        foreach (var untouched in new[] { youngAnswered, askedLongAgoResolvedYoung, youngSuggested, suggestedAskedYoungResolvedOld, open })
         {
             (await RereadIgnoringFilters(untouched.Id)).OriginalText.ShouldBe(untouched.OriginalText);
         }
@@ -326,8 +330,9 @@ public class InboundClarificationPersistenceTests
     public async Task ClearOriginalText_IsIdempotent()
     {
         await _repository.AddAsync(Row(Guid.NewGuid(), InboundClarificationStatus.Expired, resolvedAt: LongAgo));
+        await _repository.AddAsync(Row(Guid.NewGuid(), InboundClarificationStatus.Suggested, askedAt: LongAgo));
 
-        (await _repository.ClearOriginalTextAsync(RetentionCutoff)).ShouldBe(1);
+        (await _repository.ClearOriginalTextAsync(RetentionCutoff)).ShouldBe(2);
         (await _repository.ClearOriginalTextAsync(RetentionCutoff)).ShouldBe(0);
     }
 
