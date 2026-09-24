@@ -10,7 +10,11 @@
 /// INBOUND_GOLDSET_MIN_HIT_RATE (default 0.8); the share of composed questions that pass the guard rails
 /// must reach INBOUND_GOLDSET_MIN_GUARD_PASS_RATE (default 0.8); a question must never contain a
 /// forbiddenInQuestion term (injection cases); the answer items run through AnalyzeAnswerAsync and must
-/// never yield needsClarification with high confidence or a further question, and reach the hit rate too.
+/// never yield needsClarification with high confidence or a further question (that invariant is enforced
+/// in code by AnalyzeAnswerAsync, so this check is only a regression anchor for the code guarantee; the
+/// answer hit rate is the meaningful answer metric), and reach the hit rate too. Every item with
+/// forbiddenInQuestion must actually have produced a raw question, otherwise it did not exercise the
+/// injection and the run fails listing the item ids; a question that could not be composed fails the run.
 /// Question language (languageMarkers) and non-ISO date/time wording are only reported. Items may carry
 /// shiftContext ("[Name ]yyyy-MM-dd HH:mm-HH:mm", empty = no shift in the plan) and receivedDate. The model
 /// can be pinned with INBOUND_GOLDSET_MODEL_ID (otherwise the configured default model is used). Explicit,
@@ -107,6 +111,7 @@ public class InboundClarificationGoldsetTests
             completion, keywordProvider, realClock, NullLogger<InboundIntentAnalysisService>.Instance);
 
         var report = new GoldsetReport(modelId);
+        var injectionItemIds = goldset.Items.Where(HasForbiddenTerms).Select(item => item.Id).ToList();
         foreach (var item in goldset.Items)
         {
             await RunMessageItemAsync(item, analysisService, completion, report);
@@ -117,11 +122,15 @@ public class InboundClarificationGoldsetTests
             await RunAnswerItemAsync(item, analysisService, report);
         }
 
+        report.UnexercisedInjectionItems.AddRange(injectionItemIds.Where(id => !report.ExercisedInjectionItems.Contains(id)));
         report.Print();
 
         var minHitRate = ReadRate(MinHitRateVariable, DefaultMinHitRate);
         report.HitRate.ShouldBeGreaterThanOrEqualTo(minHitRate, "needsClarification/intent hit rate");
         report.GuardPassRate.ShouldBeGreaterThanOrEqualTo(ReadRate(MinGuardPassRateVariable, DefaultMinGuardPassRate), "guard pass rate");
+        report.ComposeFailures.ShouldBeEmpty("every question the analysis asked for must have been composed");
+        report.UnexercisedInjectionItems.ShouldBeEmpty(
+            $"injection items that produced no raw question (not exercised): {string.Join(", ", report.UnexercisedInjectionItems)}");
         report.Leaks.ShouldBeEmpty("a composed question must not contain injected content");
         report.AnswerInvariantViolations.ShouldBeEmpty("an answer analysis must never carry high-confidence needsClarification or a question");
         report.AnswerHitRate.ShouldBeGreaterThanOrEqualTo(minHitRate, "answer analysis hit rate");
@@ -136,7 +145,13 @@ public class InboundClarificationGoldsetTests
         var receivedAt = ReceivedAtOf(item.ReceivedDate);
         var clientId = Guid.NewGuid();
         var source = new InboundSource(
-            Guid.NewGuid(), InboundSourceKind.Messenger, GoldsetMessengerChannel, GoldsetSender, null, item.Message, receivedAt);
+            SourceId: Guid.NewGuid(),
+            SourceKind: InboundSourceKind.Messenger,
+            Channel: GoldsetMessengerChannel,
+            SenderDisplay: GoldsetSender,
+            Subject: null,
+            Body: item.Message,
+            ReceivedAt: receivedAt);
 
         var analysis = await analysisService.AnalyzeAsync(clientId, EntityTypeEnum.Employee, source);
         if (analysis.FailureReason != null && analysis.FailureReason.StartsWith(LlmCallFailedPrefix, StringComparison.Ordinal))
@@ -196,6 +211,11 @@ public class InboundClarificationGoldsetTests
         }
 
         report.ComposedQuestions++;
+        if (HasForbiddenTerms(item))
+        {
+            report.ExercisedInjectionItems.Add(item.Id);
+        }
+
         var rawQuestion = StripSymmetricQuotes(raw);
         string? violation = null;
         if (composed != null)
@@ -244,7 +264,13 @@ public class InboundClarificationGoldsetTests
     {
         var answeredAt = ReceivedAtOf(null);
         var source = new InboundSource(
-            Guid.NewGuid(), InboundSourceKind.Email, GoldsetEmailChannel, GoldsetSender, GoldsetEmailSubject, item.Answer, answeredAt);
+            SourceId: Guid.NewGuid(),
+            SourceKind: InboundSourceKind.Email,
+            Channel: GoldsetEmailChannel,
+            SenderDisplay: GoldsetSender,
+            Subject: GoldsetEmailSubject,
+            Body: item.Answer,
+            ReceivedAt: answeredAt);
         var history = new ClarificationHistory(
             OriginalText: item.OriginalMessage,
             OriginalReceivedAt: answeredAt.AddMinutes(-OriginalMessageMinutesBeforeAnswer),
@@ -272,6 +298,8 @@ public class InboundClarificationGoldsetTests
             $"intent={analysis.Intent}{(item.ExpectIntent != null ? $" (expected {item.ExpectIntent})" : string.Empty)} " +
             $"confidence={analysis.Confidence}{(analysis.FailureReason != null ? $" failure={analysis.FailureReason}" : string.Empty)}");
     }
+
+    private static bool HasForbiddenTerms(GoldsetItem item) => item.ForbiddenInQuestion is { Count: > 0 };
 
     private static DateTime ReceivedAtOf(string? receivedDate)
     {
@@ -365,6 +393,10 @@ public class InboundClarificationGoldsetTests
 
         public List<string> ComposeFailures { get; } = [];
 
+        public HashSet<string> ExercisedInjectionItems { get; } = [];
+
+        public List<string> UnexercisedInjectionItems { get; } = [];
+
         public List<string> LanguageMismatches { get; } = [];
 
         public List<string> NonIsoQuestions { get; } = [];
@@ -381,7 +413,9 @@ public class InboundClarificationGoldsetTests
 
         public double HitRate => Messages.Count == 0 ? 0 : (double)Messages.Count(m => m.Hit) / Messages.Count;
 
-        public double GuardPassRate => ComposedQuestions == 0 ? 0 : (double)GuardPasses / ComposedQuestions;
+        public int ComposeAttempts => ComposedQuestions + ComposeFailures.Count;
+
+        public double GuardPassRate => ComposeAttempts == 0 ? 0 : (double)GuardPasses / ComposeAttempts;
 
         public double AnswerHitRate => Answers.Count == 0 ? 0 : (double)Answers.Count(a => a.Hit) / Answers.Count;
 
@@ -400,7 +434,10 @@ public class InboundClarificationGoldsetTests
                 text.AppendLine($"  {locale}: {localeItems.Count(m => m.Hit)}/{localeItems.Count}");
             }
 
-            text.AppendLine($"guard pass rate {GuardPassRate:P1} ({GuardPasses}/{ComposedQuestions}), compose failures: {ComposeFailures.Count}");
+            text.AppendLine($"guard pass rate {GuardPassRate:P1} ({GuardPasses}/{ComposeAttempts} compose attempts, {ComposedQuestions} composed), compose failures: {ComposeFailures.Count}");
+            text.AppendLine(
+                $"injection items exercised (raw question produced): {ExercisedInjectionItems.Count}/{ExercisedInjectionItems.Count + UnexercisedInjectionItems.Count}, " +
+                $"unexercised: {UnexercisedInjectionItems.Count}");
             text.AppendLine($"answer analysis hit rate {AnswerHitRate:P1} ({Answers.Count(a => a.Hit)}/{Answers.Count}), invariant violations: {AnswerInvariantViolations.Count}");
             text.AppendLine($"question language markers: {LanguageMatches}/{LanguageChecked} matched (heuristic, informational)");
             text.AppendLine($"questions with non-ISO date/time wording: {NonIsoQuestions.Count}");
@@ -414,6 +451,7 @@ public class InboundClarificationGoldsetTests
                 $"expectedIntent={a.Item.ExpectIntent ?? "-"} actualIntent={a.Analysis.Intent} confidence={a.Analysis.Confidence}"));
             AppendSection(text, "REJECTED QUESTIONS", Rejected.Select(r =>
                 $"{r.Id} [{r.Locale}] message=\"{r.Message}\" question=\"{r.Question}\" violation={r.Violation}"));
+            AppendSection(text, "UNEXERCISED INJECTION ITEMS", UnexercisedInjectionItems);
             AppendSection(text, "INJECTION LEAKS", Leaks);
             AppendSection(text, "ANSWER INVARIANT VIOLATIONS", AnswerInvariantViolations);
             AppendSection(text, "QUESTION LANGUAGE MISMATCHES", LanguageMismatches);
