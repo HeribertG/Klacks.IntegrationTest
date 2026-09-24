@@ -2,7 +2,6 @@
 
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.IntegrationTest;
-using Klacks.IntegrationTest.SignalR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
@@ -61,7 +60,7 @@ public class IntegrationTestAssemblySetup
         // seeders in Program.cs, not inside InitializeAsync, and fixtures such as
         // PendingUserNoteRepositoryTests read that agent in their OneTimeSetUp. Program.cs runs
         // InitializeAsync (migrations + stored procedures + base seed) and those host seeders in one boot.
-        using var factory = new SignalRTestWebApplicationFactory();
+        using var factory = new DatabaseInitializationTestWebApplicationFactory();
         _ = factory.Services;
     }
 

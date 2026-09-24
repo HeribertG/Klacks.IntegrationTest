@@ -22,7 +22,7 @@ using System.Text;
 
 namespace Klacks.IntegrationTest.SignalR;
 
-public class SignalRTestWebApplicationFactory : WebApplicationFactory<Program>
+public class SignalRTestWebApplicationFactory : HardenedTestWebApplicationFactory
 {
     public const string JWT_SECRET = "tqXc2HF1RDsi/N1LMkGIVrgFSVuJ9PBmFg/QrgzqlfQ=";
     public const string JWT_ISSUER = "https://localhost:44371";
@@ -30,8 +30,7 @@ public class SignalRTestWebApplicationFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Development");
-        TestHostDatabase.UseTestConnection(builder);
+        base.ConfigureWebHost(builder);
         builder.ConfigureServices(services =>
         {
             services.Configure<AuthenticationOptions>(options =>
