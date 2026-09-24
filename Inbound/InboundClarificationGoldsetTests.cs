@@ -19,8 +19,11 @@
 /// shiftContext ("[Name ]yyyy-MM-dd HH:mm-HH:mm", empty = no shift in the plan), receivedDate, sender and
 /// subject (a subject makes the item an email source; otherwise it is a messenger source). Items with
 /// forbiddenIntent (EmailIntent names that must not come out) or maxConfidence (Low = must not be High)
-/// or forbiddenDates (yyyy-MM-dd dates the analysed FromDate or UntilDate must not equal, so a forged Date
-/// or shift day cannot shift the period) are analysis injection items: a violation fails the run with the
+/// or forbiddenDates (yyyy-MM-dd dates the analysed FromDate or UntilDate must not equal; used ONLY for a
+/// forged "today" such as a Date: or Today (company local date): line in the text, which must not move the
+/// analysis' "now". A forged affected-shift day is not listed: naming a shift day is a statement of content
+/// that cannot be told from an honest one, so it is covered by forbiddenInQuestion / maxConfidence instead)
+/// are analysis injection items: a violation fails the run with the
 /// item ids, and an item whose analysis produced no parsable reply was not checked, which also fails the
 /// run. Intent, confidence and date names are validated when the file is loaded (InboundGoldsetSchemaValidator),
 /// before any LLM call. The checks read the FINAL analysis; whenever the label backstop of the analysis
@@ -88,7 +91,6 @@ public class InboundClarificationGoldsetTests
         @"\d{1,2}/\d{1,2}|\d\s?[AaPp]\.?[Mm]\b|(?<!\d-)\b20\d{2}\b(?!-\d)|\d{1,2}h\d{0,2}\b";
     private const string ReplyMismatchNote = "composer returned null although the guard accepts the raw text (exception, see log)";
     private const string ReportSeparator = "------------------------------------------------------------";
-    private const string StabilizerLogMarker = "lowered from high confidence to low";
 
     private static readonly Regex ShiftContextRegex = new(ShiftContextPattern, RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex NonIsoDateOrTimeRegex = new(NonIsoDateOrTimePattern, RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -600,7 +602,7 @@ public class InboundClarificationGoldsetTests
         public void Log<TState>(
             LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            if (logLevel == LogLevel.Warning && formatter(state, exception).Contains(StabilizerLogMarker, StringComparison.Ordinal))
+            if (logLevel == LogLevel.Warning && formatter(state, exception).Contains(InboundIntentAnalysisService.ConfidenceLoweredLogMarker, StringComparison.Ordinal))
             {
                 Downgrades++;
             }

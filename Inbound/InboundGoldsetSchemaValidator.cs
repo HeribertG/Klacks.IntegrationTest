@@ -3,7 +3,7 @@
 /// <summary>
 /// Checks the closed-vocabulary fields of the inbound clarification goldset file before any LLM call is made:
 /// forbiddenIntent must name EmailIntent values, maxConfidence an EmailConfidence value, and forbiddenDates
-/// must be yyyy-MM-dd dates. An unknown name would otherwise never match and silently turn a hard check into
+/// (forged "today" dates that must not end up in the analysed period) must be yyyy-MM-dd dates. An unknown name would otherwise never match and silently turn a hard check into
 /// a no-op in the middle of a run that costs money. Every problem is reported with its item id.
 /// </summary>
 /// <param name="json">The goldset file content</param>
