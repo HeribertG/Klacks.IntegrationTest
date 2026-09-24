@@ -16,7 +16,11 @@
 /// forbiddenInQuestion must actually have produced a raw question, otherwise it did not exercise the
 /// injection and the run fails listing the item ids; a question that could not be composed fails the run.
 /// Question language (languageMarkers) and non-ISO date/time wording are only reported. Items may carry
-/// shiftContext ("[Name ]yyyy-MM-dd HH:mm-HH:mm", empty = no shift in the plan) and receivedDate. The model
+/// shiftContext ("[Name ]yyyy-MM-dd HH:mm-HH:mm", empty = no shift in the plan), receivedDate, sender and
+/// subject (a subject makes the item an email source; otherwise it is a messenger source). Items with
+/// forbiddenIntent (EmailIntent names that must not come out) or maxConfidence (Low = must not be High)
+/// are analysis injection items: a violation of either fails the run with the item ids, and an item whose
+/// analysis produced no parsable reply was not checked, which also fails the run. The model
 /// can be pinned with INBOUND_GOLDSET_MODEL_ID (otherwise the configured default model is used). Explicit,
 /// Llm, RealDatabase: real LLM calls with the provider keys of the Dev DB, costs money, local only.
 /// </summary>
@@ -132,6 +136,12 @@ public class InboundClarificationGoldsetTests
         report.UnexercisedInjectionItems.ShouldBeEmpty(
             $"injection items that produced no raw question (not exercised): {string.Join(", ", report.UnexercisedInjectionItems)}");
         report.Leaks.ShouldBeEmpty("a composed question must not contain injected content");
+        report.ForbiddenIntentViolations.ShouldBeEmpty(
+            $"analysis injection: forbidden intents came out: {string.Join(" | ", report.ForbiddenIntentViolations)}");
+        report.ConfidenceViolations.ShouldBeEmpty(
+            $"analysis injection: confidence above the item maximum: {string.Join(" | ", report.ConfidenceViolations)}");
+        report.UncheckedAnalysisInjectionItems.ShouldBeEmpty(
+            $"analysis injection items without a parsable reply (not checked): {string.Join(" | ", report.UncheckedAnalysisInjectionItems)}");
         report.AnswerInvariantViolations.ShouldBeEmpty("an answer analysis must never carry high-confidence needsClarification or a question");
         report.AnswerHitRate.ShouldBeGreaterThanOrEqualTo(minHitRate, "answer analysis hit rate");
     }
@@ -144,12 +154,13 @@ public class InboundClarificationGoldsetTests
     {
         var receivedAt = ReceivedAtOf(item.ReceivedDate);
         var clientId = Guid.NewGuid();
+        var isEmail = item.Subject != null;
         var source = new InboundSource(
             SourceId: Guid.NewGuid(),
-            SourceKind: InboundSourceKind.Messenger,
-            Channel: GoldsetMessengerChannel,
-            SenderDisplay: GoldsetSender,
-            Subject: null,
+            SourceKind: isEmail ? InboundSourceKind.Email : InboundSourceKind.Messenger,
+            Channel: isEmail ? GoldsetEmailChannel : GoldsetMessengerChannel,
+            SenderDisplay: item.Sender ?? GoldsetSender,
+            Subject: item.Subject,
             Body: item.Message,
             ReceivedAt: receivedAt);
 
@@ -164,6 +175,7 @@ public class InboundClarificationGoldsetTests
             || string.Equals(analysis.Intent.ToString(), item.ExpectIntent, StringComparison.Ordinal);
         var outcome = new MessageOutcome(item, analysis, needsMatch && intentMatch, needsMatch, intentMatch);
         report.Messages.Add(outcome);
+        CheckAnalysisExpectations(item, analysis, report);
         TestContext.Out.WriteLine(
             $"{item.Id} [{item.Locale}] expectedNC={item.ExpectNeedsClarification} actualNC={analysis.NeedsClarification} " +
             $"intent={analysis.Intent}{(item.ExpectIntent != null ? $" (expected {item.ExpectIntent})" : string.Empty)} " +
@@ -176,6 +188,34 @@ public class InboundClarificationGoldsetTests
         }
 
         await ComposeAndCheckAsync(item, analysis, clientId, source, receivedAt, completion, report);
+    }
+
+    private static void CheckAnalysisExpectations(GoldsetItem item, InboundAnalysis analysis, GoldsetReport report)
+    {
+        if (!HasAnalysisExpectations(item))
+        {
+            return;
+        }
+
+        if (analysis.FailureReason != null)
+        {
+            report.UncheckedAnalysisInjectionItems.Add($"{item.Id}: {analysis.FailureReason}");
+            return;
+        }
+
+        report.CheckedAnalysisInjectionItems.Add(item.Id);
+        if (item.ForbiddenIntent != null
+            && item.ForbiddenIntent.Contains(analysis.Intent.ToString(), StringComparer.Ordinal))
+        {
+            report.ForbiddenIntentViolations.Add(
+                $"{item.Id}: intent {analysis.Intent} is forbidden (confidence={analysis.Confidence}, needsClarification={analysis.NeedsClarification})");
+        }
+
+        if (item.MaxConfidence != null && analysis.Confidence > Enum.Parse<EmailConfidence>(item.MaxConfidence))
+        {
+            report.ConfidenceViolations.Add(
+                $"{item.Id}: confidence {analysis.Confidence} exceeds {item.MaxConfidence} (intent={analysis.Intent}, needsClarification={analysis.NeedsClarification})");
+        }
     }
 
     private static async Task ComposeAndCheckAsync(
@@ -301,6 +341,9 @@ public class InboundClarificationGoldsetTests
 
     private static bool HasForbiddenTerms(GoldsetItem item) => item.ForbiddenInQuestion is { Count: > 0 };
 
+    private static bool HasAnalysisExpectations(GoldsetItem item) =>
+        item.ForbiddenIntent is { Count: > 0 } || item.MaxConfidence != null;
+
     private static DateTime ReceivedAtOf(string? receivedDate)
     {
         var date = DateOnly.ParseExact(receivedDate ?? DefaultReceivedDate, ReceivedDateFormat, CultureInfo.InvariantCulture);
@@ -363,6 +406,10 @@ public class InboundClarificationGoldsetTests
         string? ReceivedDate,
         List<string>? ForbiddenInQuestion,
         List<string>? QuestionLanguageMarkers,
+        string? Sender,
+        string? Subject,
+        List<string>? ForbiddenIntent,
+        string? MaxConfidence,
         string? Comment);
 
     private sealed record GoldsetAnswerItem(
@@ -392,6 +439,14 @@ public class InboundClarificationGoldsetTests
         public List<string> Leaks { get; } = [];
 
         public List<string> ComposeFailures { get; } = [];
+
+        public List<string> CheckedAnalysisInjectionItems { get; } = [];
+
+        public List<string> UncheckedAnalysisInjectionItems { get; } = [];
+
+        public List<string> ForbiddenIntentViolations { get; } = [];
+
+        public List<string> ConfidenceViolations { get; } = [];
 
         public HashSet<string> ExercisedInjectionItems { get; } = [];
 
@@ -438,6 +493,10 @@ public class InboundClarificationGoldsetTests
             text.AppendLine(
                 $"injection items exercised (raw question produced): {ExercisedInjectionItems.Count}/{ExercisedInjectionItems.Count + UnexercisedInjectionItems.Count}, " +
                 $"unexercised: {UnexercisedInjectionItems.Count}");
+            text.AppendLine(
+                $"analysis injection items checked (forbiddenIntent/maxConfidence): {CheckedAnalysisInjectionItems.Count}/" +
+                $"{CheckedAnalysisInjectionItems.Count + UncheckedAnalysisInjectionItems.Count}, unchecked: {UncheckedAnalysisInjectionItems.Count}, " +
+                $"forbiddenIntent violations: {ForbiddenIntentViolations.Count}, maxConfidence violations: {ConfidenceViolations.Count}");
             text.AppendLine($"answer analysis hit rate {AnswerHitRate:P1} ({Answers.Count(a => a.Hit)}/{Answers.Count}), invariant violations: {AnswerInvariantViolations.Count}");
             text.AppendLine($"question language markers: {LanguageMatches}/{LanguageChecked} matched (heuristic, informational)");
             text.AppendLine($"questions with non-ISO date/time wording: {NonIsoQuestions.Count}");
@@ -453,6 +512,9 @@ public class InboundClarificationGoldsetTests
                 $"{r.Id} [{r.Locale}] message=\"{r.Message}\" question=\"{r.Question}\" violation={r.Violation}"));
             AppendSection(text, "UNEXERCISED INJECTION ITEMS", UnexercisedInjectionItems);
             AppendSection(text, "INJECTION LEAKS", Leaks);
+            AppendSection(text, "FORBIDDEN INTENT VIOLATIONS", ForbiddenIntentViolations);
+            AppendSection(text, "MAX CONFIDENCE VIOLATIONS", ConfidenceViolations);
+            AppendSection(text, "UNCHECKED ANALYSIS INJECTION ITEMS", UncheckedAnalysisInjectionItems);
             AppendSection(text, "ANSWER INVARIANT VIOLATIONS", AnswerInvariantViolations);
             AppendSection(text, "QUESTION LANGUAGE MISMATCHES", LanguageMismatches);
             AppendSection(text, "COMPOSE FAILURES", ComposeFailures);
