@@ -10,7 +10,12 @@
 /// inbound_analyses(source_kind, source_id), which has no is_deleted filter: a soft-deleted row still
 /// counts, unlike GetBySourceAsync which applies the global query filter. GetByAnalysisIdAsync matches
 /// a row by OriginalAnalysisId or ResultAnalysisId, returns the most recently asked one when several
-/// match, and null for no match or a soft-deleted row. Rows are scoped by the
+/// match, and null for no match or a soft-deleted row. ClearOriginalTextAsync (retention) empties the text
+/// of exactly the closed rows resolved before the cutoff - soft-deleted ones included - and leaves young
+/// closed rows, Open rows and Suggested rows (also one with a resolved_at) alone, keeps every row with its
+/// status and deadlines, and is idempotent; its rows use resolved_at values in 1990/1996 with a 1995 cutoff,
+/// so the global update can never reach a real row of the shared database. The recipient column holds a
+/// 254-character email address and rejects 255 characters. Rows are scoped by the
 /// INTEGRATION_TEST_ prefix on Recipient (clarifications) and Channel (analyses).
 /// </summary>
 
@@ -264,6 +269,80 @@ public class InboundClarificationPersistenceTests
             .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.IsDeleted, true));
 
         (await _repository.GetByAnalysisIdAsync(row.OriginalAnalysisId)).ShouldBeNull();
+    }
+
+    private static readonly DateTime LongAgo = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime RetentionCutoff = new(1995, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime YoungerThanCutoff = new(1996, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    private async Task<InboundClarification> RereadIgnoringFilters(Guid id)
+    {
+        _context.ChangeTracker.Clear();
+        return await _context.InboundClarifications.IgnoreQueryFilters().AsNoTracking().SingleAsync(c => c.Id == id);
+    }
+
+    [Test]
+    public async Task ClearOriginalText_ClearsOnlyClosedRowsResolvedBeforeTheCutoff_AndKeepsTheRows()
+    {
+        var oldAnswered = Row(Guid.NewGuid(), InboundClarificationStatus.Answered, resolvedAt: LongAgo);
+        var oldExpired = Row(Guid.NewGuid(), InboundClarificationStatus.Expired, resolvedAt: LongAgo);
+        var oldTakenOver = Row(Guid.NewGuid(), InboundClarificationStatus.TakenOver, resolvedAt: LongAgo);
+        var oldUnresolved = Row(Guid.NewGuid(), InboundClarificationStatus.Unresolved, resolvedAt: LongAgo);
+        var oldSoftDeleted = Row(Guid.NewGuid(), InboundClarificationStatus.Answered, resolvedAt: LongAgo);
+        var youngAnswered = Row(Guid.NewGuid(), InboundClarificationStatus.Answered, resolvedAt: YoungerThanCutoff);
+        var open = Row(Guid.NewGuid(), resolvedAt: LongAgo);
+        var suggestedWithResolvedAt = Row(Guid.NewGuid(), InboundClarificationStatus.Suggested, resolvedAt: LongAgo);
+        var suggestedWithoutResolvedAt = Row(Guid.NewGuid(), InboundClarificationStatus.Suggested);
+        foreach (var row in new[] { oldAnswered, oldExpired, oldTakenOver, oldUnresolved, oldSoftDeleted, youngAnswered, suggestedWithResolvedAt, suggestedWithoutResolvedAt })
+        {
+            await _repository.AddAsync(row);
+        }
+
+        (await _repository.TryAddOpenAsync(open)).ShouldBeTrue();
+        await _context.InboundClarifications
+            .IgnoreQueryFilters()
+            .Where(c => c.Id == oldSoftDeleted.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.IsDeleted, true));
+
+        (await _repository.ClearOriginalTextAsync(RetentionCutoff)).ShouldBe(5);
+
+        foreach (var cleared in new[] { oldAnswered, oldExpired, oldTakenOver, oldUnresolved, oldSoftDeleted })
+        {
+            var reread = await RereadIgnoringFilters(cleared.Id);
+            reread.OriginalText.ShouldBeEmpty();
+            reread.Status.ShouldBe(cleared.Status);
+            reread.Question.ShouldBe(cleared.Question);
+            reread.DeadlineAt.ShouldBe(cleared.DeadlineAt, TimeSpan.FromMilliseconds(1));
+            reread.ResolvedAt.ShouldBe(LongAgo);
+        }
+
+        foreach (var untouched in new[] { youngAnswered, open, suggestedWithResolvedAt, suggestedWithoutResolvedAt })
+        {
+            (await RereadIgnoringFilters(untouched.Id)).OriginalText.ShouldBe(untouched.OriginalText);
+        }
+    }
+
+    [Test]
+    public async Task ClearOriginalText_IsIdempotent()
+    {
+        await _repository.AddAsync(Row(Guid.NewGuid(), InboundClarificationStatus.Expired, resolvedAt: LongAgo));
+
+        (await _repository.ClearOriginalTextAsync(RetentionCutoff)).ShouldBe(1);
+        (await _repository.ClearOriginalTextAsync(RetentionCutoff)).ShouldBe(0);
+    }
+
+    [Test]
+    public async Task Recipient_HoldsA254CharacterAddress_AndRejects255()
+    {
+        var atLimit = Row(Guid.NewGuid(), InboundClarificationStatus.Answered, resolvedAt: LongAgo);
+        atLimit.Recipient = TestPrefix.PadRight(254, 'a');
+        await _repository.AddAsync(atLimit);
+
+        (await RereadIgnoringFilters(atLimit.Id)).Recipient.Length.ShouldBe(254);
+
+        var overLimit = Row(Guid.NewGuid(), InboundClarificationStatus.Answered, resolvedAt: LongAgo);
+        overLimit.Recipient = TestPrefix.PadRight(255, 'a');
+        await Should.ThrowAsync<DbUpdateException>(async () => await _repository.AddAsync(overLimit));
     }
 
     [Test]
