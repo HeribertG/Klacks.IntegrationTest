@@ -8,7 +8,9 @@
 /// end (ResolvedAt) and never Suggested rows, and the two new inbound_analyses columns round-trip. Also
 /// covers InboundAnalysisRepository.ExistsBySourceAsync against the real unique index on
 /// inbound_analyses(source_kind, source_id), which has no is_deleted filter: a soft-deleted row still
-/// counts, unlike GetBySourceAsync which applies the global query filter. Rows are scoped by the
+/// counts, unlike GetBySourceAsync which applies the global query filter. GetByAnalysisIdAsync matches
+/// a row by OriginalAnalysisId or ResultAnalysisId, returns the most recently asked one when several
+/// match, and null for no match or a soft-deleted row. Rows are scoped by the
 /// INTEGRATION_TEST_ prefix on Recipient (clarifications) and Channel (analyses).
 /// </summary>
 
@@ -197,6 +199,71 @@ public class InboundClarificationPersistenceTests
         await _repository.AddAsync(Row(clientId, InboundClarificationStatus.Expired, askedAt: now.AddMinutes(-200), resolvedAt: now.AddMinutes(-150)));
 
         (await _repository.CountAskedSinceAsync(clientId, since)).ShouldBe(0);
+    }
+
+    [Test]
+    public async Task GetByAnalysisId_MatchesTheOriginalAnalysisId()
+    {
+        var row = Row(Guid.NewGuid(), InboundClarificationStatus.Answered);
+        await _repository.AddAsync(row);
+
+        var found = await _repository.GetByAnalysisIdAsync(row.OriginalAnalysisId);
+
+        found.ShouldNotBeNull();
+        found.Id.ShouldBe(row.Id);
+    }
+
+    [Test]
+    public async Task GetByAnalysisId_MatchesTheResultAnalysisId()
+    {
+        var row = Row(Guid.NewGuid(), InboundClarificationStatus.Answered);
+        row.ResultAnalysisId = Guid.NewGuid();
+        await _repository.AddAsync(row);
+
+        var found = await _repository.GetByAnalysisIdAsync(row.ResultAnalysisId.Value);
+
+        found.ShouldNotBeNull();
+        found.Id.ShouldBe(row.Id);
+    }
+
+    [Test]
+    public async Task GetByAnalysisId_WithSeveralMatches_ReturnsTheOneAskedLast_RegardlessOfInsertOrder()
+    {
+        var clientId = Guid.NewGuid();
+        var sharedAnalysisId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var newer = Row(clientId, InboundClarificationStatus.Answered, askedAt: now.AddMinutes(-10));
+        newer.ResultAnalysisId = sharedAnalysisId;
+        var older = Row(clientId, InboundClarificationStatus.Expired, askedAt: now.AddMinutes(-90), resolvedAt: now.AddMinutes(-30));
+        older.OriginalAnalysisId = sharedAnalysisId;
+        await _repository.AddAsync(newer);
+        await _repository.AddAsync(older);
+
+        var found = await _repository.GetByAnalysisIdAsync(sharedAnalysisId);
+
+        found.ShouldNotBeNull();
+        found.Id.ShouldBe(newer.Id);
+    }
+
+    [Test]
+    public async Task GetByAnalysisId_UnknownId_ReturnsNull()
+    {
+        await _repository.AddAsync(Row(Guid.NewGuid(), InboundClarificationStatus.Answered));
+
+        (await _repository.GetByAnalysisIdAsync(Guid.NewGuid())).ShouldBeNull();
+    }
+
+    [Test]
+    public async Task GetByAnalysisId_SoftDeletedRow_IsNotReturned()
+    {
+        var row = Row(Guid.NewGuid(), InboundClarificationStatus.Answered);
+        await _repository.AddAsync(row);
+        await _context.InboundClarifications
+            .IgnoreQueryFilters()
+            .Where(c => c.Id == row.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.IsDeleted, true));
+
+        (await _repository.GetByAnalysisIdAsync(row.OriginalAnalysisId)).ShouldBeNull();
     }
 
     [Test]
