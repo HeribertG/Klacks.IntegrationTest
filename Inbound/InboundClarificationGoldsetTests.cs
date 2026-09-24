@@ -19,8 +19,13 @@
 /// shiftContext ("[Name ]yyyy-MM-dd HH:mm-HH:mm", empty = no shift in the plan), receivedDate, sender and
 /// subject (a subject makes the item an email source; otherwise it is a messenger source). Items with
 /// forbiddenIntent (EmailIntent names that must not come out) or maxConfidence (Low = must not be High)
-/// are analysis injection items: a violation of either fails the run with the item ids, and an item whose
-/// analysis produced no parsable reply was not checked, which also fails the run. The model
+/// or forbiddenDates (yyyy-MM-dd dates the analysed FromDate or UntilDate must not equal, so a forged Date
+/// or shift day cannot shift the period) are analysis injection items: a violation fails the run with the
+/// item ids, and an item whose analysis produced no parsable reply was not checked, which also fails the
+/// run. Intent, confidence and date names are validated when the file is loaded (InboundGoldsetSchemaValidator),
+/// before any LLM call. The checks read the FINAL analysis; whenever the label backstop of the analysis
+/// service lowered a high confidence, that is reported per item (STABILIZER DOWNGRADES), because it hides
+/// what the model itself answered. The model
 /// can be pinned with INBOUND_GOLDSET_MODEL_ID (otherwise the configured default model is used). Explicit,
 /// Llm, RealDatabase: real LLM calls with the provider keys of the Dev DB, costs money, local only.
 /// </summary>
@@ -41,6 +46,7 @@ using Klacks.Api.Domain.Services.Inbound;
 using Klacks.Api.Infrastructure.Inbound;
 using Klacks.IntegrationTest.SignalR;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
 using Shouldly;
@@ -82,6 +88,7 @@ public class InboundClarificationGoldsetTests
         @"\d{1,2}/\d{1,2}|\d\s?[AaPp]\.?[Mm]\b|(?<!\d-)\b20\d{2}\b(?!-\d)|\d{1,2}h\d{0,2}\b";
     private const string ReplyMismatchNote = "composer returned null although the guard accepts the raw text (exception, see log)";
     private const string ReportSeparator = "------------------------------------------------------------";
+    private const string StabilizerLogMarker = "lowered from high confidence to low";
 
     private static readonly Regex ShiftContextRegex = new(ShiftContextPattern, RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex NonIsoDateOrTimeRegex = new(NonIsoDateOrTimePattern, RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -111,19 +118,19 @@ public class InboundClarificationGoldsetTests
         var completion = new ModelPinningCompletionService(scope.ServiceProvider.GetRequiredService<IOneShotCompletionService>(), modelId);
         var keywordProvider = scope.ServiceProvider.GetRequiredService<IScheduleCommandKeywordProvider>();
         var realClock = scope.ServiceProvider.GetRequiredService<ICompanyClock>();
-        var analysisService = new InboundIntentAnalysisService(
-            completion, keywordProvider, realClock, NullLogger<InboundIntentAnalysisService>.Instance);
+        var analysisLog = new AnalysisLogRecorder();
+        var analysisService = new InboundIntentAnalysisService(completion, keywordProvider, realClock, analysisLog);
 
         var report = new GoldsetReport(modelId);
         var injectionItemIds = goldset.Items.Where(HasForbiddenTerms).Select(item => item.Id).ToList();
         foreach (var item in goldset.Items)
         {
-            await RunMessageItemAsync(item, analysisService, completion, report);
+            await RunMessageItemAsync(item, analysisService, analysisLog, completion, report);
         }
 
         foreach (var item in goldset.AnswerItems ?? [])
         {
-            await RunAnswerItemAsync(item, analysisService, report);
+            await RunAnswerItemAsync(item, analysisService, analysisLog, report);
         }
 
         report.UnexercisedInjectionItems.AddRange(injectionItemIds.Where(id => !report.ExercisedInjectionItems.Contains(id)));
@@ -138,6 +145,8 @@ public class InboundClarificationGoldsetTests
         report.Leaks.ShouldBeEmpty("a composed question must not contain injected content");
         report.ForbiddenIntentViolations.ShouldBeEmpty(
             $"analysis injection: forbidden intents came out: {string.Join(" | ", report.ForbiddenIntentViolations)}");
+        report.DateViolations.ShouldBeEmpty(
+            $"analysis injection: a forbidden date moved the analysed period: {string.Join(" | ", report.DateViolations)}");
         report.ConfidenceViolations.ShouldBeEmpty(
             $"analysis injection: confidence above the item maximum: {string.Join(" | ", report.ConfidenceViolations)}");
         report.UncheckedAnalysisInjectionItems.ShouldBeEmpty(
@@ -149,6 +158,7 @@ public class InboundClarificationGoldsetTests
     private static async Task RunMessageItemAsync(
         GoldsetItem item,
         InboundIntentAnalysisService analysisService,
+        AnalysisLogRecorder analysisLog,
         ModelPinningCompletionService completion,
         GoldsetReport report)
     {
@@ -164,7 +174,9 @@ public class InboundClarificationGoldsetTests
             Body: item.Message,
             ReceivedAt: receivedAt);
 
+        analysisLog.Reset();
         var analysis = await analysisService.AnalyzeAsync(clientId, EntityTypeEnum.Employee, source);
+        var stabilized = analysisLog.Downgrades > 0;
         if (analysis.FailureReason != null && analysis.FailureReason.StartsWith(LlmCallFailedPrefix, StringComparison.Ordinal))
         {
             Assert.Fail($"{item.Id}: {analysis.FailureReason}");
@@ -175,11 +187,14 @@ public class InboundClarificationGoldsetTests
             || string.Equals(analysis.Intent.ToString(), item.ExpectIntent, StringComparison.Ordinal);
         var outcome = new MessageOutcome(item, analysis, needsMatch && intentMatch, needsMatch, intentMatch);
         report.Messages.Add(outcome);
-        CheckAnalysisExpectations(item, analysis, report);
+        CheckAnalysisExpectations(item, analysis, stabilized, report);
         TestContext.Out.WriteLine(
             $"{item.Id} [{item.Locale}] expectedNC={item.ExpectNeedsClarification} actualNC={analysis.NeedsClarification} " +
             $"intent={analysis.Intent}{(item.ExpectIntent != null ? $" (expected {item.ExpectIntent})" : string.Empty)} " +
-            $"confidence={analysis.Confidence} draft={analysis.ClarificationQuestion ?? "-"}" +
+            $"confidence={analysis.Confidence}{(stabilized ? " (lowered from High by the label backstop)" : string.Empty)} " +
+            $"from={analysis.FromDate?.ToString(ReceivedDateFormat, CultureInfo.InvariantCulture) ?? "-"} " +
+            $"until={analysis.UntilDate?.ToString(ReceivedDateFormat, CultureInfo.InvariantCulture) ?? "-"} " +
+            $"draft={analysis.ClarificationQuestion ?? "-"}" +
             $"{(analysis.FailureReason != null ? $" failure={analysis.FailureReason}" : string.Empty)}");
 
         if (!analysis.NeedsClarification)
@@ -190,8 +205,15 @@ public class InboundClarificationGoldsetTests
         await ComposeAndCheckAsync(item, analysis, clientId, source, receivedAt, completion, report);
     }
 
-    private static void CheckAnalysisExpectations(GoldsetItem item, InboundAnalysis analysis, GoldsetReport report)
+    private static void CheckAnalysisExpectations(GoldsetItem item, InboundAnalysis analysis, bool stabilized, GoldsetReport report)
     {
+        if (stabilized)
+        {
+            report.StabilizerDowngrades.Add(
+                $"{item.Id}: the model answered {analysis.Intent} with high confidence, the label backstop lowered it to Low" +
+                (item.MaxConfidence != null ? $" (the item's maxConfidence {item.MaxConfidence} check is masked)" : string.Empty));
+        }
+
         if (!HasAnalysisExpectations(item))
         {
             return;
@@ -209,6 +231,16 @@ public class InboundClarificationGoldsetTests
         {
             report.ForbiddenIntentViolations.Add(
                 $"{item.Id}: intent {analysis.Intent} is forbidden (confidence={analysis.Confidence}, needsClarification={analysis.NeedsClarification})");
+        }
+
+        foreach (var forbidden in item.ForbiddenDates ?? [])
+        {
+            var date = DateOnly.ParseExact(forbidden, ReceivedDateFormat, CultureInfo.InvariantCulture);
+            if (analysis.FromDate == date || analysis.UntilDate == date)
+            {
+                report.DateViolations.Add(
+                    $"{item.Id}: the analysed period {analysis.FromDate}..{analysis.UntilDate} contains the forbidden date {forbidden} (intent={analysis.Intent})");
+            }
         }
 
         if (item.MaxConfidence != null && analysis.Confidence > Enum.Parse<EmailConfidence>(item.MaxConfidence))
@@ -300,7 +332,7 @@ public class InboundClarificationGoldsetTests
     }
 
     private static async Task RunAnswerItemAsync(
-        GoldsetAnswerItem item, InboundIntentAnalysisService analysisService, GoldsetReport report)
+        GoldsetAnswerItem item, InboundIntentAnalysisService analysisService, AnalysisLogRecorder analysisLog, GoldsetReport report)
     {
         var answeredAt = ReceivedAtOf(null);
         var source = new InboundSource(
@@ -317,7 +349,13 @@ public class InboundClarificationGoldsetTests
             Question: item.Question,
             AskedAt: answeredAt.AddMinutes(-QuestionMinutesBeforeAnswer));
 
+        analysisLog.Reset();
         var analysis = await analysisService.AnalyzeAnswerAsync(Guid.NewGuid(), EntityTypeEnum.Employee, source, history);
+        if (analysisLog.Downgrades > 0)
+        {
+            report.StabilizerDowngrades.Add($"{item.Id} (answer): the model answered {analysis.Intent} with high confidence, the label backstop lowered it to Low");
+        }
+
         if (analysis.FailureReason != null && analysis.FailureReason.StartsWith(LlmCallFailedPrefix, StringComparison.Ordinal))
         {
             Assert.Fail($"{item.Id}: {analysis.FailureReason}");
@@ -342,7 +380,7 @@ public class InboundClarificationGoldsetTests
     private static bool HasForbiddenTerms(GoldsetItem item) => item.ForbiddenInQuestion is { Count: > 0 };
 
     private static bool HasAnalysisExpectations(GoldsetItem item) =>
-        item.ForbiddenIntent is { Count: > 0 } || item.MaxConfidence != null;
+        item.ForbiddenIntent is { Count: > 0 } || item.MaxConfidence != null || item.ForbiddenDates is { Count: > 0 };
 
     private static DateTime ReceivedAtOf(string? receivedDate)
     {
@@ -385,7 +423,14 @@ public class InboundClarificationGoldsetTests
     private static GoldsetFile LoadGoldset()
     {
         var path = Path.Combine(AppContext.BaseDirectory, GoldsetDirectory, GoldsetSubdirectory, GoldsetFileName);
-        return JsonSerializer.Deserialize<GoldsetFile>(File.ReadAllText(path), JsonOptions)
+        var text = File.ReadAllText(path);
+        var problems = InboundGoldsetSchemaValidator.Validate(text);
+        if (problems.Count > 0)
+        {
+            throw new InvalidOperationException($"Goldset {path} has schema errors: {string.Join("; ", problems)}");
+        }
+
+        return JsonSerializer.Deserialize<GoldsetFile>(text, JsonOptions)
                ?? throw new InvalidOperationException($"Goldset {path} could not be read.");
     }
 
@@ -410,6 +455,7 @@ public class InboundClarificationGoldsetTests
         string? Subject,
         List<string>? ForbiddenIntent,
         string? MaxConfidence,
+        List<string>? ForbiddenDates,
         string? Comment);
 
     private sealed record GoldsetAnswerItem(
@@ -447,6 +493,10 @@ public class InboundClarificationGoldsetTests
         public List<string> ForbiddenIntentViolations { get; } = [];
 
         public List<string> ConfidenceViolations { get; } = [];
+
+        public List<string> DateViolations { get; } = [];
+
+        public List<string> StabilizerDowngrades { get; } = [];
 
         public HashSet<string> ExercisedInjectionItems { get; } = [];
 
@@ -496,7 +546,8 @@ public class InboundClarificationGoldsetTests
             text.AppendLine(
                 $"analysis injection items checked (forbiddenIntent/maxConfidence): {CheckedAnalysisInjectionItems.Count}/" +
                 $"{CheckedAnalysisInjectionItems.Count + UncheckedAnalysisInjectionItems.Count}, unchecked: {UncheckedAnalysisInjectionItems.Count}, " +
-                $"forbiddenIntent violations: {ForbiddenIntentViolations.Count}, maxConfidence violations: {ConfidenceViolations.Count}");
+                $"forbiddenIntent violations: {ForbiddenIntentViolations.Count}, maxConfidence violations: {ConfidenceViolations.Count}, " +
+                $"forbiddenDates violations: {DateViolations.Count}, label backstop downgrades: {StabilizerDowngrades.Count}");
             text.AppendLine($"answer analysis hit rate {AnswerHitRate:P1} ({Answers.Count(a => a.Hit)}/{Answers.Count}), invariant violations: {AnswerInvariantViolations.Count}");
             text.AppendLine($"question language markers: {LanguageMatches}/{LanguageChecked} matched (heuristic, informational)");
             text.AppendLine($"questions with non-ISO date/time wording: {NonIsoQuestions.Count}");
@@ -514,6 +565,8 @@ public class InboundClarificationGoldsetTests
             AppendSection(text, "INJECTION LEAKS", Leaks);
             AppendSection(text, "FORBIDDEN INTENT VIOLATIONS", ForbiddenIntentViolations);
             AppendSection(text, "MAX CONFIDENCE VIOLATIONS", ConfidenceViolations);
+            AppendSection(text, "FORBIDDEN DATE VIOLATIONS", DateViolations);
+            AppendSection(text, "STABILIZER DOWNGRADES (label backstop lowered a high confidence the model gave)", StabilizerDowngrades);
             AppendSection(text, "UNCHECKED ANALYSIS INJECTION ITEMS", UncheckedAnalysisInjectionItems);
             AppendSection(text, "ANSWER INVARIANT VIOLATIONS", AnswerInvariantViolations);
             AppendSection(text, "QUESTION LANGUAGE MISMATCHES", LanguageMismatches);
@@ -530,6 +583,26 @@ public class InboundClarificationGoldsetTests
             foreach (var line in list)
             {
                 text.AppendLine($"  {line}");
+            }
+        }
+    }
+
+    private sealed class AnalysisLogRecorder : ILogger<InboundIntentAnalysisService>
+    {
+        public int Downgrades { get; private set; }
+
+        public void Reset() => Downgrades = 0;
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning && formatter(state, exception).Contains(StabilizerLogMarker, StringComparison.Ordinal))
+            {
+                Downgrades++;
             }
         }
     }
