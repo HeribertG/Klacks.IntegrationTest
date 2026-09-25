@@ -149,6 +149,24 @@ public class ConversationRowPersistencePostgresTests : StopTurnPostgresTestBase
     }
 
     [Test]
+    public async Task ALatePersistedTurnThatBeganBeforeTheNewestMessage_KeepsTheModelAndTheTimeOfTheNewerTurn()
+    {
+        await using var turnContext = NewContext();
+        var (manager, conversation) = await LoadAsync(turnContext);
+        var newest = DateTime.UtcNow;
+        await ExecuteAsync(
+            "UPDATE llm_conversations SET last_message_at = @at, last_model_id = @model WHERE conversation_id = @conversation",
+            ("at", newest), ("model", "newer-turn-model"), ("conversation", ConversationKey));
+
+        await manager.SaveConversationMessagesAsync(
+            conversation, UserMessage, AssistantMessage, ModelKey, newest.AddMinutes(-1));
+
+        (await ColumnAsync("last_model_id")).ShouldBe("newer-turn-model");
+        ((DateTime)(await ColumnAsync("last_message_at"))!).ShouldBe(newest, TimeSpan.FromMilliseconds(1));
+        (await ColumnAsync("message_count")).ShouldBe(MessagesPerTurn);
+    }
+
+    [Test]
     public async Task TheTokensAndTheCostOfTwoTurnsAddUp()
     {
         var model = await LoadModelAsync();
