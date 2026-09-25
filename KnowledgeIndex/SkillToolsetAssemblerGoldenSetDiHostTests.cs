@@ -101,6 +101,10 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
         public void DiscardCorrectionUndo(Guid userId)
         {
         }
+
+        public void DiscardByTokens(Guid userId, IReadOnlyCollection<string> tokens)
+        {
+        }
     }
 
     private sealed class NoOpPendingPlanningProfileDraftStore : IPendingPlanningProfileDraftStore
