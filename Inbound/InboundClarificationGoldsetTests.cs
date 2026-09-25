@@ -30,7 +30,10 @@
 /// before any LLM call. The checks read the FINAL analysis; whenever the label backstop of the analysis
 /// service lowered a high confidence, that is reported per item (STABILIZER DOWNGRADES), because it hides
 /// what the model itself answered. The model
-/// can be pinned with INBOUND_GOLDSET_MODEL_ID (otherwise the configured default model is used). Explicit,
+/// can be pinned with INBOUND_GOLDSET_MODEL_ID (otherwise the configured default model is used). When
+/// INBOUND_GOLDSET_ITEM_IDS (comma-separated item ids) is set, only those message items run (answer items are
+/// skipped) for a targeted run: the report is printed, the threshold checks (hit rate, guard pass rate, answer
+/// hit rate) are not applied to such a subset, and every violation check stays a hard assertion. Explicit,
 /// Llm, RealDatabase: real LLM calls with the provider keys of the Dev DB, costs money, local only.
 /// </summary>
 
@@ -69,6 +72,8 @@ public class InboundClarificationGoldsetTests
     private const string ModelIdVariable = "INBOUND_GOLDSET_MODEL_ID";
     private const string MinHitRateVariable = "INBOUND_GOLDSET_MIN_HIT_RATE";
     private const string MinGuardPassRateVariable = "INBOUND_GOLDSET_MIN_GUARD_PASS_RATE";
+    private const string ItemIdsVariable = "INBOUND_GOLDSET_ITEM_IDS";
+    private const char ItemIdSeparator = ',';
     private const double DefaultMinHitRate = 0.8;
     private const double DefaultMinGuardPassRate = 0.8;
     private const string GoldsetSender = "Goldset Employee";
@@ -115,7 +120,8 @@ public class InboundClarificationGoldsetTests
     [Test]
     public async Task Goldset_NeedsClarificationHitRate_AndQuestionGuardRails()
     {
-        var goldset = LoadGoldset();
+        var itemFilter = ReadItemFilter();
+        var goldset = ApplyItemFilter(LoadGoldset(), itemFilter);
         var modelId = Environment.GetEnvironmentVariable(ModelIdVariable);
         using var scope = _factory.Services.CreateScope();
         var completion = new ModelPinningCompletionService(scope.ServiceProvider.GetRequiredService<IOneShotCompletionService>(), modelId);
@@ -140,8 +146,12 @@ public class InboundClarificationGoldsetTests
         report.Print();
 
         var minHitRate = ReadRate(MinHitRateVariable, DefaultMinHitRate);
-        report.HitRate.ShouldBeGreaterThanOrEqualTo(minHitRate, "needsClarification/intent hit rate");
-        report.GuardPassRate.ShouldBeGreaterThanOrEqualTo(ReadRate(MinGuardPassRateVariable, DefaultMinGuardPassRate), "guard pass rate");
+        if (itemFilter == null)
+        {
+            report.HitRate.ShouldBeGreaterThanOrEqualTo(minHitRate, "needsClarification/intent hit rate");
+            report.GuardPassRate.ShouldBeGreaterThanOrEqualTo(ReadRate(MinGuardPassRateVariable, DefaultMinGuardPassRate), "guard pass rate");
+        }
+
         report.ComposeFailures.ShouldBeEmpty("every question the analysis asked for must have been composed");
         report.UnexercisedInjectionItems.ShouldBeEmpty(
             $"injection items that produced no raw question (not exercised): {string.Join(", ", report.UnexercisedInjectionItems)}");
@@ -157,7 +167,10 @@ public class InboundClarificationGoldsetTests
         report.UncheckedAnalysisInjectionItems.ShouldBeEmpty(
             $"analysis injection items without a parsable reply (not checked): {string.Join(" | ", report.UncheckedAnalysisInjectionItems)}");
         report.AnswerInvariantViolations.ShouldBeEmpty("an answer analysis must never carry high-confidence needsClarification or a question");
-        report.AnswerHitRate.ShouldBeGreaterThanOrEqualTo(minHitRate, "answer analysis hit rate");
+        if (itemFilter == null)
+        {
+            report.AnswerHitRate.ShouldBeGreaterThanOrEqualTo(minHitRate, "answer analysis hit rate");
+        }
     }
 
     private static async Task RunMessageItemAsync(
@@ -452,6 +465,34 @@ public class InboundClarificationGoldsetTests
 
         return JsonSerializer.Deserialize<GoldsetFile>(text, JsonOptions)
                ?? throw new InvalidOperationException($"Goldset {path} could not be read.");
+    }
+
+    private static HashSet<string>? ReadItemFilter()
+    {
+        var raw = Environment.GetEnvironmentVariable(ItemIdsVariable);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        return raw.Split(ItemIdSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static GoldsetFile ApplyItemFilter(GoldsetFile goldset, HashSet<string>? itemFilter)
+    {
+        if (itemFilter == null)
+        {
+            return goldset;
+        }
+
+        var unknown = itemFilter.Where(id => goldset.Items.All(item => item.Id != id)).ToList();
+        if (unknown.Count > 0)
+        {
+            throw new InvalidOperationException($"{ItemIdsVariable} names unknown message items: {string.Join(", ", unknown)}");
+        }
+
+        return goldset with { Items = goldset.Items.Where(item => itemFilter.Contains(item.Id)).ToList(), AnswerItems = null };
     }
 
     private static double ReadRate(string variable, double fallback) =>
