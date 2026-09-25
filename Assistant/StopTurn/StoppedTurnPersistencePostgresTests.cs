@@ -37,7 +37,7 @@ public class StoppedTurnPersistencePostgresTests : StopTurnPostgresTestBase
         });
         Provider.Enqueue(ScriptedStep.Tools(WriteSkill), ScriptedStep.Text("This must never be asked for."));
         var turnId = Guid.NewGuid();
-        var context = NewContext("create the employee Anna Meier", turnId, stop.Token);
+        var context = NewContext("run the first test write action", turnId, stop.Token);
 
         using var scope = Factory.Services.CreateScope();
         var run = Task.Run(() => RunTurnAsync(scope, context));
@@ -93,7 +93,7 @@ public class StoppedTurnPersistencePostgresTests : StopTurnPostgresTestBase
         };
 
         using var scope = Factory.Services.CreateScope();
-        var run = Task.Run(() => RunTurnAsync(scope, NewContext("create the employee Anna Meier", turnId, stop.Token)));
+        var run = Task.Run(() => RunTurnAsync(scope, NewContext("run the first test write action", turnId, stop.Token)));
         await textStarted.Task.WaitAsync(Patience);
         await Task.Delay(TextGraceMs);
         stop.Cancel();
@@ -130,7 +130,7 @@ public class StoppedTurnPersistencePostgresTests : StopTurnPostgresTestBase
         };
 
         using var scope = Factory.Services.CreateScope();
-        await RunTurnAsync(scope, NewContext("create the employee Anna Meier", turnId, stop.Token));
+        await RunTurnAsync(scope, NewContext("run the first test write action", turnId, stop.Token));
         var again = await scope.ServiceProvider.GetRequiredService<IInterruptedTurnFinalizer>()
             .FinalizeAsync(UserId, turnId, endedInError: false);
 
@@ -148,7 +148,7 @@ public class StoppedTurnPersistencePostgresTests : StopTurnPostgresTestBase
         using var scope = Factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<ILLMService>();
         var seenAfterTheWrite = false;
-        await foreach (var chunk in service.ProcessStreamAsync(NewContext("create the employee Anna Meier", turnId)))
+        await foreach (var chunk in service.ProcessStreamAsync(NewContext("run the first test write action", turnId)))
         {
             if (chunk.Type == SseChunkType.FunctionResult)
             {

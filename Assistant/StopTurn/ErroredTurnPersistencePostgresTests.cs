@@ -31,7 +31,7 @@ public class ErroredTurnPersistencePostgresTests : StopTurnPostgresTestBase
         var turnId = Guid.NewGuid();
 
         using var scope = Factory.Services.CreateScope();
-        var chunks = await RunTurnAsync(scope, NewContext("create the employee Anna Meier", turnId));
+        var chunks = await RunTurnAsync(scope, NewContext("run the first test write action", turnId));
         var finalizer = await scope.ServiceProvider.GetRequiredService<IInterruptedTurnFinalizer>()
             .FinalizeAsync(UserId, turnId, endedInError: false);
 
@@ -67,7 +67,7 @@ public class ErroredTurnPersistencePostgresTests : StopTurnPostgresTestBase
         var turnId = Guid.NewGuid();
 
         using var scope = Factory.Services.CreateScope();
-        var chunks = await RunTurnAsync(scope, NewContext("who is Anna Meier", turnId));
+        var chunks = await RunTurnAsync(scope, NewContext("show the test lookup", turnId));
         await scope.ServiceProvider.GetRequiredService<IInterruptedTurnFinalizer>().FinalizeAsync(UserId, turnId, endedInError: false);
 
         chunks.ShouldContain(chunk => chunk.Type == SseChunkType.Error);
@@ -94,7 +94,7 @@ public class ErroredTurnPersistencePostgresTests : StopTurnPostgresTestBase
         var turnId = Guid.NewGuid();
 
         using var scope = Factory.Services.CreateScope();
-        await RunTurnAsync(scope, NewContext("create the employee Anna Meier", turnId));
+        await RunTurnAsync(scope, NewContext("run the first test write action", turnId));
         var finalizer = scope.ServiceProvider.GetRequiredService<IInterruptedTurnFinalizer>();
         await finalizer.FinalizeAsync(UserId, turnId, endedInError: false);
         await finalizer.FinalizeAsync(UserId, turnId, endedInError: true);

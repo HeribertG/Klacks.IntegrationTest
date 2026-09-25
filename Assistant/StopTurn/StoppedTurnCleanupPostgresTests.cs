@@ -127,7 +127,7 @@ public class StoppedTurnCleanupPostgresTests : StopTurnPostgresTestBase
         Provider.Enqueue(ScriptedStep.Tools(WriteSkill));
 
         using var scope = Factory.Services.CreateScope();
-        var run = Task.Run(() => RunTurnAsync(scope, NewContext("create the employee Anna Meier", turnId, stop.Token)));
+        var run = Task.Run(() => RunTurnAsync(scope, NewContext("run the first test write action", turnId, stop.Token)));
         await entered.Task.WaitAsync(Patience);
         stop.Cancel();
         release.SetResult();

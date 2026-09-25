@@ -22,9 +22,9 @@ namespace Klacks.IntegrationTest.Assistant.StopTurn;
 [TestFixture]
 public class SupersedeDuringLongWritePostgresTests : StopTurnPostgresTestBase
 {
-    private const string FirstRequest = "create the employee Anna Meier";
-    private const string SecondRequest = "create the employee Berta Huber";
-    private const string SecondAnswer = "Berta Huber was created.";
+    private const string FirstRequest = "run the first test write action";
+    private const string SecondRequest = "run the second test write action";
+    private const string SecondAnswer = "The second test action was executed.";
     private const int SeparationMs = 100;
 
     [Test]

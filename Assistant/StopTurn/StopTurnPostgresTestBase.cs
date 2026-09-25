@@ -6,7 +6,10 @@
 /// own model row and gives every test its own conversation. Everything a test writes is keyed by the
 /// INTEGRATION_TEST_ prefix - conversation id, model id, skill name, first characters of the user message -
 /// and the cleanup deletes only rows carrying that prefix, twice, the second time after the fire-and-forget
-/// post-turn tasks had time to write. It never deletes by a business-plausible value.
+/// post-turn tasks had time to write. It never deletes by a business-plausible value. The requests are worded
+/// so that no recipe trigger matches: a matching recipe would open a run row for the real user of the shared
+/// database. Known side effect that cannot be avoided while the real chat service runs: it bumps the access
+/// counters (access_count, last_accessed_at) of the shared knowledge memories it retrieves.
 /// </summary>
 
 using System.Text.Json;
@@ -239,6 +242,8 @@ public abstract class StopTurnPostgresTestBase
         string[] statements =
         [
             "DELETE FROM assistant_last_actions WHERE starts_with(conversation_id, @prefix)",
+            "DELETE FROM recipe_runs WHERE starts_with(conversation_id, @prefix)",
+            "DELETE FROM pending_recipes WHERE starts_with(conversation_id, @prefix)",
             "DELETE FROM llm_messages WHERE conversation_id IN (SELECT id FROM llm_conversations WHERE starts_with(conversation_id, @prefix))",
             "DELETE FROM llm_usages WHERE starts_with(conversation_id, @prefix)",
             "DELETE FROM llm_conversations WHERE starts_with(conversation_id, @prefix)",

@@ -119,7 +119,7 @@ public class StopTurnLatencyMeasurementTests : StopTurnPostgresTestBase
             var consumer = Task.Run(async () =>
             {
                 await foreach (var chunk in scope.ServiceProvider.GetRequiredService<ILLMService>()
-                                   .ProcessStreamAsync(NewContext("create the employee Anna Meier", turnId, stopToken)))
+                                   .ProcessStreamAsync(NewContext("run the first test write action", turnId, stopToken)))
                 {
                     if (chunk.Type == SseChunkType.TurnStopped)
                     {
