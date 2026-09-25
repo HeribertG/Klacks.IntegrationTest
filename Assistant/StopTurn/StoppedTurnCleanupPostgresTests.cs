@@ -3,11 +3,12 @@
 /// <summary>
 /// The cleanup of a stopped turn against real Postgres: its Dispatched UiAction rows become Cancelled and
 /// nothing else is touched (other turns, decided rows), and a late outcome report for a Cancelled row changes
-/// nothing. The rest of the fixture is the M-3 characterisation, which changes no production code: the
-/// cleanup loads the rows and calls SaveChanges on the request's shared DbContext, so it commits whatever else
-/// is pending in that context (first test), and a failed earlier write that left its entity Added in the
-/// change tracker makes the cleanup's SaveChanges fail as well, so the rows stay Dispatched (second and third
-/// test: the direct case, and the case that goes through the recorder).
+/// nothing. The rest of the fixture is M-3: the cleanup is one ExecuteUpdateAsync statement, so it neither
+/// commits whatever else is pending in the request's shared DbContext (it used to load the rows and call
+/// SaveChanges, which wrote foreign pending changes with it) nor fails because an earlier failed write left
+/// its entity Added in the change tracker (the rows used to stay Dispatched, directly and through the
+/// recorder). The row selection and the count it reports are pinned here too, because the in-memory provider
+/// cannot run ExecuteUpdateAsync.
 /// </summary>
 
 using Klacks.Api.Application.Commands.Assistant;
@@ -51,6 +52,29 @@ public class StoppedTurnCleanupPostgresTests : StopTurnPostgresTestBase
     }
 
     [Test]
+    public async Task TheRepository_ReportsTheNumberOfClosedRowsAndLeavesOutcomesAndNonUiRowsAlone()
+    {
+        var turn = Guid.NewGuid();
+        await SeedAsync(turn, UiActionStatus.Dispatched, success: true);
+        await SeedAsync(turn, UiActionStatus.Dispatched, success: true);
+        var failed = await SeedAsync(turn, UiActionStatus.Failed);
+        var completed = await SeedAsync(turn, UiActionStatus.Completed, success: true);
+        var plain = await SeedAsync(turn, null, success: true);
+        using var scope = Factory.Services.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<ISkillUsageRepository>();
+
+        (await repository.CancelDispatchedForTurnAsync(turn)).ShouldBe(2);
+        (await repository.CancelDispatchedForTurnAsync(turn)).ShouldBe(0);
+        (await repository.CancelDispatchedForTurnAsync(Guid.NewGuid())).ShouldBe(0);
+
+        (await StatusOfAsync(failed)).ShouldBe((int)UiActionStatus.Failed);
+        (await StatusOfAsync(completed)).ShouldBe((int)UiActionStatus.Completed);
+        (await SuccessOfAsync(completed)).ShouldBe(true);
+        (await StatusOfAsync(plain)).ShouldBeNull();
+        (await SuccessOfAsync(plain)).ShouldBe(true);
+    }
+
+    [Test]
     public async Task ALateBrowserReportForACancelledRow_ChangesNothing()
     {
         var turn = Guid.NewGuid();
@@ -71,10 +95,10 @@ public class StoppedTurnCleanupPostgresTests : StopTurnPostgresTestBase
     }
 
     [Test]
-    public async Task M3_TheCleanupCommitsWhateverElseIsPendingInTheSharedContext()
+    public async Task M3_TheCleanupDoesNotCommitWhateverElseIsPendingInTheSharedContext()
     {
         var turn = Guid.NewGuid();
-        await SeedAsync(turn, UiActionStatus.Dispatched);
+        var row = await SeedAsync(turn, UiActionStatus.Dispatched);
         using var scope = Factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<DataBaseContext>();
         var model = context.Set<LLMModel>().Single(m => m.ModelId == ModelKey);
@@ -82,12 +106,13 @@ public class StoppedTurnCleanupPostgresTests : StopTurnPostgresTestBase
 
         await scope.ServiceProvider.GetRequiredService<IStoppedTurnCleanup>().CleanUpAsync(UserId, turn, CancellationToken.None);
 
+        (await StatusOfAsync(row)).ShouldBe((int)UiActionStatus.Cancelled);
         (await ScalarAsync("SELECT description FROM llm_models WHERE model_id = @model", ("model", ModelKey)))
-            .ShouldBe(PendingDescription);
+            .ShouldNotBe(PendingDescription);
     }
 
     [Test]
-    public async Task M3_AnEarlierWriteThatFailedAndLeftItsEntityInTheTracker_MakesTheCleanupFailToo()
+    public async Task M3_AnEarlierWriteThatFailedAndLeftItsEntityInTheTracker_DoesNotBlockTheCleanup()
     {
         var turn = Guid.NewGuid();
         var row = await SeedAsync(turn, UiActionStatus.Dispatched);
@@ -106,11 +131,11 @@ public class StoppedTurnCleanupPostgresTests : StopTurnPostgresTestBase
 
         await scope.ServiceProvider.GetRequiredService<IStoppedTurnCleanup>().CleanUpAsync(UserId, turn, CancellationToken.None);
 
-        (await StatusOfAsync(row)).ShouldBe((int)UiActionStatus.Dispatched);
+        (await StatusOfAsync(row)).ShouldBe((int)UiActionStatus.Cancelled);
     }
 
     [Test]
-    public async Task M3_ThroughTheRecorder_AFailingUsageInsertLeavesTheUiActionRowsDispatched_ButTheAnchorIsStillWritten()
+    public async Task M3_ThroughTheRecorder_AFailingUsageInsertNoLongerLeavesTheUiActionRowsDispatched_AndTheAnchorIsStillWritten()
     {
         var turnId = Guid.NewGuid();
         var row = await SeedAsync(turnId, UiActionStatus.Dispatched);
@@ -137,7 +162,7 @@ public class StoppedTurnCleanupPostgresTests : StopTurnPostgresTestBase
         (await MessagesAsync()).Count.ShouldBe(2);
         (await UsagesAsync()).Count.ShouldBe(1);
         (await AnchorAsync()).ShouldNotBeNull();
-        (await StatusOfAsync(row)).ShouldBe((int)UiActionStatus.Dispatched);
+        (await StatusOfAsync(row)).ShouldBe((int)UiActionStatus.Cancelled);
     }
 
     private async Task<Guid> SeedAsync(Guid turnId, UiActionStatus? status, bool success = false)
