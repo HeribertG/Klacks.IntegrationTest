@@ -6,8 +6,8 @@
 /// stopped turn persists itself late. The history must still read old request, old answer, new request, new
 /// answer (the late rows carry the time the old turn began), and the correction anchor must still be the new
 /// turn's: a "no, I meant..." after the new turn must find the new turn's action, not the old one's. The
-/// message count of the conversation is read and reported, not asserted: it is fed from the conversation row
-/// each turn loaded when it began, which is outside the fix (a known limit, present before this stage).
+/// message count of the conversation must add up to four: the late turn increments the row in SQL instead of
+/// writing back the entity it loaded when it began (stop-turn follow-up 5).
 /// </summary>
 
 using Klacks.Api.Domain.Constants;
@@ -92,8 +92,7 @@ public class SupersedeDuringLongWritePostgresTests : StopTurnPostgresTestBase
 
         var messageCount = await ScalarAsync(
             "SELECT message_count FROM llm_conversations WHERE conversation_id = @conversation", ("conversation", ConversationKey));
-        TestContext.Out.WriteLine(
-            $"Observed conversation.message_count after both turns = {messageCount} (four rows exist in llm_messages)");
+        messageCount.ShouldBe(messages.Count, "the late turn adds its two messages to the newer turn's count instead of overwriting it");
     }
 
     [Test]
