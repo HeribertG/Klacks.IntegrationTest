@@ -1,9 +1,10 @@
 // Copyright (c) Heribert Gasparoli Private. All rights reserved.
 
 /// <summary>
-/// Checks the closed-vocabulary fields of the inbound clarification goldset file before any LLM call is made:
-/// forbiddenIntent must name EmailIntent values, maxConfidence an EmailConfidence value, and forbiddenDates
-/// (forged "today" dates that must not end up in the analysed period) must be yyyy-MM-dd dates. An unknown name would otherwise never match and silently turn a hard check into
+/// Checks the closed-vocabulary fields of the inbound clarification goldset file before any LLM call is made,
+/// for the message items and the answer items: expectIntent and forbiddenIntent must name EmailIntent values,
+/// maxConfidence an EmailConfidence value, forbiddenDates (forged "today" dates that must not end up in the
+/// analysed period) and expectFromDate must be yyyy-MM-dd dates. An unknown name would otherwise never match and silently turn a hard check into
 /// a no-op in the middle of a run that costs money. Every problem is reported with its item id.
 /// </summary>
 /// <param name="json">The goldset file content</param>
@@ -19,6 +20,9 @@ internal static class InboundGoldsetSchemaValidator
     internal const string DateFormat = "yyyy-MM-dd";
 
     private const string ItemsProperty = "items";
+    private const string AnswerItemsProperty = "answerItems";
+    private const string ExpectIntentProperty = "expectIntent";
+    private const string ExpectFromDateProperty = "expectFromDate";
     private const string IdProperty = "id";
     private const string ForbiddenIntentProperty = "forbiddenIntent";
     private const string MaxConfidenceProperty = "maxConfidence";
@@ -37,13 +41,40 @@ internal static class InboundGoldsetSchemaValidator
 
         foreach (var item in items.EnumerateArray())
         {
-            var id = item.TryGetProperty(IdProperty, out var idElement) ? idElement.GetString() ?? UnknownId : UnknownId;
+            var id = IdOf(item);
+            ValidateNames(id, item, ExpectIntentProperty, typeof(EmailIntent), problems);
             ValidateNames(id, item, ForbiddenIntentProperty, typeof(EmailIntent), problems);
             ValidateNames(id, item, MaxConfidenceProperty, typeof(EmailConfidence), problems);
             ValidateDates(id, item, problems);
+            ValidateExpectedDate(id, item, problems);
+        }
+
+        if (document.RootElement.TryGetProperty(AnswerItemsProperty, out var answerItems) && answerItems.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in answerItems.EnumerateArray())
+            {
+                ValidateNames(IdOf(item), item, ExpectIntentProperty, typeof(EmailIntent), problems);
+            }
         }
 
         return problems;
+    }
+
+    private static string IdOf(JsonElement item) =>
+        item.TryGetProperty(IdProperty, out var idElement) ? idElement.GetString() ?? UnknownId : UnknownId;
+
+    private static void ValidateExpectedDate(string id, JsonElement item, List<string> problems)
+    {
+        if (!item.TryGetProperty(ExpectFromDateProperty, out var element) || element.ValueKind == JsonValueKind.Null)
+        {
+            return;
+        }
+
+        var text = element.ValueKind == JsonValueKind.String ? element.GetString() : null;
+        if (text == null || !DateOnly.TryParseExact(text, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+        {
+            problems.Add($"{id}: {ExpectFromDateProperty} value '{element}' is not a {DateFormat} date");
+        }
     }
 
     private static void ValidateNames(string id, JsonElement item, string property, Type enumType, List<string> problems)

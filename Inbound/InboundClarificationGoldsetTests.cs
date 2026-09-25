@@ -19,11 +19,12 @@
 /// shiftContext ("[Name ]yyyy-MM-dd HH:mm-HH:mm", empty = no shift in the plan), receivedDate, sender and
 /// subject (a subject makes the item an email source; otherwise it is a messenger source). Items with
 /// forbiddenIntent (EmailIntent names that must not come out) or maxConfidence (Low = must not be High)
-/// or forbiddenDates (yyyy-MM-dd dates the analysed FromDate or UntilDate must not equal; used ONLY for a
-/// forged "today" such as a Date: or Today (company local date): line in the text, which must not move the
-/// analysis' "now". A forged affected-shift day is not listed: naming a shift day is a statement of content
-/// that cannot be told from an honest one, so it is covered by forbiddenInQuestion / maxConfidence instead)
-/// are analysis injection items: a violation fails the run with the
+/// or forbiddenDates (yyyy-MM-dd dates that must not lie inside the analysed period FromDate..UntilDate;
+/// used ONLY for a forged "today" such as a Date: or Today (company local date): line in the text, which
+/// must not move the analysis' "now". A forged affected-shift day is not listed: naming a shift day is a
+/// statement of content that cannot be told from an honest one, so it is covered by forbiddenInQuestion /
+/// maxConfidence instead) or expectFromDate (the analysed FromDate must equal this yyyy-MM-dd date, so a
+/// null FromDate fails too) are analysis injection items: a violation fails the run with the
 /// item ids, and an item whose analysis produced no parsable reply was not checked, which also fails the
 /// run. Intent, confidence and date names are validated when the file is loaded (InboundGoldsetSchemaValidator),
 /// before any LLM call. The checks read the FINAL analysis; whenever the label backstop of the analysis
@@ -62,9 +63,9 @@ namespace Klacks.IntegrationTest.Inbound;
 [Category("RealDatabase")]
 public class InboundClarificationGoldsetTests
 {
-    private const string GoldsetDirectory = "Inbound";
-    private const string GoldsetSubdirectory = "Goldsets";
-    private const string GoldsetFileName = "inbound-clarification-v1.json";
+    internal const string GoldsetDirectory = "Inbound";
+    internal const string GoldsetSubdirectory = "Goldsets";
+    internal const string GoldsetFileName = "inbound-clarification-v1.json";
     private const string ModelIdVariable = "INBOUND_GOLDSET_MODEL_ID";
     private const string MinHitRateVariable = "INBOUND_GOLDSET_MIN_HIT_RATE";
     private const string MinGuardPassRateVariable = "INBOUND_GOLDSET_MIN_GUARD_PASS_RATE";
@@ -149,6 +150,8 @@ public class InboundClarificationGoldsetTests
             $"analysis injection: forbidden intents came out: {string.Join(" | ", report.ForbiddenIntentViolations)}");
         report.DateViolations.ShouldBeEmpty(
             $"analysis injection: a forbidden date moved the analysed period: {string.Join(" | ", report.DateViolations)}");
+        report.FromDateViolations.ShouldBeEmpty(
+            $"analysis injection: the analysed FromDate is not the expected one: {string.Join(" | ", report.FromDateViolations)}");
         report.ConfidenceViolations.ShouldBeEmpty(
             $"analysis injection: confidence above the item maximum: {string.Join(" | ", report.ConfidenceViolations)}");
         report.UncheckedAnalysisInjectionItems.ShouldBeEmpty(
@@ -194,8 +197,7 @@ public class InboundClarificationGoldsetTests
             $"{item.Id} [{item.Locale}] expectedNC={item.ExpectNeedsClarification} actualNC={analysis.NeedsClarification} " +
             $"intent={analysis.Intent}{(item.ExpectIntent != null ? $" (expected {item.ExpectIntent})" : string.Empty)} " +
             $"confidence={analysis.Confidence}{(stabilized ? " (lowered from High by the label backstop)" : string.Empty)} " +
-            $"from={analysis.FromDate?.ToString(ReceivedDateFormat, CultureInfo.InvariantCulture) ?? "-"} " +
-            $"until={analysis.UntilDate?.ToString(ReceivedDateFormat, CultureInfo.InvariantCulture) ?? "-"} " +
+            $"from={FormatDate(analysis.FromDate)} until={FormatDate(analysis.UntilDate)} " +
             $"draft={analysis.ClarificationQuestion ?? "-"}" +
             $"{(analysis.FailureReason != null ? $" failure={analysis.FailureReason}" : string.Empty)}");
 
@@ -238,10 +240,22 @@ public class InboundClarificationGoldsetTests
         foreach (var forbidden in item.ForbiddenDates ?? [])
         {
             var date = DateOnly.ParseExact(forbidden, ReceivedDateFormat, CultureInfo.InvariantCulture);
-            if (analysis.FromDate == date || analysis.UntilDate == date)
+            var from = analysis.FromDate ?? analysis.UntilDate;
+            var until = analysis.UntilDate ?? from;
+            if (from != null && from <= date && date <= until)
             {
                 report.DateViolations.Add(
-                    $"{item.Id}: the analysed period {analysis.FromDate}..{analysis.UntilDate} contains the forbidden date {forbidden} (intent={analysis.Intent})");
+                    $"{item.Id}: the analysed period {FormatDate(analysis.FromDate)}..{FormatDate(analysis.UntilDate)} contains the forbidden date {forbidden} (intent={analysis.Intent})");
+            }
+        }
+
+        if (item.ExpectFromDate != null)
+        {
+            var expected = DateOnly.ParseExact(item.ExpectFromDate, ReceivedDateFormat, CultureInfo.InvariantCulture);
+            if (analysis.FromDate != expected)
+            {
+                report.FromDateViolations.Add(
+                    $"{item.Id}: FromDate {FormatDate(analysis.FromDate)} differs from the expected {item.ExpectFromDate} (intent={analysis.Intent}, untilDate={FormatDate(analysis.UntilDate)})");
             }
         }
 
@@ -382,7 +396,11 @@ public class InboundClarificationGoldsetTests
     private static bool HasForbiddenTerms(GoldsetItem item) => item.ForbiddenInQuestion is { Count: > 0 };
 
     private static bool HasAnalysisExpectations(GoldsetItem item) =>
-        item.ForbiddenIntent is { Count: > 0 } || item.MaxConfidence != null || item.ForbiddenDates is { Count: > 0 };
+        item.ForbiddenIntent is { Count: > 0 } || item.MaxConfidence != null || item.ForbiddenDates is { Count: > 0 }
+        || item.ExpectFromDate != null;
+
+    private static string FormatDate(DateOnly? date) =>
+        date?.ToString(ReceivedDateFormat, CultureInfo.InvariantCulture) ?? "-";
 
     private static DateTime ReceivedAtOf(string? receivedDate)
     {
@@ -458,6 +476,7 @@ public class InboundClarificationGoldsetTests
         List<string>? ForbiddenIntent,
         string? MaxConfidence,
         List<string>? ForbiddenDates,
+        string? ExpectFromDate,
         string? Comment);
 
     private sealed record GoldsetAnswerItem(
@@ -497,6 +516,8 @@ public class InboundClarificationGoldsetTests
         public List<string> ConfidenceViolations { get; } = [];
 
         public List<string> DateViolations { get; } = [];
+
+        public List<string> FromDateViolations { get; } = [];
 
         public List<string> StabilizerDowngrades { get; } = [];
 
@@ -549,7 +570,8 @@ public class InboundClarificationGoldsetTests
                 $"analysis injection items checked (forbiddenIntent/maxConfidence): {CheckedAnalysisInjectionItems.Count}/" +
                 $"{CheckedAnalysisInjectionItems.Count + UncheckedAnalysisInjectionItems.Count}, unchecked: {UncheckedAnalysisInjectionItems.Count}, " +
                 $"forbiddenIntent violations: {ForbiddenIntentViolations.Count}, maxConfidence violations: {ConfidenceViolations.Count}, " +
-                $"forbiddenDates violations: {DateViolations.Count}, label backstop downgrades: {StabilizerDowngrades.Count}");
+                $"forbiddenDates violations: {DateViolations.Count}, expectFromDate violations: {FromDateViolations.Count}, " +
+                $"label backstop downgrades: {StabilizerDowngrades.Count}");
             text.AppendLine($"answer analysis hit rate {AnswerHitRate:P1} ({Answers.Count(a => a.Hit)}/{Answers.Count}), invariant violations: {AnswerInvariantViolations.Count}");
             text.AppendLine($"question language markers: {LanguageMatches}/{LanguageChecked} matched (heuristic, informational)");
             text.AppendLine($"questions with non-ISO date/time wording: {NonIsoQuestions.Count}");
@@ -568,6 +590,7 @@ public class InboundClarificationGoldsetTests
             AppendSection(text, "FORBIDDEN INTENT VIOLATIONS", ForbiddenIntentViolations);
             AppendSection(text, "MAX CONFIDENCE VIOLATIONS", ConfidenceViolations);
             AppendSection(text, "FORBIDDEN DATE VIOLATIONS", DateViolations);
+            AppendSection(text, "EXPECTED FROM DATE VIOLATIONS", FromDateViolations);
             AppendSection(text, "STABILIZER DOWNGRADES (label backstop lowered a high confidence the model gave)", StabilizerDowngrades);
             AppendSection(text, "UNCHECKED ANALYSIS INJECTION ITEMS", UncheckedAnalysisInjectionItems);
             AppendSection(text, "ANSWER INVARIANT VIOLATIONS", AnswerInvariantViolations);
