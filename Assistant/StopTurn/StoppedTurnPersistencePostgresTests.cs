@@ -58,6 +58,7 @@ public class StoppedTurnPersistencePostgresTests : StopTurnPostgresTestBase
         var messages = await MessagesAsync();
         messages.Select(message => message.Role).ShouldBe(new[] { "user", "assistant" });
         messages[1].Content.ShouldBe(TurnInterruptionDefaults.InterruptedMarker);
+        messages[1].CreateTime.ShouldBeGreaterThan(messages[0].CreateTime, "the history is read ordered by this time alone");
 
         var usages = await UsagesAsync();
         usages.Count.ShouldBe(1);

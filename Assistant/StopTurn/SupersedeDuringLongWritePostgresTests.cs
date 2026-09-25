@@ -74,7 +74,7 @@ public class SupersedeDuringLongWritePostgresTests : StopTurnPostgresTestBase
         messages[1].Content.ShouldBe(TurnInterruptionDefaults.InterruptedMarker);
         messages[2].Content.ShouldBe(Prefix + SecondRequest);
         messages[3].Content.ShouldBe(SecondAnswer);
-        messages.Select(message => message.CreateTime).ShouldBe(messages.Select(message => message.CreateTime).Order());
+        messages.Select(message => message.CreateTime).ShouldBe(messages.Select(message => message.CreateTime).Distinct().Order(), "no two rows share a time: the history is read ordered by it alone");
 
         var anchor = await AnchorAsync();
         anchor.ShouldNotBeNull();

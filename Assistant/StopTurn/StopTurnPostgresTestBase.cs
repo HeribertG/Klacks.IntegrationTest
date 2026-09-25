@@ -192,7 +192,7 @@ public abstract class StopTurnPostgresTestBase
         var rows = await RowsAsync(
             "SELECT m.role, m.content, m.create_time FROM llm_messages m "
             + "JOIN llm_conversations c ON c.id = m.conversation_id "
-            + "WHERE c.conversation_id = @conversation ORDER BY m.create_time, m.role DESC",
+            + "WHERE c.conversation_id = @conversation ORDER BY m.create_time",
             ("conversation", ConversationKey));
         return rows.Select(row => ((string)row[0]!, (string)row[1]!, (DateTime)row[2]!)).ToList();
     }
