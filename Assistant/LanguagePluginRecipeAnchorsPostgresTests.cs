@@ -38,7 +38,7 @@ public class LanguagePluginRecipeAnchorsPostgresTests
     private const string JapaneseCode = "ja";
     private const string SimplifiedChineseCode = "zh-CN";
     private const string UiLanguage = "de";
-    private const int SeedRecipeCount = 27;
+    private const int SeedRecipeCount = 28;
 
     private const string ExternRecipeName = "bulk-add-externs-to-nearest-group";
     private const string SpanishExternMessage =
