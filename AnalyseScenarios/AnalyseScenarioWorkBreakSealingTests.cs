@@ -253,7 +253,7 @@ public class AnalyseScenarioWorkBreakSealingTests
             level: WorkLockLevel.Closed,
             CancellationToken.None);
 
-        affected.ShouldBe(1, "only the real work must be unsealed");
+        affected.Total.ShouldBe(1, "only the real work must be unsealed");
 
         var realAfter = await _context.Work.IgnoreQueryFilters()
             .Where(w => w.Id == realSealed.Id).AsNoTracking().SingleAsync();

@@ -101,7 +101,7 @@ public class BreakRepositoryGroupSealTests
             _group1Id,
             WorkLockLevel.Confirmed);
 
-        affected.ShouldBe(1);
+        affected.Total.ShouldBe(1);
 
         _context.ChangeTracker.Clear();
         var break1 = await _context.Break.FindAsync(_break1Id);

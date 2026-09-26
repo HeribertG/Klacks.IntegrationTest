@@ -116,7 +116,7 @@ public class WorkRepositoryGroupSealTests
             _group1Id,
             WorkLockLevel.Confirmed);
 
-        affected.ShouldBe(1);
+        affected.Total.ShouldBe(1);
 
         _context.ChangeTracker.Clear();
         var work1 = await _context.Work.FindAsync(_work1Id);
