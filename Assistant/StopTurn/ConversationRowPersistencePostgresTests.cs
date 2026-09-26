@@ -32,6 +32,8 @@ public class ConversationRowPersistencePostgresTests : StopTurnPostgresTestBase
     private const string CompactedSummary = "summary written by a compaction";
     private const string RenamedTitle = "Renamed by the user";
     private const int MessagesPerTurn = 2;
+    private const int TitleColumnLength = 200;
+    private const string LongLinkPrefix = "https://example.test/";
     private const int TurnTokens = 120;
     private const decimal TurnCost = 0.25m;
     private const string BlockingRequest = "run the first test write action";
@@ -115,6 +117,33 @@ public class ConversationRowPersistencePostgresTests : StopTurnPostgresTestBase
         await manager.SaveConversationMessagesAsync(conversation, "another message text", AssistantMessage, ModelKey);
 
         (await ColumnAsync("title")).ShouldBe(RenamedTitle);
+    }
+
+    [Test]
+    public async Task AFirstMessageWithAWordLongerThanTheTitleColumn_StillPersistsTheTurnWithATruncatedTitle()
+    {
+        var pastedLink = LongLinkPrefix + new string('a', TitleColumnLength * 2);
+        await using var turnContext = NewContext();
+        var (manager, conversation) = await LoadAsync(turnContext);
+
+        await manager.SaveConversationMessagesAsync(conversation, pastedLink + " what is this", AssistantMessage, ModelKey);
+
+        (await ColumnAsync("message_count")).ShouldBe(MessagesPerTurn);
+        (await ColumnAsync("title")).ShouldBe(pastedLink[..TitleColumnLength]);
+    }
+
+    [Test]
+    public async Task AFirstMessageOfFiveLongWords_PersistsWithATitleThatFitsTheColumn()
+    {
+        var word = new string('b', TitleColumnLength / 2);
+        await using var turnContext = NewContext();
+        var (manager, conversation) = await LoadAsync(turnContext);
+
+        await manager.SaveConversationMessagesAsync(
+            conversation, string.Join(' ', word, word, word, word, word, word), AssistantMessage, ModelKey);
+
+        (await ColumnAsync("message_count")).ShouldBe(MessagesPerTurn);
+        ((string)(await ColumnAsync("title"))!).Length.ShouldBe(TitleColumnLength);
     }
 
     [Test]
