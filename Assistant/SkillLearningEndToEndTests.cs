@@ -27,11 +27,13 @@
 
 using Klacks.Api.Application.Services.Assistant;
 using Klacks.Api.Domain.Constants;
+using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces.Assistant;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.KnowledgeIndex.Application.Interfaces;
 using Klacks.Api.KnowledgeIndex.Domain;
+using Klacks.IntegrationTest.Assistant.Learning;
 using Klacks.IntegrationTest.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -109,7 +111,7 @@ public class SkillLearningEndToEndTests
     [OneTimeSetUp]
     public async Task OneTimeSetUp()
     {
-        _factory = new SignalRTestWebApplicationFactory();
+        _factory = new AutoApplyLearningTestWebApplicationFactory();
 
         using var scope = _factory.Services.CreateScope();
         var agents = scope.ServiceProvider.GetRequiredService<IAgentRepository>();
@@ -154,7 +156,7 @@ public class SkillLearningEndToEndTests
         {
             using var runScope = _factory.Services.CreateScope();
             var loop = runScope.ServiceProvider.GetRequiredService<ISkillLearningLoop>();
-            summary = await loop.RunAsync();
+            summary = await loop.RunAsync(SkillLearningRunTrigger.Manual);
 
             TestContext.WriteLine(
                 $"RUN: claimed={summary.Processed} learned={summary.Learned} alreadyRouted={summary.AlreadyRouted} "
