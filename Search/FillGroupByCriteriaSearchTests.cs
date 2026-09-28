@@ -1,4 +1,4 @@
-// Copyright (c) Heribert Gasparoli Private. All rights reserved.
+// Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
 
 // Verifies the contract filter added to ClientSearchRepository.SearchAsync against a real PostgreSQL
 // database: the EF 'Any' subquery translates and executes, narrows the result set to active contract

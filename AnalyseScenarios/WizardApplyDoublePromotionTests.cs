@@ -1,4 +1,4 @@
-// Copyright (c) Heribert Gasparoli Private. All rights reserved.
+// Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
 
 /// <summary>
 /// Grill 2026-06-19 defect H2: WizardApplyService.ApplyAsScenarioAsync cloned the existing movable real
