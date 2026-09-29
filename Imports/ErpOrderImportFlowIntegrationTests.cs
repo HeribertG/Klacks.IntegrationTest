@@ -7,6 +7,7 @@ using Klacks.Api.Application.Services.Imports;
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
+using Klacks.Api.Domain.Interfaces.Settings;
 using Klacks.Api.Domain.Models.Imports;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
@@ -73,6 +74,7 @@ public class ErpOrderImportFlowIntegrationTests
     private string _fixtureSourceSystemId = null!;
     private string _firstCompany = null!;
     private string _secondCompany = null!;
+    private ICompanyClock _companyClock = null!;
     private readonly Dictionary<string, string?> _originalScheduleSettings = new();
 
     [OneTimeSetUp]
@@ -299,7 +301,8 @@ public class ErpOrderImportFlowIntegrationTests
 
         var closedOrder = versions.Single(s => s.Id == sealedOrderId);
         closedOrder.Status.ShouldBe(ShiftStatus.SealedOrder);
-        closedOrder.UntilDate.ShouldBe(DateOnly.FromDateTime(DateTime.UtcNow), "the superseded order must be closed as of today");
+        var companyToday = await _companyClock.GetTodayDateAsync();
+        closedOrder.UntilDate.ShouldBe(companyToday, "the superseded order must be closed as of the company's today");
 
         var replacementDraft = versions.Single(s => s.Id != sealedOrderId);
         replacementDraft.Status.ShouldBe(ShiftStatus.OriginalOrder);
@@ -500,6 +503,7 @@ public class ErpOrderImportFlowIntegrationTests
 
         var companyClock = new CompanyClock(
             settingsRepository, TimeProvider.System, new Klacks.Api.Infrastructure.Services.Settings.SettingsChangeVersion());
+        _companyClock = companyClock;
 
         var supersessionService = new OrderSupersessionService(
             shiftRepository,
