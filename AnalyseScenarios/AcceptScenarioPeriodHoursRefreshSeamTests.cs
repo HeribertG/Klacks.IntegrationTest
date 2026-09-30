@@ -1,0 +1,290 @@
+// Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
+
+/// <summary>
+/// Integration tests (real PostgreSQL) for the schedule row-header totals after "Klacksy plant die Woche":
+/// (a) accepting a scenario must recompute the real plan's cached period hours - before the fix a cache row
+/// written before the accept kept serving 0 and the row header showed 00:00 even after a reload;
+/// (b) a soft-deleted cache row must never be served - the read falls back to the live sum - and its key can
+/// be cached again (a scenario token is used because only a non-null token made the old unfiltered unique index collide).
+/// Far-future dates keep the accept's real-side soft-delete away from any other schedule data; every row
+/// hangs off an INTEGRATION_TEST_-prefixed client or shift and is cleaned up by that prefix only.
+/// </summary>
+
+using Klacks.Api.Application.Commands.AnalyseScenarios;
+using Klacks.Api.Application.Handlers.AnalyseScenarios;
+using Klacks.Api.Application.Interfaces;
+using Klacks.Api.Domain.Enums;
+using Klacks.Api.Domain.Interfaces;
+using Klacks.Api.Domain.Interfaces.Associations;
+using Klacks.Api.Domain.Interfaces.Macros;
+using Klacks.Api.Domain.Interfaces.Settings;
+using Klacks.Api.Domain.Models.Associations;
+using Klacks.Api.Domain.Models.Schedules;
+using Klacks.Api.Domain.Models.Staffs;
+using Klacks.Api.Domain.Services.Common;
+using Klacks.Api.Infrastructure.Persistence;
+using Klacks.Api.Infrastructure.Repositories.Schedules;
+using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
+using Klacks.Api.Infrastructure.Services.PeriodHours;
+using Klacks.Api.Infrastructure.Services.Schedules;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
+using NUnit.Framework;
+using Shouldly;
+using Shift = Klacks.Api.Domain.Models.Schedules.Shift;
+
+namespace Klacks.IntegrationTest.AnalyseScenarios;
+
+[TestFixture]
+[Category("RealDatabase")]
+public class AcceptScenarioPeriodHoursRefreshSeamTests
+{
+    private const string TestPrefix = "INTEGRATION_TEST_PERIODHOURSACCEPT_";
+    private const decimal ScenarioWorkTime = 8m;
+    private const decimal StaleCachedHours = 0m;
+    private static readonly DateOnly PeriodFrom = new(2098, 6, 1);
+    private static readonly DateOnly PeriodUntil = new(2098, 6, 30);
+    private static readonly DateOnly WorkDate = new(2098, 6, 5);
+
+    private string _connectionString = null!;
+    private DataBaseContext _context = null!;
+    private IClientContractDataProvider _contractDataProvider = null!;
+
+    [OneTimeSetUp]
+    public async Task OneTimeSetUp()
+    {
+        _connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
+            ?? "Host=localhost;Port=5434;Database=klacks;Username=postgres;Password=admin";
+        await using var context = NewContext(ignorePendingModelChanges: true);
+        await context.Database.MigrateAsync();
+        await CleanupAsync(context);
+    }
+
+    [SetUp]
+    public void SetUp()
+    {
+        _context = NewContext();
+        _contractDataProvider = Substitute.For<IClientContractDataProvider>();
+        _contractDataProvider
+            .GetEffectiveContractDataForClientsAsync(Arg.Any<List<Guid>>(), Arg.Any<DateOnly>(), Arg.Any<int?>())
+            .Returns(new Dictionary<Guid, EffectiveContractData>());
+        _contractDataProvider
+            .GetEffectiveContractDataAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>(), Arg.Any<int?>())
+            .Returns(new EffectiveContractData());
+    }
+
+    [TearDown]
+    public async Task TearDown()
+    {
+        await CleanupAsync(_context);
+        await _context.DisposeAsync();
+    }
+
+    private DataBaseContext NewContext(bool ignorePendingModelChanges = false)
+    {
+        var options = new DbContextOptionsBuilder<DataBaseContext>()
+            .UseNpgsql(_connectionString)
+            .UseSnakeCaseNamingConvention()
+            .ConfigureWarnings(w =>
+            {
+                if (ignorePendingModelChanges)
+                {
+                    w.Ignore(RelationalEventId.PendingModelChangesWarning);
+                }
+            })
+            .Options;
+        return new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
+    }
+
+    private static async Task CleanupAsync(DataBaseContext context)
+    {
+        var sql = $@"
+            DELETE FROM client_period_hours WHERE client_id IN (SELECT id FROM client WHERE name LIKE '{TestPrefix}%');
+            DELETE FROM work WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestPrefix}%')
+                OR client_id IN (SELECT id FROM client WHERE name LIKE '{TestPrefix}%');
+            UPDATE shift SET scenario_source_shift_id = NULL WHERE name LIKE '{TestPrefix}%' OR scenario_source_shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestPrefix}%');
+            DELETE FROM shift WHERE name LIKE '{TestPrefix}%' OR scenario_source_shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestPrefix}%');
+            DELETE FROM analyse_scenarios WHERE name LIKE '{TestPrefix}%';
+            DELETE FROM client WHERE name LIKE '{TestPrefix}%';
+        ";
+        await context.Database.ExecuteSqlRawAsync(sql);
+    }
+
+    private PeriodHoursService PeriodHoursService(DataBaseContext context) => new(
+        context,
+        Substitute.For<ILogger<PeriodHoursService>>(),
+        Substitute.For<IWorkNotificationService>(),
+        Substitute.For<IClientGroupFilterService>(),
+        _contractDataProvider,
+        Substitute.For<IWeekConfiguration>());
+
+    private WorkRepository WorkRepository(DataBaseContext context) => new(
+        context,
+        Substitute.For<ILogger<Work>>(),
+        Substitute.For<IClientBaseQueryService>(),
+        Substitute.For<IWorkMacroService>(),
+        _contractDataProvider);
+
+    private async Task<Client> CreateClientAsync()
+    {
+        var client = new Client
+        {
+            Id = Guid.NewGuid(),
+            Name = TestPrefix + "CLIENT",
+            FirstName = "Test",
+            Company = string.Empty,
+            LegalEntity = false
+        };
+        await _context.Set<Client>().AddAsync(client);
+        await _context.SaveChangesAsync();
+        return client;
+    }
+
+    private async Task<Shift> CreateShiftAsync()
+    {
+        var shift = new Shift
+        {
+            Id = Guid.NewGuid(),
+            Name = TestPrefix + "SHIFT",
+            Abbreviation = "TST",
+            Description = "Period-hours accept seam test",
+            Status = ShiftStatus.OriginalShift,
+            FromDate = new DateOnly(2098, 1, 1),
+            UntilDate = null,
+            StartShift = new TimeOnly(8, 0),
+            EndShift = new TimeOnly(16, 0),
+            IsMonday = true, IsTuesday = true, IsWednesday = true, IsThursday = true, IsFriday = true,
+            ShiftType = ShiftType.IsTask,
+            Quantity = 1,
+            WorkTime = ScenarioWorkTime,
+            AnalyseToken = null,
+            ScenarioSourceShiftId = null
+        };
+        await _context.Shift.AddAsync(shift);
+        await _context.SaveChangesAsync();
+        return shift;
+    }
+
+    private async Task AddCacheRowAsync(Guid clientId, decimal hours, Guid? analyseToken = null)
+    {
+        await _context.ClientPeriodHours.AddAsync(new ClientPeriodHours
+        {
+            Id = Guid.NewGuid(),
+            ClientId = clientId,
+            StartDate = PeriodFrom,
+            EndDate = PeriodUntil,
+            Hours = hours,
+            Surcharges = 0m,
+            AnalyseToken = analyseToken,
+            CalculatedAt = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync();
+    }
+
+    private async Task AddWorkAsync(Guid clientId, Guid shiftId, Guid? token)
+    {
+        await _context.Work.AddAsync(new Work
+        {
+            Id = Guid.NewGuid(),
+            ClientId = clientId,
+            ShiftId = shiftId,
+            CurrentDate = WorkDate,
+            StartTime = new TimeOnly(8, 0),
+            EndTime = new TimeOnly(16, 0),
+            WorkTime = ScenarioWorkTime,
+            AnalyseToken = token
+        });
+        await _context.SaveChangesAsync();
+    }
+
+    private AcceptAnalyseScenarioCommandHandler Handler()
+    {
+        var compliance = Substitute.For<Klacks.Api.Application.Interfaces.Schedules.IScenarioComplianceService>();
+        compliance
+            .EvaluateAsync(Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new Klacks.Api.Application.DTOs.Schedules.ScenarioComplianceReport([], []));
+        return new AcceptAnalyseScenarioCommandHandler(
+            new AnalyseScenarioRepository(_context, Substitute.For<ILogger<AnalyseScenario>>()),
+            new AnalyseScenarioService(_context),
+            new UnitOfWork(_context, Substitute.For<ILogger<UnitOfWork>>()),
+            Substitute.For<IWorkSofteningRepository>(),
+            compliance,
+            Substitute.For<Klacks.Api.Application.Interfaces.Schedules.ISupervisorOverrideAuthorizer>(),
+            Substitute.For<IScheduleTimelineService>(),
+            Substitute.For<Klacks.Api.Domain.Interfaces.Assistant.IAgentConditionRepository>(),
+            Substitute.For<Klacks.Api.Domain.Interfaces.Assistant.IAgentConditionLedgerService>(),
+            Substitute.For<IHttpContextAccessor>(),
+            PeriodHoursService(_context),
+            Substitute.For<IWorkNotificationService>(),
+            Substitute.For<ILogger<AcceptAnalyseScenarioCommandHandler>>());
+    }
+
+    [Test]
+    public async Task Accept_RecomputesTheStaleRealCacheRow_SoTotalsShowThePromotedWorks()
+    {
+        var client = await CreateClientAsync();
+        var shift = await CreateShiftAsync();
+        await AddCacheRowAsync(client.Id, StaleCachedHours);
+
+        var token = Guid.NewGuid();
+        var scenario = new AnalyseScenario
+        {
+            Id = Guid.NewGuid(),
+            Name = TestPrefix + "SCENARIO",
+            Token = token,
+            GroupId = null,
+            FromDate = PeriodFrom,
+            UntilDate = PeriodUntil,
+            Status = AnalyseScenarioStatus.Active
+        };
+        await _context.Set<AnalyseScenario>().AddAsync(scenario);
+        await _context.SaveChangesAsync();
+        var shiftIdMap = await new AnalyseScenarioService(_context).CloneScenarioDataAsync(
+            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _context.SaveChangesAsync();
+        await AddWorkAsync(client.Id, shiftIdMap[shift.Id], token);
+
+        (await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None)).ShouldBeTrue();
+
+        await using var verify = NewContext();
+        var totals = await WorkRepository(verify).GetPeriodHoursForClients([client.Id], PeriodFrom, PeriodUntil);
+        totals[client.Id].Hours.ShouldBe(ScenarioWorkTime);
+        var cacheRow = await verify.ClientPeriodHours.SingleAsync(p => p.ClientId == client.Id && p.AnalyseToken == null);
+        cacheRow.Hours.ShouldBe(ScenarioWorkTime);
+    }
+
+    [Test]
+    public async Task SoftDeletedCacheRow_IsNeverServed_AndItsKeyCanBeCachedAgain()
+    {
+        var client = await CreateClientAsync();
+        var shift = await CreateShiftAsync();
+        var token = Guid.NewGuid();
+        await AddWorkAsync(client.Id, shift.Id, token);
+        await AddCacheRowAsync(client.Id, StaleCachedHours, token);
+
+        var cached = await _context.ClientPeriodHours.SingleAsync(p => p.ClientId == client.Id);
+        _context.ClientPeriodHours.Remove(cached);
+        await _context.SaveChangesAsync();
+
+        await using (var read = NewContext())
+        {
+            var totals = await WorkRepository(read).GetPeriodHoursForClients([client.Id], PeriodFrom, PeriodUntil, token);
+            totals[client.Id].Hours.ShouldBe(ScenarioWorkTime);
+        }
+
+        await using (var recalc = NewContext())
+        {
+            await PeriodHoursService(recalc).RecalculatePeriodHoursAsync(client.Id, PeriodFrom, PeriodUntil, token);
+        }
+
+        await using var verify = NewContext();
+        var rows = await verify.ClientPeriodHours.IgnoreQueryFilters()
+            .Where(p => p.ClientId == client.Id)
+            .ToListAsync();
+        rows.Count.ShouldBe(2);
+        rows.Single(p => !p.IsDeleted).Hours.ShouldBe(ScenarioWorkTime);
+    }
+}

@@ -229,6 +229,8 @@ public class AcceptLockSeamDataLossCharacterizationTests
                 TimeProvider.System,
                 Substitute.For<ILogger<Klacks.Api.Application.Services.Assistant.Conditions.AgentConditionLedgerService>>()),
             Substitute.For<Microsoft.AspNetCore.Http.IHttpContextAccessor>(),
+            Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IPeriodHoursService>(),
+            Substitute.For<Klacks.Api.Application.Interfaces.IWorkNotificationService>(),
             Substitute.For<ILogger<AcceptAnalyseScenarioCommandHandler>>());
     }
 
