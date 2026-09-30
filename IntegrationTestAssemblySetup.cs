@@ -1,9 +1,11 @@
 // Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
 
 using Klacks.Api.Infrastructure.Persistence;
+using Klacks.Api.KnowledgeIndex.Application.Interfaces;
 using Klacks.IntegrationTest;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using NUnit.Framework;
 
@@ -32,6 +34,8 @@ using NUnit.Framework;
 [SetUpFixture]
 public class IntegrationTestAssemblySetup
 {
+    private const string KnowledgeIndexInitSyncReason = "test host init";
+
     [OneTimeSetUp]
     public async Task GlobalSetup()
     {
@@ -62,6 +66,11 @@ public class IntegrationTestAssemblySetup
         // InitializeAsync (migrations + stored procedures + base seed) and those host seeders in one boot.
         using var factory = new DatabaseInitializationTestWebApplicationFactory();
         _ = factory.Services;
+
+        // Startup only blocks on the index sync while the index covers too little of the catalogue;
+        // waiting here makes KnowledgeIndexRecipeGoldenSetDiHostTests independent of that threshold.
+        await factory.Services.GetRequiredService<IKnowledgeIndexSyncScheduler>()
+            .RunNowAsync(KnowledgeIndexInitSyncReason, CancellationToken.None);
     }
 
     private static async Task<bool> IsDatabaseSchemaReadyAsync()
