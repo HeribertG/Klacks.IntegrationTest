@@ -115,7 +115,7 @@ public class DefaultGeoTranslationsMergeTests
     [Test]
     public async Task Merge_AddsInstalledLanguage_ToDefaultCountryAndState()
     {
-        var installer = new LanguagePluginContentInstaller(_pluginDirectory, NullLogger.Instance);
+        var installer = new LanguagePluginGeoContentInstaller(_pluginDirectory, NullLogger.Instance);
 
         await using (var ctx = NewContext())
         {
@@ -134,7 +134,7 @@ public class DefaultGeoTranslationsMergeTests
     [Test]
     public async Task Merge_LowerCasesMixedCaseLocale_ForChinese()
     {
-        var installer = new LanguagePluginContentInstaller(_pluginDirectory, NullLogger.Instance);
+        var installer = new LanguagePluginGeoContentInstaller(_pluginDirectory, NullLogger.Instance);
 
         await using (var ctx = NewContext())
         {
@@ -149,7 +149,7 @@ public class DefaultGeoTranslationsMergeTests
     [Test]
     public async Task Remove_DropsOnlyThatLanguage_KeepingCore()
     {
-        var installer = new LanguagePluginContentInstaller(_pluginDirectory, NullLogger.Instance);
+        var installer = new LanguagePluginGeoContentInstaller(_pluginDirectory, NullLogger.Instance);
         var scopeContext = NewContext();
 
         await installer.MergeDefaultGeoTranslationsAsync(ScopeFor(scopeContext), "pl");

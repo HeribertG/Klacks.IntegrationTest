@@ -157,7 +157,7 @@ public class LanguagePluginCalendarRuleMergeTests
 
     private async Task MergeAsync()
     {
-        var installer = new LanguagePluginContentInstaller(_pluginDirectory, NullLogger.Instance);
+        var installer = new LanguagePluginGeoContentInstaller(_pluginDirectory, NullLogger.Instance);
         await using var ctx = NewContext();
         await installer.MergeNonCoreTranslationsAsync(ScopeFor(ctx), Code);
     }
