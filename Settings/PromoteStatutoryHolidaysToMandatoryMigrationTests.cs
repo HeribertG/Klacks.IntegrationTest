@@ -1,13 +1,14 @@
 // Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
 
 /// <summary>
-/// The AddUnofficialHolidayDescriptions data migration against real Postgres, up and down, on a throwaway
+/// The PromoteStatutoryHolidaysToMandatory data migration against real Postgres, up and down, on a throwaway
 /// database (never on the shared one: the migration addresses fixed seed ids that cannot carry the
-/// INTEGRATION_TEST_ prefix). The database is migrated to the migration before it and the two calendar rule
-/// seeds are inserted the way an older build left them (empty descriptions). One described row is given an
-/// administrator's own text and one is stored in the empty-object shape the API writes. After Up the empty
-/// rows carry the new text, the edited row is untouched, and a mandatory row stays empty. After Down the
-/// described rows are empty again while the edited row still keeps its own text; a second Up is idempotent.
+/// INTEGRATION_TEST_ prefix). The calendar rule seeds are inserted and the promoted rows are put back to the
+/// state an older build left them in (is_mandatory = false), then AddUnofficialHolidayDescriptions writes the
+/// US federal "unofficial" text. One US row is given an administrator's own text. After Up all promoted rows
+/// are mandatory, the generated US text is gone, the edited row is untouched, is_paid is unchanged and the
+/// rows that stay unofficial keep their text. Down reverts the flag and refills the US text; rolling back
+/// the previous migration too removes it again; a second Up is idempotent.
 /// </summary>
 
 using Klacks.Api.Data.Seed;
@@ -26,18 +27,21 @@ namespace Klacks.IntegrationTest.Settings;
 
 [TestFixture]
 [Category("RealDatabase")]
-public class UnofficialHolidayDescriptionsMigrationTests
+public class PromoteStatutoryHolidaysToMandatoryMigrationTests
 {
-    private const string PreviousMigration = "20260927094736_RouteEmptyContainerDispatchesToContainerTemplate";
-    private const string TheMigration = "20260929120000_AddUnofficialHolidayDescriptions";
+    private const string BeforeDescriptionsMigration = "20260927094736_RouteEmptyContainerDispatchesToContainerTemplate";
+    private const string DescriptionsMigration = "20260929120000_AddUnofficialHolidayDescriptions";
+    private const string TheMigration = "20260930120000_PromoteStatutoryHolidaysToMandatory";
     private const string ThrowawayPrefix = "klacks_boot_";
 
-    private const string SwissChristmasEveAargau = "0ab12401-0001-0001-0001-000000000001";
-    private const string SwissChristmasEveZurich = "0ab12401-0001-0001-0001-000000000026";
-    private const string SwissNewYearsEveBern = "01231001-0001-0001-0001-000000000004";
-    private const string SardiniaDay = "100bb001-0001-0001-0001-000000000001";
-    private const string SwissNewYear = "613c22be-e39f-4a40-be5a-e1202d21678f";
-    private const string OwnDescription = @"{""de"": ""INTEGRATION_TEST_ eigene Beschreibung""}";
+    private const string UsLaborDay = "05a00001-0001-0001-0001-000000000006";
+    private const string UsColumbusDay = "05a00001-0001-0001-0001-000000000007";
+    private const string TicinoJosefstag = "00319001-0001-0001-0001-000000000006";
+    private const string GraubuendenJosefstag = "00319001-0001-0001-0001-000000000001";
+    private const string GraubuendenPeterAndPaul = "00629001-0001-0001-0001-000000000001";
+    private const string OwnDescription = @"{""en"": ""INTEGRATION_TEST_ own description""}";
+    private const string OwnDescriptionText = "INTEGRATION_TEST_ own description";
+    private const string English = "en";
 
     private const string Host = "localhost";
     private const int Port = 5434;
@@ -51,44 +55,56 @@ public class UnofficialHolidayDescriptionsMigrationTests
         $"Host={Host};Port={Port};Database={dbName};Username={User};Password={Password};Pooling=false";
 
     [Test]
-    public async Task TheMigration_FillsOnlyEmptyDescriptions_AndDownRevertsOnlyItsOwnText()
+    public async Task TheMigration_PromotesTheStatutoryRows_AndClearsOnlyTheGeneratedUsText()
     {
-        var dbName = ThrowawayPrefix + "unofficial_holiday_" + Guid.NewGuid().ToString("N")[..8];
+        var dbName = ThrowawayPrefix + "statutory_holiday_" + Guid.NewGuid().ToString("N")[..8];
         dbName.ShouldStartWith(ThrowawayPrefix);
         await RecreateDatabaseAsync(dbName);
         try
         {
             await using var context = NewContext(dbName);
             var migrator = context.GetService<IMigrator>();
+            var usText = UnofficialHolidayDescriptionTexts.UsFederalHoliday[English];
 
-            await migrator.MigrateAsync(PreviousMigration);
+            await migrator.MigrateAsync(BeforeDescriptionsMigration);
             await SeedCalendarRulesAsync(dbName);
-            await ExecuteAsync(dbName, $"UPDATE calendar_rule SET description = '{OwnDescription}'::jsonb WHERE id = '{SwissChristmasEveZurich}'");
-            await ExecuteAsync(dbName, $"UPDATE calendar_rule SET description = '{{}}'::jsonb WHERE id = '{SwissNewYearsEveBern}'");
+            await ExecuteAsync(dbName, $"UPDATE calendar_rule SET is_mandatory = false WHERE id IN ({PromotedIdList()})");
+            await migrator.MigrateAsync(DescriptionsMigration);
+
+            (await DescriptionAsync(dbName, UsLaborDay, English)).ShouldBe(usText);
+            await ExecuteAsync(dbName, $"UPDATE calendar_rule SET description = '{OwnDescription}'::jsonb WHERE id = '{UsColumbusDay}'");
 
             await migrator.MigrateAsync(TheMigration);
 
-            var eveHalfDay = UnofficialHolidayDescriptionTexts.EveHalfWorkday;
-            (await DescriptionAsync(dbName, SwissChristmasEveAargau, "de")).ShouldBe(eveHalfDay["de"]);
-            (await DescriptionAsync(dbName, SwissChristmasEveAargau, "zh-cn")).ShouldBe(eveHalfDay["zh-cn"]);
-            (await DescriptionAsync(dbName, SwissNewYearsEveBern, "en")).ShouldBe(eveHalfDay["en"]);
-            (await DescriptionAsync(dbName, SardiniaDay, "it")).ShouldBe(UnofficialHolidayDescriptionTexts.RegionalHoliday["it"]);
-            (await DescriptionAsync(dbName, SwissChristmasEveZurich, "de")).ShouldBe("INTEGRATION_TEST_ eigene Beschreibung");
-            (await DescriptionAsync(dbName, SwissChristmasEveZurich, "en")).ShouldBeNull();
-            (await DescriptionAsync(dbName, SwissNewYear, "de")).ShouldBe(string.Empty);
+            (await PromotedMandatoryCountAsync(dbName)).ShouldBe(StatutoryHolidayPromotionSql.PromotedIds.Count);
+            (await DescriptionAsync(dbName, UsLaborDay, English)).ShouldBe(string.Empty);
+            (await DescriptionAsync(dbName, UsColumbusDay, English)).ShouldBe(OwnDescriptionText);
+            (await ScalarAsync(dbName, $"SELECT is_paid FROM calendar_rule WHERE id = '{UsLaborDay}'")).ShouldBe(false);
+            (await ScalarAsync(dbName, $"SELECT is_mandatory FROM calendar_rule WHERE id = '{GraubuendenJosefstag}'")).ShouldBe(false);
+            (await ScalarAsync(dbName, $"SELECT is_mandatory FROM calendar_rule WHERE id = '{GraubuendenPeterAndPaul}'")).ShouldBe(false);
+            (await DescriptionAsync(dbName, GraubuendenJosefstag, English))
+                .ShouldBe(UnofficialHolidayDescriptionTexts.SomeMunicipalitiesOnly[English]);
             (await ScalarAsync(dbName, NonMandatoryWithoutDescriptionCount())).ShouldBe(0L);
+            (await ScalarAsync(dbName, MandatoryWithUsTextCount())).ShouldBe(0L);
 
-            await migrator.MigrateAsync(PreviousMigration);
+            await migrator.MigrateAsync(DescriptionsMigration);
 
-            (await DescriptionAsync(dbName, SwissChristmasEveAargau, "de")).ShouldBe(string.Empty);
-            (await DescriptionAsync(dbName, SwissChristmasEveAargau, "zh-cn")).ShouldBeNull();
-            (await DescriptionAsync(dbName, SardiniaDay, "it")).ShouldBe(string.Empty);
-            (await DescriptionAsync(dbName, SwissChristmasEveZurich, "de")).ShouldBe("INTEGRATION_TEST_ eigene Beschreibung");
+            (await PromotedMandatoryCountAsync(dbName)).ShouldBe(0);
+            (await ScalarAsync(dbName, $"SELECT is_mandatory FROM calendar_rule WHERE id = '{TicinoJosefstag}'")).ShouldBe(false);
+            (await DescriptionAsync(dbName, UsLaborDay, English)).ShouldBe(usText);
+            (await DescriptionAsync(dbName, UsColumbusDay, English)).ShouldBe(OwnDescriptionText);
+
+            await migrator.MigrateAsync(BeforeDescriptionsMigration);
+
+            (await DescriptionAsync(dbName, UsLaborDay, English)).ShouldBe(string.Empty);
+            (await DescriptionAsync(dbName, UsColumbusDay, English)).ShouldBe(OwnDescriptionText);
 
             await migrator.MigrateAsync(TheMigration);
             await ApplyAgainAsync(dbName);
-            (await DescriptionAsync(dbName, SwissChristmasEveAargau, "de")).ShouldBe(eveHalfDay["de"]);
-            (await DescriptionAsync(dbName, SwissChristmasEveZurich, "de")).ShouldBe("INTEGRATION_TEST_ eigene Beschreibung");
+
+            (await PromotedMandatoryCountAsync(dbName)).ShouldBe(StatutoryHolidayPromotionSql.PromotedIds.Count);
+            (await DescriptionAsync(dbName, UsLaborDay, English)).ShouldBe(string.Empty);
+            (await DescriptionAsync(dbName, UsColumbusDay, English)).ShouldBe(OwnDescriptionText);
         }
         finally
         {
@@ -96,9 +112,22 @@ public class UnofficialHolidayDescriptionsMigrationTests
         }
     }
 
+    private static string PromotedIdList() =>
+        string.Join(", ", StatutoryHolidayPromotionSql.PromotedIds.Select(id => $"'{id}'::uuid"));
+
+    private static async Task<int> PromotedMandatoryCountAsync(string dbName) =>
+        Convert.ToInt32(await ScalarAsync(
+            dbName, $"SELECT count(*) FROM calendar_rule WHERE is_mandatory = true AND id IN ({PromotedIdList()})"));
+
     private static string NonMandatoryWithoutDescriptionCount() =>
         "SELECT count(*) FROM calendar_rule WHERE is_mandatory = false "
         + "AND NOT EXISTS (SELECT 1 FROM jsonb_each_text(description) AS d(key, value) WHERE d.value <> '')";
+
+    private static string MandatoryWithUsTextCount() =>
+        "SELECT count(*) FROM calendar_rule WHERE is_mandatory = true AND description = '"
+        + CalendarRuleDescriptionSql.SqlLiteral(
+            CalendarRuleDescriptionSql.DescriptionJson(UnofficialHolidayDescriptionTexts.UsFederalHoliday))
+        + "'::jsonb";
 
     private static async Task SeedCalendarRulesAsync(string dbName)
     {
@@ -114,7 +143,7 @@ public class UnofficialHolidayDescriptionsMigrationTests
     private static async Task ApplyAgainAsync(string dbName)
     {
         var builder = new MigrationBuilder(activeProvider: null);
-        UnofficialHolidayDescriptionsSql.Apply(builder);
+        StatutoryHolidayPromotionSql.Apply(builder);
         foreach (var operation in builder.Operations.OfType<SqlOperation>())
         {
             await ExecuteAsync(dbName, operation.Sql);
