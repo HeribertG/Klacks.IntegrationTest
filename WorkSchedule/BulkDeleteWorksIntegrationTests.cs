@@ -85,6 +85,7 @@ public class BulkDeleteWorksIntegrationTests
 
         _handler = new BulkDeleteWorksCommandHandler(
             workRepository,
+            AllClientsVisible(),
             scheduleMapper,
             periodHoursService,
             completionService,
@@ -93,6 +94,14 @@ public class BulkDeleteWorksIntegrationTests
             Substitute.For<ILogger<BulkDeleteWorksCommandHandler>>());
 
         await SetupTestData();
+    }
+
+    private static IClientVisibilityGuard AllClientsVisible()
+    {
+        var guard = Substitute.For<IClientVisibilityGuard>();
+        guard.FilterVisibleAsync(Arg.Any<IReadOnlyCollection<Work>>(), Arg.Any<Func<Work, Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(ci.Arg<IReadOnlyCollection<Work>>().ToList()));
+        return guard;
     }
 
     [TearDown]

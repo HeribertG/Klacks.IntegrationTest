@@ -157,6 +157,7 @@ public class BulkAddWorksIntegrationTests
 
         _handler = new BulkAddWorksCommandHandler(
             workRepository,
+            AllClientsVisible(),
             scheduleMapper,
             periodHoursService,
             completionService,
@@ -613,6 +614,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
         return new BulkAddWorksCommandHandler(
             workRepository,
+            AllClientsVisible(),
             scheduleMapper,
             periodHoursService,
             completionService,
@@ -673,6 +675,14 @@ OUTPUT 1, Round(TotalBonus, 2)",
     /// These tests exercise the bulk write itself, not the structural collision guard - that guard has
     /// its own coverage in WriteGuardParityTests. A checker reporting nothing keeps them focused.
     /// </summary>
+    private static IClientVisibilityGuard AllClientsVisible()
+    {
+        var guard = Substitute.For<IClientVisibilityGuard>();
+        guard.IsVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
+        guard.AreAllVisibleAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns(true);
+        return guard;
+    }
+
     private static IPreCommitConflictChecker NonBlockingConflictChecker()
     {
         var checker = Substitute.For<IPreCommitConflictChecker>();

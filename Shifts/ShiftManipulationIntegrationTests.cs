@@ -1223,7 +1223,7 @@ public class ShiftManipulationIntegrationTests
         noClientMacroResolver.ResolveDefaultMacroIdAsync(Arg.Any<CancellationToken>())
             .Returns(allShiftMacroId);
         var skill = new CreateShiftSkill(
-            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), mediator, _unitOfWork, noClientMacroResolver);
+            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), AllClientsVisible(), mediator, _unitOfWork, noClientMacroResolver);
 
         // (a) no client -> refused (an order must be billed to a customer)
         var noClient = await skill.ExecuteAsync(TestSkillContext(), new Dictionary<string, object>
@@ -1274,6 +1274,14 @@ public class ShiftManipulationIntegrationTests
         ok.Message.ShouldContain("cut_shift");
     }
 
+    private static IClientVisibilityGuard AllClientsVisible()
+    {
+        var guard = Substitute.For<IClientVisibilityGuard>();
+        guard.IsVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
+        guard.AreAllVisibleAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns(true);
+        return guard;
+    }
+
     private CreateShiftSkill CreateShiftSkillWithDefaultMacro()
     {
         var allShiftMacroId = Guid.Parse("a3edd3f5-c31c-4746-a9a0-c613d14ffd23");
@@ -1287,7 +1295,7 @@ public class ShiftManipulationIntegrationTests
         defaultMacroResolver.ResolveDefaultMacroIdAsync(Arg.Any<CancellationToken>())
             .Returns(allShiftMacroId);
         return new CreateShiftSkill(
-            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), mediator, _unitOfWork, defaultMacroResolver);
+            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), AllClientsVisible(), mediator, _unitOfWork, defaultMacroResolver);
     }
 
     [Test]

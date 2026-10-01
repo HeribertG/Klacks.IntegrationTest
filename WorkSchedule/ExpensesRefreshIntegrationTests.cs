@@ -189,6 +189,7 @@ public class ExpensesRefreshIntegrationTests
 
         return new Klacks.Api.Application.Handlers.Expenses.PostCommandHandler(
             expensesRepo,
+            AllClientsVisible(),
             scheduleMapper,
             unitOfWork,
             periodHoursService,
@@ -220,6 +221,7 @@ public class ExpensesRefreshIntegrationTests
 
         return new Klacks.Api.Application.Handlers.Expenses.DeleteCommandHandler(
             expensesRepo,
+            AllClientsVisible(),
             scheduleMapper,
             unitOfWork,
             periodHoursService,
@@ -230,6 +232,14 @@ public class ExpensesRefreshIntegrationTests
             groupResolver,
             Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IDayLockService>(),
             Substitute.For<ILogger<Klacks.Api.Application.Handlers.Expenses.DeleteCommandHandler>>());
+    }
+
+    private static IClientVisibilityGuard AllClientsVisible()
+    {
+        var guard = Substitute.For<IClientVisibilityGuard>();
+        guard.IsVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
+        guard.AreAllVisibleAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns(true);
+        return guard;
     }
 
     private static IHttpContextAccessor BuildHttpContextAccessorWithoutGroupHeader()
