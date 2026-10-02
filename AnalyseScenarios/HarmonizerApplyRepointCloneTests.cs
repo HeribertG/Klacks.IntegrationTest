@@ -80,6 +80,17 @@ public class HarmonizerApplyRepointCloneTests
         return new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
     }
 
+
+    private static IScenarioNameGenerator NameGenerator(string name)
+    {
+        var generator = Substitute.For<IScenarioNameGenerator>();
+        generator.GenerateAsync(
+                Arg.Any<ScenarioNameKind>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(),
+                Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(name);
+        return generator;
+    }
+
     private static async Task CleanupAsync(DataBaseContext context)
     {
         var sql = $@"
@@ -212,6 +223,7 @@ public class HarmonizerApplyRepointCloneTests
             Substitute.For<IScheduleTimelineService>(),
             Substitute.For<IScheduleSnapshotMarkerService>(),
             TestCompanyClock.Utc(),
+            NameGenerator(TestPrefix + "Scenario"),
             Substitute.For<ILogger<HarmonizerApplyService>>());
 
         var repointed = await apply.RepointClonedWorksAsync(
@@ -287,6 +299,7 @@ public class HarmonizerApplyRepointCloneTests
             Substitute.For<IScheduleTimelineService>(),
             Substitute.For<IScheduleSnapshotMarkerService>(),
             TestCompanyClock.Utc(),
+            NameGenerator(TestPrefix + "Scenario"),
             Substitute.For<ILogger<HarmonizerApplyService>>());
 
         var repointed = await apply.RepointClonedWorksAsync(

@@ -82,6 +82,17 @@ public class WizardApplyDoublePromotionTests
         return new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
     }
 
+
+    private static IScenarioNameGenerator NameGenerator(string name)
+    {
+        var generator = Substitute.For<IScenarioNameGenerator>();
+        generator.GenerateAsync(
+                Arg.Any<ScenarioNameKind>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(),
+                Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(name);
+        return generator;
+    }
+
     private static async Task CleanupAsync(DataBaseContext context)
     {
         var sql = $@"
@@ -207,6 +218,7 @@ public class WizardApplyDoublePromotionTests
             _context,
             Substitute.For<IScheduleTimelineService>(),
             TestCompanyClock.Utc(),
+            NameGenerator(TestPrefix + "Scenario"),
             Substitute.For<ILogger<WizardApplyService>>());
     }
 

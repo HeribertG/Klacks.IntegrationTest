@@ -82,6 +82,17 @@ public class HarmonizerApplyTransactionTests
         return new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
     }
 
+
+    private static IScenarioNameGenerator NameGenerator(string name)
+    {
+        var generator = Substitute.For<IScenarioNameGenerator>();
+        generator.GenerateAsync(
+                Arg.Any<ScenarioNameKind>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(),
+                Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(name);
+        return generator;
+    }
+
     private static async Task CleanupAsync(DataBaseContext context)
     {
         // Prefix-only deletes: this database is shared with the dev app (incident 2026-07-03).
@@ -153,6 +164,7 @@ public class HarmonizerApplyTransactionTests
             Substitute.For<IScheduleTimelineService>(),
             Substitute.For<IScheduleSnapshotMarkerService>(),
             TestCompanyClock.Utc(),
+            NameGenerator(TestPrefix + "Run"),
             Substitute.For<ILogger<HarmonizerApplyService>>());
 
     private static HarmonyBitmap BuildBitmap(Guid agentId, Guid shiftId, Guid workId)
@@ -186,7 +198,7 @@ public class HarmonizerApplyTransactionTests
             .CountAsync(s => s.Name.StartsWith(TestPrefix));
 
         await Should.ThrowAsync<InvalidOperationException>(
-            () => BuildApply(cache, mediator).ApplyAsScenarioAsync(jobId, null, CancellationToken.None, TestPrefix + "Run"));
+            () => BuildApply(cache, mediator).ApplyAsScenarioAsync(jobId, null, CancellationToken.None));
 
         await using var verifyContext = NewContext();
         var scenariosAfter = await verifyContext.Set<AnalyseScenario>().IgnoreQueryFilters()
@@ -217,7 +229,7 @@ public class HarmonizerApplyTransactionTests
             sourceAnalyseToken: null);
 
         var (scenario, _, _) = await BuildApply(cache, Substitute.For<IMediator>())
-            .ApplyAsScenarioAsync(jobId, null, CancellationToken.None, TestPrefix + "Run");
+            .ApplyAsScenarioAsync(jobId, null, CancellationToken.None);
 
         await using var verifyContext = NewContext();
         var stored = await verifyContext.Set<AnalyseScenario>().IgnoreQueryFilters().AsNoTracking()
