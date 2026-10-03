@@ -381,6 +381,8 @@ public class PlanningConstraintPersistenceTests
             _dataReader,
             new PlanningRuleCarryInLoader(_dataReader),
             NullSettingsReader(),
+            new PlanningConstraintPresence(_repository, new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<PlanningRuleSetLoader>.Instance);
     }
 

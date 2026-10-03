@@ -372,6 +372,7 @@ public class RuleEntityEffectivenessTests
         services.AddSingleton<Klacks.Api.Domain.Interfaces.Scheduling.IPlanningRuleDataReader, PlanningRuleDataReader>();
         services.AddSingleton<Klacks.Api.Application.Interfaces.IGetAllClientIdsFromGroupAndSubgroups, Klacks.Api.Infrastructure.Services.Groups.GroupClientService>();
         services.AddSingleton<IPlanningRuleCarryInLoader, Klacks.Api.Application.Services.Schedules.PlanningRules.PlanningRuleCarryInLoader>();
+        services.AddSingleton<IPlanningConstraintPresence, Klacks.Api.Application.Services.Schedules.PlanningRules.PlanningConstraintPresence>();
         services.AddSingleton<IPlanningRuleSetLoader, Klacks.Api.Application.Services.Schedules.PlanningRules.PlanningRuleSetLoader>();
         services.AddSingleton<IPlanningRuleEvaluatorService, Klacks.Api.Application.Services.Schedules.PlanningRules.PlanningRuleEvaluatorService>();
         services.AddSingleton<IPreCommitConflictChecker, PreCommitConflictChecker>();

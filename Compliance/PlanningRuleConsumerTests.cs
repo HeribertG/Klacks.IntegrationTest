@@ -184,6 +184,8 @@ public class PlanningRuleConsumerTests
             dataReader,
             new PlanningRuleCarryInLoader(dataReader),
             NullSettingsReader(),
+            new PlanningConstraintPresence(new PlanningConstraintRepository(_context), new MemoryCache(new MemoryCacheOptions())),
+            new MemoryCache(new MemoryCacheOptions()),
             NullLogger<PlanningRuleSetLoader>.Instance);
         return new PlanningRuleEvaluatorService(loader, dataReader);
     }
