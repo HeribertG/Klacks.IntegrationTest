@@ -47,7 +47,7 @@ public class CalendarSelectionOfficialOverridePersistenceTests
     private const string State = "BE";
     private const int TestYear = 2026;
 
-    // St. Berchtold's Day (CH/BE, rule "01/02", mandatory) — a fixed-date official holiday, so the
+    // Berchtoldstag (CH/BE, rule "01/02", mandatory) — a fixed-date official holiday, so the
     // date needs no Easter/weekday arithmetic. It is the only CH/BE rule resolving to 2 January.
     private static readonly DateOnly HolidayDate = new(TestYear, 1, 2);
 
