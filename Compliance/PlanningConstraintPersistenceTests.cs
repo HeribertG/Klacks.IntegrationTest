@@ -4,7 +4,8 @@
 /// Planning-constraint persistence and loading against the REAL PostgreSQL database (Npgsql, never
 /// InMemory - several query shapes only fail on the real provider): the migration (planning_constraint
 /// table and indexes, CounterRule origin/approval_status defaults for rows written without them), the
-/// status / validity / AnalyseToken (IS NOT DISTINCT FROM) filter of the approved-for-period query, the
+/// status / validity / scenario-overlay filter of the approved-for-period query, the scenario cleanup, the xmin
+/// row version (the concurrency test commits its own row and deletes it again by the INTEGRATION_TEST_ prefix), the
 /// group-membership query behind Group scopes (validity overlap, soft delete, scenario memberships), the
 /// carry-in Work query, the proposal expiry bulk update, and the loader composed from the real
 /// repositories. No host is booted (no background service can start): one direct DbContext, every row
@@ -22,7 +23,9 @@ using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Scheduling;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Schedules;
+using Klacks.Api.Domain.Exceptions;
 using Klacks.Api.Infrastructure.Persistence;
+using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Repositories.Scheduling;
 using Klacks.Api.Infrastructure.Services.Groups;
 using Klacks.ScheduleOptimizer.Constraints.Rules;
@@ -133,6 +136,7 @@ public class PlanningConstraintPersistenceTests
         var openEnded = await AddConstraintAsync(RuleApprovalStatus.Approved, validFrom: From.AddDays(-400));
         var overlapping = await AddConstraintAsync(RuleApprovalStatus.Approved, validFrom: Until, validUntil: Until.AddDays(10));
         var scenario = await AddConstraintAsync(RuleApprovalStatus.Approved, analyseToken: token);
+        var otherScenario = await AddConstraintAsync(RuleApprovalStatus.Approved, analyseToken: Guid.NewGuid());
         var proposed = await AddConstraintAsync(RuleApprovalStatus.Proposed);
         var rejected = await AddConstraintAsync(RuleApprovalStatus.Rejected);
         var revoked = await AddConstraintAsync(RuleApprovalStatus.Revoked);
@@ -141,13 +145,13 @@ public class PlanningConstraintPersistenceTests
         var deleted = await AddConstraintAsync(RuleApprovalStatus.Approved);
         _context.PlanningConstraint.Remove(deleted);
         await _context.SaveChangesAsync();
-        var mine = new HashSet<Guid> { real.Id, openEnded.Id, overlapping.Id, scenario.Id, proposed.Id, rejected.Id, revoked.Id, before.Id, after.Id, deleted.Id };
+        var mine = new HashSet<Guid> { real.Id, openEnded.Id, overlapping.Id, scenario.Id, otherScenario.Id, proposed.Id, rejected.Id, revoked.Id, before.Id, after.Id, deleted.Id };
 
         var realPlan = (await _repository.GetApprovedForPeriodAsync(From, Until, null)).Where(c => mine.Contains(c.Id)).Select(c => c.Id);
         var scenarioPlan = (await _repository.GetApprovedForPeriodAsync(From, Until, token)).Where(c => mine.Contains(c.Id)).Select(c => c.Id);
 
         realPlan.ShouldBe([real.Id, openEnded.Id, overlapping.Id], ignoreOrder: true);
-        scenarioPlan.ShouldBe([scenario.Id]);
+        scenarioPlan.ShouldBe([real.Id, openEnded.Id, overlapping.Id, scenario.Id], ignoreOrder: true, "a scenario overlays its own rules on the real ones");
     }
 
     [Test]
@@ -247,6 +251,114 @@ public class PlanningConstraintPersistenceTests
         rules.ShouldNotContain(r => r.RuleId == proposal.Id);
         var rule = rules.Single(r => r.RuleId == fairness.Id).ShouldBeOfType<TeamFairnessRule>();
         rule.AgentScope.ShouldBe(new HashSet<string> { member.ToString() }, ignoreOrder: true);
+    }
+
+    [Test]
+    public async Task ScenarioRejectAndAccept_SoftDeleteTheScenarioConstraints_AndNeverPromoteThem()
+    {
+        var rejectedToken = Guid.NewGuid();
+        var acceptedToken = Guid.NewGuid();
+        var real = await AddConstraintAsync(RuleApprovalStatus.Approved);
+        var rejectedRule = await AddConstraintAsync(RuleApprovalStatus.Approved, analyseToken: rejectedToken);
+        var acceptedRule = await AddConstraintAsync(RuleApprovalStatus.Approved, analyseToken: acceptedToken);
+        var service = new AnalyseScenarioService(_context);
+
+        await service.SoftDeleteScenarioDataAsync(rejectedToken, CancellationToken.None);
+        await service.PromoteScenarioWorksAsync(acceptedToken, From, Until, CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var rows = await _context.PlanningConstraint.AsNoTracking()
+            .Where(c => c.Id == real.Id || c.Id == rejectedRule.Id || c.Id == acceptedRule.Id)
+            .ToDictionaryAsync(c => c.Id);
+        rows[real.Id].IsDeleted.ShouldBeFalse();
+        rows[rejectedRule.Id].IsDeleted.ShouldBeTrue();
+        rows[acceptedRule.Id].IsDeleted.ShouldBeTrue("accepting a scenario must not turn its what-if rule into a real one");
+        rows[acceptedRule.Id].AnalyseToken.ShouldBe(acceptedToken);
+    }
+
+    [Test]
+    public async Task ReferenceReader_ChecksScopeTargetsAndActiveScenarios()
+    {
+        var group = await AddGroupAsync("ref-group", parent: null);
+        var client = await AddClientAsync("ref-client");
+        var token = Guid.NewGuid();
+        _context.AnalyseScenarios.Add(new AnalyseScenario
+        {
+            Id = Guid.NewGuid(),
+            Name = TestMarker + "scenario",
+            Token = token,
+            FromDate = From,
+            UntilDate = Until,
+            Status = AnalyseScenarioStatus.Active,
+        });
+        await _context.SaveChangesAsync();
+        var reader = new PlanningConstraintReferenceReader(_context);
+
+        (await reader.ScopeTargetExistsAsync(PlanningConstraintScopeType.Group, group)).ShouldBeTrue();
+        (await reader.ScopeTargetExistsAsync(PlanningConstraintScopeType.Group, Guid.NewGuid())).ShouldBeFalse();
+        (await reader.ScopeTargetExistsAsync(PlanningConstraintScopeType.Client, client)).ShouldBeTrue();
+        (await reader.ScopeTargetExistsAsync(PlanningConstraintScopeType.SchedulingRule, Guid.NewGuid())).ShouldBeFalse();
+        (await reader.ScopeTargetExistsAsync(PlanningConstraintScopeType.Global, null)).ShouldBeTrue();
+        (await reader.ActiveScenarioExistsAsync(token)).ShouldBeTrue();
+        (await reader.ActiveScenarioExistsAsync(Guid.NewGuid())).ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task ParallelApproveAndUpdate_TheLoserGetsAConcurrencyConflict()
+    {
+        var id = Guid.NewGuid();
+        try
+        {
+            await using (var setup = NewContext())
+            {
+                setup.PlanningConstraint.Add(new PlanningConstraint
+                {
+                    Id = id,
+                    Kind = PlanningConstraintKind.MaxConsecutiveOfKind,
+                    Severity = PlanningConstraintSeverity.Hard,
+                    Weight = 1d,
+                    ScopeType = PlanningConstraintScopeType.Global,
+                    ParametersJson = MaxRunJson,
+                    Origin = RuleOrigin.LlmProposal,
+                    ApprovalStatus = RuleApprovalStatus.Proposed,
+                    Paraphrase = TestMarker + "concurrency",
+                });
+                await setup.SaveChangesAsync();
+            }
+
+            await using var approver = NewContext();
+            await using var editor = NewContext();
+            var approverRow = await new PlanningConstraintRepository(approver).GetAsync(id);
+            var editorRow = await new PlanningConstraintRepository(editor).GetAsync(id);
+
+            PlanningConstraintLifecycle.TryApprove(approverRow!, "admin-a", DateTime.UtcNow).ShouldBeTrue();
+            await approver.SaveChangesAsync();
+
+            editorRow!.Paraphrase = TestMarker + "edited";
+            var unitOfWork = new UnitOfWork(editor, NullLogger<UnitOfWork>.Instance);
+            await Should.ThrowAsync<ConcurrencyException>(() => unitOfWork.CompleteAsync());
+
+            await using var verify = NewContext();
+            var stored = await verify.PlanningConstraint.AsNoTracking().SingleAsync(c => c.Id == id);
+            stored.ApprovalStatus.ShouldBe(RuleApprovalStatus.Approved);
+            stored.Paraphrase.ShouldBe(TestMarker + "concurrency", "the losing edit must not overwrite the decision");
+        }
+        finally
+        {
+            await using var cleanup = NewContext();
+            await cleanup.Database.ExecuteSqlRawAsync(
+                "DELETE FROM planning_constraint WHERE id = {0} AND paraphrase LIKE {1}", id, TestMarker + "%");
+        }
+    }
+
+    private static DataBaseContext NewContext()
+    {
+        var options = new DbContextOptionsBuilder<DataBaseContext>()
+            .UseNpgsql(TestHostDatabase.ConnectionString)
+            .UseSnakeCaseNamingConvention()
+            .Options;
+        return new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
     }
 
     private PlanningRuleSetLoader BuildLoader()
