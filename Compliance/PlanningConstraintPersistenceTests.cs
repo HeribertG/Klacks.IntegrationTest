@@ -380,6 +380,7 @@ public class PlanningConstraintPersistenceTests
             hierarchy,
             _dataReader,
             new PlanningRuleCarryInLoader(_dataReader),
+            NullSettingsReader(),
             NullLogger<PlanningRuleSetLoader>.Instance);
     }
 
@@ -494,5 +495,12 @@ public class PlanningConstraintPersistenceTests
         _context.Work.Add(work);
         await _context.SaveChangesAsync();
         return work;
+    }
+
+    private static Klacks.Api.Domain.Interfaces.Settings.ISettingsReader NullSettingsReader()
+    {
+        var reader = Substitute.For<Klacks.Api.Domain.Interfaces.Settings.ISettingsReader>();
+        reader.GetSetting(Arg.Any<string>()).Returns((Klacks.Api.Domain.Models.Settings.Settings?)null);
+        return reader;
     }
 }

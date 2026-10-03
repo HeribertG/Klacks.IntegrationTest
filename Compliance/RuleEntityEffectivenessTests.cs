@@ -364,6 +364,16 @@ public class RuleEntityEffectivenessTests
         services.AddSingleton<IHolidayWorkExemptionRuleRepository, HolidayWorkExemptionRuleRepository>();
         services.AddSingleton<IClientHolidayCalendarResolver, ClientHolidayCalendarResolver>();
         services.AddSingleton<IHolidayWorkEvaluator, HolidayWorkEvaluator>();
+        // Planning constraints (sequence rules) through the real loader chain; this fixture seeds none, so the
+        // gate reports nothing from them, but the dependency tree stays the production one.
+        services.AddMemoryCache();
+        services.AddSingleton<Klacks.Api.Domain.Interfaces.Scheduling.IPlanningConstraintRepository, PlanningConstraintRepository>();
+        services.AddSingleton<Klacks.Api.Domain.Interfaces.Scheduling.IPlanningConstraintValidator, Klacks.Api.Domain.Services.Schedules.PlanningConstraintValidator>();
+        services.AddSingleton<Klacks.Api.Domain.Interfaces.Scheduling.IPlanningRuleDataReader, PlanningRuleDataReader>();
+        services.AddSingleton<Klacks.Api.Application.Interfaces.IGetAllClientIdsFromGroupAndSubgroups, Klacks.Api.Infrastructure.Services.Groups.GroupClientService>();
+        services.AddSingleton<IPlanningRuleCarryInLoader, Klacks.Api.Application.Services.Schedules.PlanningRules.PlanningRuleCarryInLoader>();
+        services.AddSingleton<IPlanningRuleSetLoader, Klacks.Api.Application.Services.Schedules.PlanningRules.PlanningRuleSetLoader>();
+        services.AddSingleton<IPlanningRuleEvaluatorService, Klacks.Api.Application.Services.Schedules.PlanningRules.PlanningRuleEvaluatorService>();
         services.AddSingleton<IPreCommitConflictChecker, PreCommitConflictChecker>();
         return services.BuildServiceProvider();
     }

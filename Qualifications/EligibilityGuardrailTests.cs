@@ -94,7 +94,7 @@ public class EligibilityGuardrailTests
             .Returns(new List<ScheduleValidationNotificationDto>());
 
         _checker = new PreCommitConflictChecker(_context, timeline, resolver, new Klacks.Api.Application.Services.Schedules.ComplianceEscalationService(enforcementResolver), settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator, restrictedTimeWindowEvaluator,
-            NonReportingCompensatoryRestEvaluator(), holidayWorkEvaluator);
+            NonReportingCompensatoryRestEvaluator(), holidayWorkEvaluator, NonReportingPlanningRuleEvaluator());
     }
 
     [TearDown]
@@ -246,6 +246,14 @@ public class EligibilityGuardrailTests
     {
         var evaluator = Substitute.For<ICompensatoryRestEvaluator>();
         evaluator.EvaluateAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ScheduleValidationNotificationDto>());
+        return evaluator;
+    }
+
+    private static IPlanningRuleEvaluatorService NonReportingPlanningRuleEvaluator()
+    {
+        var evaluator = Substitute.For<IPlanningRuleEvaluatorService>();
+        evaluator.EvaluatePlannedChangeAsync(Arg.Any<IReadOnlyList<PlannedWorkRow>>(), Arg.Any<IReadOnlyList<PlannedRemovalRow>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
         return evaluator;
     }
