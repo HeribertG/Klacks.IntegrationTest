@@ -70,7 +70,8 @@ public class SporadicShiftStatusTests
         DateOnly? fromDate = null,
         DateOnly? untilDate = null,
         int sumEmployees = 1,
-        int quantity = 1)
+        int quantity = 1,
+        bool isSporadic = true)
     {
         var shift = new Shift
         {
@@ -92,7 +93,7 @@ public class SporadicShiftStatusTests
             IsFriday = true,
             IsSaturday = true,
             IsSunday = true,
-            IsSporadic = true,
+            IsSporadic = isSporadic,
             SporadicScope = scope,
             Quantity = quantity,
             SumEmployees = sumEmployees
@@ -311,5 +312,114 @@ public class SporadicShiftStatusTests
         byDate[new DateOnly(2026, 5, 15)].ShouldBe((short)2);
         byDate[new DateOnly(2026, 5, 16)].ShouldBe((short)2);
         byDate[new DateOnly(2026, 5, 17)].ShouldBe((short)2);
+    }
+
+    [Test]
+    public async Task GetShiftSchedule_WeekScope_PeriodBookedDays_CoversWholeWeek_And_NextWeekStartsAtZero()
+    {
+        var shift = await CreateSporadicShiftAsync("PeriodWeek", ShiftSporadic.Week, sumEmployees: 1, quantity: 2);
+        var clientA = await CreateClientAsync("PWa");
+        var clientB = await CreateClientAsync("PWb");
+        // ISO week Mon 2026-11-30 .. Sun 2026-12-06; bookings on Tue and Thu.
+        await AddWorkAsync(shift.Id, clientA.Id, new DateOnly(2026, 12, 1));
+        await AddWorkAsync(shift.Id, clientB.Id, new DateOnly(2026, 12, 3));
+
+        var result = await _service.GetShiftScheduleQuery(
+            new DateOnly(2026, 11, 30),
+            new DateOnly(2026, 12, 13)).ToListAsync();
+
+        var byDate = result.Where(r => r.ShiftId == shift.Id).ToDictionary(r => r.Date, r => r.PeriodBookedDays);
+
+        for (var day = new DateOnly(2026, 11, 30); day <= new DateOnly(2026, 12, 6); day = day.AddDays(1))
+        {
+            byDate[day].ShouldBe(2, $"{day} lies in the booked week: the quota usage covers the whole week");
+        }
+
+        for (var day = new DateOnly(2026, 12, 7); day <= new DateOnly(2026, 12, 13); day = day.AddDays(1))
+        {
+            byDate[day].ShouldBe(0, $"{day} lies in the following week, which has no booking");
+        }
+    }
+
+    [Test]
+    public async Task GetShiftSchedule_WeekScope_PeriodBookedDays_CountsBookingsBeforeVisibleRange()
+    {
+        var shift = await CreateSporadicShiftAsync("PeriodEdge", ShiftSporadic.Week, sumEmployees: 1, quantity: 2);
+        var clientA = await CreateClientAsync("PEa");
+        var clientB = await CreateClientAsync("PEb");
+        // Both bookings (Mon, Tue) lie before the visible range, which starts on Wednesday of the same week.
+        await AddWorkAsync(shift.Id, clientA.Id, new DateOnly(2026, 11, 30));
+        await AddWorkAsync(shift.Id, clientB.Id, new DateOnly(2026, 12, 1));
+
+        var result = await _service.GetShiftScheduleQuery(
+            new DateOnly(2026, 12, 2),
+            new DateOnly(2026, 12, 6)).ToListAsync();
+
+        var shiftRows = result.Where(r => r.ShiftId == shift.Id).ToList();
+        shiftRows.Count.ShouldBe(5);
+        shiftRows.ShouldAllBe(r => r.PeriodBookedDays == 2, "Bookings outside the visible range still use up the week's quota");
+        shiftRows.ShouldAllBe(r => r.Engaged == 0);
+    }
+
+    [Test]
+    public async Task GetShiftSchedule_MonthScope_PeriodBookedDays_CountsDistinctDaysPerMonth()
+    {
+        var shift = await CreateSporadicShiftAsync("PeriodMonth", ShiftSporadic.Month, sumEmployees: 2, quantity: 3);
+        var clientA = await CreateClientAsync("PMa");
+        var clientB = await CreateClientAsync("PMb");
+        var clientC = await CreateClientAsync("PMc");
+        // Two employees on the same day count as one booked day.
+        await AddWorkAsync(shift.Id, clientA.Id, new DateOnly(2026, 5, 5));
+        await AddWorkAsync(shift.Id, clientB.Id, new DateOnly(2026, 5, 5));
+        await AddWorkAsync(shift.Id, clientC.Id, new DateOnly(2026, 5, 20));
+
+        var result = await _service.GetShiftScheduleQuery(
+            new DateOnly(2026, 5, 25),
+            new DateOnly(2026, 6, 5)).ToListAsync();
+
+        var byDate = result.Where(r => r.ShiftId == shift.Id).ToDictionary(r => r.Date, r => r.PeriodBookedDays);
+
+        byDate[new DateOnly(2026, 5, 25)].ShouldBe(2);
+        byDate[new DateOnly(2026, 5, 31)].ShouldBe(2);
+        byDate[new DateOnly(2026, 6, 1)].ShouldBe(0, "June is a new period");
+        byDate[new DateOnly(2026, 6, 5)].ShouldBe(0);
+    }
+
+    [Test]
+    public async Task GetShiftSchedulePartial_WeekScope_ReturnsPeriodBookedDays()
+    {
+        var shift = await CreateSporadicShiftAsync("PeriodPartial", ShiftSporadic.Week, sumEmployees: 1, quantity: 2);
+        var clientA = await CreateClientAsync("PPa");
+        var clientB = await CreateClientAsync("PPb");
+        await AddWorkAsync(shift.Id, clientA.Id, new DateOnly(2026, 12, 1));
+        await AddWorkAsync(shift.Id, clientB.Id, new DateOnly(2026, 12, 3));
+
+        var result = await _service.GetShiftSchedulePartialAsync(
+        [
+            (shift.Id, new DateOnly(2026, 12, 2)),
+            (shift.Id, new DateOnly(2026, 12, 3)),
+            (shift.Id, new DateOnly(2026, 12, 8))
+        ]);
+
+        var byDate = result.ToDictionary(r => r.Date, r => r.PeriodBookedDays);
+        byDate[new DateOnly(2026, 12, 2)].ShouldBe(2);
+        byDate[new DateOnly(2026, 12, 3)].ShouldBe(2);
+        byDate[new DateOnly(2026, 12, 8)].ShouldBe(0);
+    }
+
+    [Test]
+    public async Task GetShiftSchedule_NonSporadicShift_PeriodBookedDaysIsZero()
+    {
+        var shift = await CreateSporadicShiftAsync("PeriodNormal", ShiftSporadic.Week, sumEmployees: 1, quantity: 2, isSporadic: false);
+        var client = await CreateClientAsync("PNa");
+        await AddWorkAsync(shift.Id, client.Id, new DateOnly(2026, 12, 1));
+
+        var result = await _service.GetShiftScheduleQuery(
+            new DateOnly(2026, 11, 30),
+            new DateOnly(2026, 12, 6)).ToListAsync();
+
+        var shiftRows = result.Where(r => r.ShiftId == shift.Id).ToList();
+        shiftRows.ShouldAllBe(r => r.PeriodBookedDays == 0);
+        shiftRows.Single(r => r.Date == new DateOnly(2026, 12, 1)).Engaged.ShouldBe(1);
     }
 }
