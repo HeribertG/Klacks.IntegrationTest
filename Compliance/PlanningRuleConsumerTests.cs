@@ -141,6 +141,29 @@ public class PlanningRuleConsumerTests
         gate.NewConflicts.ShouldNotContain(c => c.Comment == ScheduleValidationKeys.PlanningRule);
     }
 
+    [Test]
+    public async Task InvalidHardConstraint_DoesNotBlockUnrelatedWrites_ValidRuleStillBlocks_AndTheCloseShowsIt()
+    {
+        var clientId = await AddClientAsync("invalid");
+        var invalid = await AddConstraintAsync(RuleApprovalStatus.Approved, """{"schemaVersion":9}""");
+        await AddConstraintAsync(RuleApprovalStatus.Approved);
+        var shiftId = await AddShiftAsync();
+        await AddNightsAsync(clientId, shiftId, Monday, 2);
+        var checker = BuildChecker();
+
+        var unrelated = await checker.CheckAsync(
+            [new PlannedWorkRow(clientId, Monday.AddDays(5), new TimeOnly(8, 0), new TimeOnly(16, 0), shiftId)]);
+        var violating = await checker.CheckAsync([new PlannedWorkRow(clientId, Monday.AddDays(2), NightStart, NightEnd, shiftId)]);
+        var issues = await BuildPeriodLoader().LoadAsync(Monday, Monday.AddDays(6), groupId: null);
+
+        unrelated.HasBlocking.ShouldBeFalse();
+        unrelated.NewConflicts.ShouldContain(c => c.Comment == ScheduleValidationKeys.PlanningRuleInvalid
+            && c.CommentParams[PlanningRuleNotificationMapper.RuleIdParam] == invalid.Id.ToString());
+        violating.HasOverridableBlocking.ShouldBeTrue();
+        violating.NewConflicts.ShouldContain(c => c.Comment == ScheduleValidationKeys.PlanningRule);
+        issues.ShouldContain(i => i.MessageKey == ScheduleValidationKeys.PlanningRuleInvalid && i.Severity == ScheduleValidationType.Error);
+    }
+
     private PlanningRuleEvaluatorService BuildPlanningRuleEvaluator()
     {
         var dataReader = new PlanningRuleDataReader(_context);
@@ -251,7 +274,7 @@ public class PlanningRuleConsumerTests
         return resolver;
     }
 
-    private async Task<PlanningConstraint> AddConstraintAsync(RuleApprovalStatus status)
+    private async Task<PlanningConstraint> AddConstraintAsync(RuleApprovalStatus status, string json = MaxTwoNightsJson)
     {
         var constraint = new PlanningConstraint
         {
@@ -260,7 +283,7 @@ public class PlanningRuleConsumerTests
             Severity = PlanningConstraintSeverity.Hard,
             Weight = 1d,
             ScopeType = PlanningConstraintScopeType.Global,
-            ParametersJson = MaxTwoNightsJson,
+            ParametersJson = json,
             Origin = RuleOrigin.Admin,
             ApprovalStatus = status,
             Paraphrase = TestMarker + status,
