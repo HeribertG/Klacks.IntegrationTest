@@ -127,9 +127,10 @@ public class Wizard4OptimizationCoreLiveTests
             eligibilityBuilder,
             availabilityService,
             restrictedWindowBuilder,
-            keywordProvider);
+            keywordProvider,
+            Substitute.For<IPlanningRuleSetLoader>());
         var bitmapInput = await harmonizerBuilder.BuildContextAsync(
-            new HarmonizerContextRequest(from, until, agentIds, null), CancellationToken.None);
+            new HarmonizerContextRequest(from, until, agentIds, null, LoadPlanningRules: false), CancellationToken.None);
 
         var seed = RowSorter.Sort(BitmapBuilder.Build(bitmapInput));
         var validator = new DomainAwareReplaceValidator(
