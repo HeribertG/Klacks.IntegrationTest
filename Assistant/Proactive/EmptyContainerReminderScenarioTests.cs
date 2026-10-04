@@ -364,6 +364,7 @@ public class EmptyContainerReminderScenarioTests
             _preferences,
             _notifications,
             _activityTracker,
+            _audienceResolver,
             _timeProvider,
             NullLogger<ProactiveReminderService>.Instance)
             .RunAsync(CancellationToken.None);
