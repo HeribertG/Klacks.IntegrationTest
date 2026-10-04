@@ -223,7 +223,7 @@ public class EligibilityGuardrailTests
     }
 
     [Test]
-    public async Task ExpiredQualification_Blocks()
+    public async Task ExpiredQualification_WarnsByDefault()
     {
         var client = await CreateClientAsync();
         var shift = await CreateShiftAsync();
@@ -234,7 +234,8 @@ public class EligibilityGuardrailTests
         var result = await CheckAsync(client.Id, shift.Id);
 
         result.NewConflicts.ShouldContain(c =>
-            c.Comment == QualificationValidationKeys.Expired && c.Type == ScheduleValidationType.Error);
+            c.Comment == QualificationValidationKeys.Expired && c.Type == ScheduleValidationType.Warning);
+        result.HasBlocking.ShouldBeFalse();
     }
 
     /// <summary>
