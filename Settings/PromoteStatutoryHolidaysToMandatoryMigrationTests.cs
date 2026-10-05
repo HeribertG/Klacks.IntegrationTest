@@ -79,7 +79,7 @@ public class PromoteStatutoryHolidaysToMandatoryMigrationTests
             (await PromotedMandatoryCountAsync(dbName)).ShouldBe(StatutoryHolidayPromotionSql.PromotedIds.Count);
             (await DescriptionAsync(dbName, UsLaborDay, English)).ShouldBe(string.Empty);
             (await DescriptionAsync(dbName, UsColumbusDay, English)).ShouldBe(OwnDescriptionText);
-            (await ScalarAsync(dbName, $"SELECT is_paid FROM calendar_rule WHERE id = '{UsLaborDay}'")).ShouldBe(false);
+            (await ScalarAsync(dbName, $"SELECT is_paid FROM calendar_rule WHERE id = '{UsLaborDay}'")).ShouldBe(true);
             (await ScalarAsync(dbName, $"SELECT is_mandatory FROM calendar_rule WHERE id = '{GraubuendenJosefstag}'")).ShouldBe(false);
             (await ScalarAsync(dbName, $"SELECT is_mandatory FROM calendar_rule WHERE id = '{GraubuendenPeterAndPaul}'")).ShouldBe(false);
             (await DescriptionAsync(dbName, GraubuendenJosefstag, English))
