@@ -91,6 +91,7 @@ public class BulkDeleteWorksIntegrationTests
             completionService,
             notificationFacade,
             Substitute.For<IOvertimeCascadeService>(),
+            Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IDayLockService>(),
             Substitute.For<ILogger<BulkDeleteWorksCommandHandler>>());
 
         await SetupTestData();
