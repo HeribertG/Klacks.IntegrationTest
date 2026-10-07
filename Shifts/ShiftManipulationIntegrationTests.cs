@@ -236,7 +236,10 @@ public class ShiftManipulationIntegrationTests
             DELETE FROM group_item WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestShiftPrefix}%');
             DELETE FROM group_item WHERE group_id IN (SELECT id FROM ""group"" WHERE name LIKE '{TestShiftPrefix}%');
             UPDATE shift SET scenario_source_shift_id = NULL WHERE name LIKE '{TestShiftPrefix}%';
+            DELETE FROM shift_expenses WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestShiftPrefix}%');
+            DELETE FROM shift_required_qualification WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestShiftPrefix}%');
             DELETE FROM shift WHERE name LIKE '{TestShiftPrefix}%';
+            DELETE FROM qualification WHERE name->>'de' LIKE '{TestShiftPrefix}%';
             DELETE FROM communication WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
             DELETE FROM address WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
             DELETE FROM membership WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
@@ -1547,6 +1550,141 @@ public class ShiftManipulationIntegrationTests
         (await _context.Client.AsNoTracking()
             .CountAsync(c => c.Company == company && c.Type == EntityTypeEnum.Customer && !c.IsDeleted))
             .ShouldBe(2, "a different street is a distinct customer and must not be merged");
+    }
+
+    #endregion
+
+    #region Cut dialog UPDATE must keep required qualifications and default expenses (K12, 2026-10-07)
+
+    private async Task SeedQualificationAndExpenseAsync(Guid shiftId)
+    {
+        var qualification = new Klacks.Api.Domain.Models.Staffs.Qualification
+        {
+            Id = Guid.NewGuid(),
+            Name = new MultiLanguage { De = $"{TestShiftPrefix}Qual_{Guid.NewGuid():N}" }
+        };
+        _context.Qualification.Add(qualification);
+        _context.ShiftRequiredQualification.Add(new Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification
+        {
+            Id = Guid.NewGuid(),
+            ShiftId = shiftId,
+            QualificationId = qualification.Id,
+            IsMandatory = true,
+            MinLevel = QualificationLevel.Basic
+        });
+        _context.ShiftExpenses.Add(new ShiftExpenses
+        {
+            Id = Guid.NewGuid(),
+            ShiftId = shiftId,
+            Amount = 12.5m,
+            Description = "Train ticket",
+            Taxable = false
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    private async Task<(int Qualifications, int Expenses)> CountLiveChildrenAsync(Guid shiftId)
+    {
+        _context.ChangeTracker.Clear();
+        var qualifications = await _context.ShiftRequiredQualification.IgnoreQueryFilters().AsNoTracking()
+            .CountAsync(q => q.ShiftId == shiftId && !q.IsDeleted);
+        var expenses = await _context.ShiftExpenses.IgnoreQueryFilters().AsNoTracking()
+            .CountAsync(e => e.ShiftId == shiftId && !e.IsDeleted);
+        return (qualifications, expenses);
+    }
+
+    private async Task<ShiftResource> CutListResourceAsync(Guid sealedOrderId, Guid shiftId)
+    {
+        var cutList = await _shiftRepository.CutList(sealedOrderId);
+        var row = cutList.Single(s => s.Id == shiftId);
+        _context.ChangeTracker.Clear();
+        return _scheduleMapper.ToShiftResource(row);
+    }
+
+    [Test]
+    public async Task CutDialog_FirstCut_Update_Keeps_RequiredQualifications_And_DefaultExpenses()
+    {
+        var created = await _postHandler.Handle(
+            new PostCommand<ShiftResource>(CreateTestShiftResource("K12_FirstCut", ShiftStatus.SealedOrder,
+                fromDate: new DateOnly(2026, 1, 1))),
+            CancellationToken.None);
+        var originalShiftId = created!.Id;
+        var sealedOrderId = created.OriginalId!.Value;
+        await SeedQualificationAndExpenseAsync(originalShiftId);
+
+        var part1 = await CutListResourceAsync(sealedOrderId, originalShiftId);
+        part1.RequiredQualifications.ShouldBeEmpty("precondition: the cut list hands the dialog no qualifications");
+        part1.Status = ShiftStatus.SplitShift;
+        part1.UntilDate = new DateOnly(2026, 6, 30);
+
+        var part2 = CreateTestShiftResource("K12_FirstCut_Part2", ShiftStatus.SplitShift,
+            fromDate: new DateOnly(2026, 7, 1), originalId: sealedOrderId);
+
+        await _batchCutsHandler.Handle(new PostBatchCutsCommand(
+        [
+            new CutOperation { Type = "UPDATE", ParentId = sealedOrderId.ToString(), Data = part1 },
+            new CutOperation { Type = "CREATE", ParentId = originalShiftId.ToString(), Data = part2 }
+        ]), CancellationToken.None);
+
+        var (qualifications, expenses) = await CountLiveChildrenAsync(originalShiftId);
+        qualifications.ShouldBe(1, "a cut dialog UPDATE must not delete the mandatory qualifications of the shift");
+        expenses.ShouldBe(1, "a cut dialog UPDATE must not delete the default expenses of the shift");
+    }
+
+    [Test]
+    public async Task CutDialog_Update_Of_Existing_SplitShift_Keeps_RequiredQualifications_And_DefaultExpenses()
+    {
+        var created = await _postHandler.Handle(
+            new PostCommand<ShiftResource>(CreateTestShiftResource("K12_Split", ShiftStatus.SealedOrder,
+                fromDate: new DateOnly(2026, 1, 1))),
+            CancellationToken.None);
+        var originalShiftId = created!.Id;
+        var sealedOrderId = created.OriginalId!.Value;
+
+        var split = CreateTestShiftResource("K12_Split_Part", ShiftStatus.SplitShift,
+            fromDate: new DateOnly(2026, 1, 1), untilDate: new DateOnly(2026, 12, 31), originalId: sealedOrderId);
+        var createResults = await _batchCutsHandler.Handle(new PostBatchCutsCommand(
+            [new CutOperation { Type = "CREATE", ParentId = originalShiftId.ToString(), Data = split }]),
+            CancellationToken.None);
+        var splitShiftId = createResults[0].Id;
+        _context.ChangeTracker.Clear();
+        await SeedQualificationAndExpenseAsync(splitShiftId);
+
+        var update = await CutListResourceAsync(sealedOrderId, splitShiftId);
+        update.StartShift = new TimeOnly(9, 0);
+
+        var updateResults = await _batchCutsHandler.Handle(new PostBatchCutsCommand(
+            [new CutOperation { Type = "UPDATE", ParentId = originalShiftId.ToString(), Data = update }]),
+            CancellationToken.None);
+
+        updateResults[0].StartShift.ShouldBe(new TimeOnly(9, 0), "the scalar change of the cut dialog must still be saved");
+        var (qualifications, expenses) = await CountLiveChildrenAsync(splitShiftId);
+        qualifications.ShouldBe(1, "a cut dialog UPDATE must not delete the mandatory qualifications of a split shift");
+        expenses.ShouldBe(1, "a cut dialog UPDATE must not delete the default expenses of a split shift");
+    }
+
+    [Test]
+    public async Task FormPut_With_Empty_Lists_Still_Removes_RequiredQualifications_And_DefaultExpenses()
+    {
+        var created = await _postHandler.Handle(
+            new PostCommand<ShiftResource>(CreateTestShiftResource("K12_FormPut", ShiftStatus.SealedOrder,
+                fromDate: new DateOnly(2026, 1, 1))),
+            CancellationToken.None);
+        var originalShiftId = created!.Id;
+        await SeedQualificationAndExpenseAsync(originalShiftId);
+
+        var loaded = await _shiftRepository.Get(originalShiftId);
+        _context.ChangeTracker.Clear();
+        var resource = _scheduleMapper.ToShiftResource(loaded!);
+        resource.RequiredQualifications = [];
+        resource.DefaultExpenses = [];
+
+        await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
+
+        var (qualifications, expenses) = await CountLiveChildrenAsync(originalShiftId);
+        qualifications.ShouldBe(0, "the edit form owns the qualification list: an emptied list removes it");
+        expenses.ShouldBe(0, "the edit form owns the default expenses: an emptied list removes them");
     }
 
     #endregion
