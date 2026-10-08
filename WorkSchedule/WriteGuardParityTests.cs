@@ -657,6 +657,97 @@ public class WriteGuardParityTests
     }
 
     [Test]
+    public async Task UpdateWork_WithAForgedScenarioToken_IsStillDayLocked_AndKeepsTheMainPlanToken()
+    {
+        var ctx = BuildContext();
+        ctx.ExistingWorkId = await SeedRealWorkAsync(_clientId);
+        await SeedActiveGlobalSealAsync(_date);
+        var forged = RetimedWorkResource(ctx, RetimedStart, RetimedEnd);
+        forged.AnalyseToken = Guid.NewGuid();
+
+        using var scope = _factory.Services.CreateScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        var ex = await Should.ThrowAsync<InvalidRequestException>(
+            async () => await mediator.Send(new PutCommand<WorkResource>(forged), CancellationToken.None));
+        ex.Message.ShouldContain("sealed", Case.Insensitive,
+            "a payload token must not turn a sealed main-plan Work into a scenario write that skips the day lock");
+
+        var stored = await _context.Work.AsNoTracking().SingleAsync(w => w.Id == ctx.ExistingWorkId);
+        stored.AnalyseToken.ShouldBeNull();
+        stored.StartTime.ShouldBe(ShiftStart);
+    }
+
+    [Test]
+    public async Task UpdateWork_WithAForgedScenarioToken_OnAnOpenDay_KeepsTheMainPlanToken()
+    {
+        var ctx = BuildContext();
+        ctx.ExistingWorkId = await SeedRealWorkAsync(_clientId);
+        var forged = RetimedWorkResource(ctx, RetimedStart, RetimedEnd);
+        forged.AnalyseToken = Guid.NewGuid();
+
+        using var scope = _factory.Services.CreateScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        await mediator.Send(new PutCommand<WorkResource>(forged), CancellationToken.None);
+
+        var stored = await _context.Work.AsNoTracking().SingleAsync(w => w.Id == ctx.ExistingWorkId);
+        stored.AnalyseToken.ShouldBeNull("a PUT must never move a Work between the main plan and a scenario");
+        stored.StartTime.ShouldBe(RetimedStart);
+    }
+
+    [Test]
+    public async Task UpdateWork_OfAClosedWork_IsRefusedByTheLockGuard_AndNothingChanges()
+    {
+        var ctx = BuildContext();
+        ctx.ExistingWorkId = await SeedRealWorkAsync(_clientId);
+        await _context.Work
+            .Where(w => w.Id == ctx.ExistingWorkId)
+            .ExecuteUpdateAsync(s => s.SetProperty(w => w.LockLevel, WorkLockLevel.Closed));
+
+        using var scope = _factory.Services.CreateScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        var ex = await Should.ThrowAsync<InvalidRequestException>(async () => await mediator.Send(
+            new PutCommand<WorkResource>(RetimedWorkResource(ctx, RetimedStart, RetimedEnd)), CancellationToken.None));
+        ex.Message.ShouldBe(Klacks.Api.Domain.Services.Schedules.ParentWorkLockGuard.ClosedWorkMessage);
+
+        var stored = await _context.Work.AsNoTracking().SingleAsync(w => w.Id == ctx.ExistingWorkId);
+        stored.StartTime.ShouldBe(ShiftStart);
+    }
+
+    [Test]
+    public async Task UpdateScheduleNote_WithAForgedScenarioToken_KeepsTheMainPlanToken()
+    {
+        var noteId = Guid.NewGuid();
+        _context.ScheduleNotes.Add(new ScheduleNote
+        {
+            Id = noteId,
+            ClientId = _clientId,
+            CurrentDate = _date,
+            Content = SeedPrefix + "Note",
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        using var scope = _factory.Services.CreateScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        await mediator.Send(new PutCommand<ScheduleNoteResource>(new ScheduleNoteResource
+        {
+            Id = noteId,
+            ClientId = _clientId,
+            CurrentDate = _date,
+            Content = SeedPrefix + "Edited",
+            AnalyseToken = Guid.NewGuid(),
+        }), CancellationToken.None);
+
+        var stored = await _context.ScheduleNotes.AsNoTracking().SingleAsync(n => n.Id == noteId);
+        stored.AnalyseToken.ShouldBeNull("a PUT must never move a note between the main plan and a scenario");
+        stored.Content.ShouldBe(SeedPrefix + "Edited");
+    }
+
+    [Test]
     public async Task ReassignWorkGuard_TargetClientWithoutOverlap_IsAllowed()
     {
         var ctx = BuildContext();
@@ -878,6 +969,9 @@ public class WriteGuardParityTests
             _clientId, _replaceClientId);
         await _context.Database.ExecuteSqlRawAsync(
             "DELETE FROM \"break\" WHERE client_id IN ({0}, {1})", _clientId, _replaceClientId);
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM schedule_notes WHERE client_id IN ({0}, {1}) AND content LIKE {2}",
+            _clientId, _replaceClientId, SeedPrefix + "%");
         await _context.Database.ExecuteSqlRawAsync(
             "DELETE FROM work WHERE client_id IN ({0}, {1})", _clientId, _replaceClientId);
         await _context.Database.ExecuteSqlRawAsync(

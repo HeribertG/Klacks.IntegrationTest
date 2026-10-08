@@ -92,9 +92,25 @@ public class BulkDeleteWorksIntegrationTests
             notificationFacade,
             Substitute.For<IOvertimeCascadeService>(),
             Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IDayLockService>(),
+            BuildAdminHttpContextAccessor(),
+            new Klacks.Api.Domain.Services.Schedules.ParentWorkLockGuard(
+                new Klacks.Api.Domain.Services.Schedules.WorkLockLevelService()),
             Substitute.For<ILogger<BulkDeleteWorksCommandHandler>>());
 
         await SetupTestData();
+    }
+
+    private static IHttpContextAccessor BuildAdminHttpContextAccessor()
+    {
+        var accessor = Substitute.For<IHttpContextAccessor>();
+        var httpContext = new DefaultHttpContext
+        {
+            User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+                [new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, Klacks.Api.Domain.Constants.Roles.Admin)],
+                "TestAuth"))
+        };
+        accessor.HttpContext.Returns(httpContext);
+        return accessor;
     }
 
     private static IClientVisibilityGuard AllClientsVisible()
@@ -220,6 +236,24 @@ public class BulkDeleteWorksIntegrationTests
         _context.ClientPeriodHours.RemoveRange(periodHours);
 
         await _context.SaveChangesAsync();
+    }
+
+    [Test]
+    public async Task BulkDelete_WithAClosedWork_IsRefusedForAnAdmin_AndDeletesNothing()
+    {
+        var closedWorkId = _testWorkIds[0];
+        await _context.Work
+            .Where(w => w.Id == closedWorkId)
+            .ExecuteUpdateAsync(s => s.SetProperty(w => w.LockLevel, Klacks.Api.Domain.Enums.WorkLockLevel.Closed));
+        _context.ChangeTracker.Clear();
+
+        await Should.ThrowAsync<Klacks.Api.Domain.Exceptions.InvalidRequestException>(() => _handler.Handle(
+            new BulkDeleteWorksCommand(new BulkDeleteWorksRequest { WorkIds = new List<Guid>(_testWorkIds) }),
+            CancellationToken.None));
+
+        _context.ChangeTracker.Clear();
+        var remaining = await _context.Work.AsNoTracking().CountAsync(w => _testWorkIds.Contains(w.Id));
+        remaining.ShouldBe(_testWorkIds.Count, "a batch holding a Closed Work must delete nothing, not even the open ones");
     }
 
     [Test]

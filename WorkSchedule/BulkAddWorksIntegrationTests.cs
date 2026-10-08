@@ -46,7 +46,10 @@ namespace Klacks.IntegrationTest.WorkSchedule;
 public class BulkAddWorksIntegrationTests
 {
     private DataBaseContext _context = null!;
+    private const string TemplatePrefix = "INTEGRATION_TEST_BulkAddTemplate_";
+
     private BulkAddWorksCommandHandler _handler = null!;
+    private IContainerWorkExpansionService _expansionService = null!;
     private string _connectionString = null!;
 
     private Guid _testClientId;
@@ -155,6 +158,8 @@ public class BulkAddWorksIntegrationTests
                 Arg.Any<Guid?>())
             .Returns(async callInfo => { await _context.SaveChangesAsync(); });
 
+        _expansionService = Substitute.For<IContainerWorkExpansionService>();
+
         _handler = new BulkAddWorksCommandHandler(
             workRepository,
             AllClientsVisible(),
@@ -162,10 +167,11 @@ public class BulkAddWorksIntegrationTests
             periodHoursService,
             completionService,
             notificationFacade,
-            Substitute.For<IContainerWorkExpansionService>(),
+            _expansionService,
             Substitute.For<IOvertimeCascadeService>(),
             Substitute.For<IDayLockService>(),
             NonBlockingConflictChecker(),
+            BuildDefaultExpensesApplier(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
 
         await SetupTestData();
@@ -311,6 +317,14 @@ OUTPUT 1, Round(TotalBonus, 2)",
 
     private async Task CleanupTestData()
     {
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM expenses WHERE description LIKE {0} AND work_id IN (SELECT id FROM work WHERE client_id = {1})",
+            TemplatePrefix + "%", _testClientId);
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM shift_expenses WHERE description LIKE {0} AND shift_id = {1}",
+            TemplatePrefix + "%", _testShiftId);
+        _context.ChangeTracker.Clear();
+
         var works = await _context.Work
             .Where(w => w.ClientId == _testClientId)
             .ToListAsync();
@@ -533,6 +547,73 @@ OUTPUT 1, Round(TotalBonus, 2)",
         periodHours.Surcharges.ShouldBe(1.2m, "Holiday surcharge: 15% of 8 hours = 1.2");
     }
 
+    [Test]
+    public async Task BulkAddWorks_CopiesShiftDefaultExpenses_OntoParentsOnly_WithTheWorksScenarioToken()
+    {
+        var monday = new DateOnly(2025, 1, 20);
+        var tuesday = new DateOnly(2025, 1, 21);
+        var scenarioToken = Guid.NewGuid();
+        _context.Set<ShiftExpenses>().AddRange(
+            new ShiftExpenses { Id = Guid.NewGuid(), ShiftId = _testShiftId, Amount = 12.5m, Description = TemplatePrefix + "Lunch", Taxable = false },
+            new ShiftExpenses { Id = Guid.NewGuid(), ShiftId = _testShiftId, Amount = 30m, Description = TemplatePrefix + "Bonus", Taxable = true });
+        await _context.SaveChangesAsync();
+
+        var childIds = new List<Guid>();
+        _expansionService.ExpandAsync(Arg.Any<Work>(), Arg.Any<DateOnly>()).Returns(ci =>
+        {
+            var parent = ci.Arg<Work>();
+            var child = new Work
+            {
+                Id = Guid.NewGuid(),
+                ParentWorkId = parent.Id,
+                ClientId = parent.ClientId,
+                ShiftId = parent.ShiftId,
+                CurrentDate = parent.CurrentDate,
+                StartTime = parent.StartTime,
+                EndTime = parent.EndTime,
+                AnalyseToken = parent.AnalyseToken
+            };
+            childIds.Add(child.Id);
+            _context.Work.Add(child);
+            return Task.CompletedTask;
+        });
+
+        var scenarioItem = CreateWorkItem(tuesday);
+        scenarioItem.AnalyseToken = scenarioToken;
+        var request = new BulkAddWorksRequest
+        {
+            Works = [CreateWorkItem(monday), scenarioItem],
+            PeriodStart = new DateOnly(2025, 1, 1),
+            PeriodEnd = new DateOnly(2025, 1, 31)
+        };
+
+        var response = await _handler.Handle(new BulkAddWorksCommand(request), CancellationToken.None);
+
+        response.SuccessCount.ShouldBe(2);
+        childIds.Count.ShouldBe(2);
+        var parentIds = response.CreatedIds;
+        var copied = await _context.Expenses
+            .AsNoTracking()
+            .Where(e => parentIds.Contains(e.WorkId) || childIds.Contains(e.WorkId))
+            .ToListAsync();
+
+        copied.Count.ShouldBe(4, "two templates on each of the two parent Works");
+        copied.ShouldAllBe(e => parentIds.Contains(e.WorkId), "container children never receive template expenses");
+        var realWorkId = await _context.Work.AsNoTracking()
+            .Where(w => parentIds.Contains(w.Id) && w.AnalyseToken == null).Select(w => w.Id).SingleAsync();
+        var scenarioWorkId = await _context.Work.AsNoTracking()
+            .Where(w => parentIds.Contains(w.Id) && w.AnalyseToken == scenarioToken).Select(w => w.Id).SingleAsync();
+        copied.Where(e => e.WorkId == realWorkId).ShouldAllBe(e => e.AnalyseToken == null);
+        copied.Where(e => e.WorkId == scenarioWorkId).ShouldAllBe(e => e.AnalyseToken == scenarioToken);
+        copied.Where(e => e.WorkId == realWorkId).Select(e => (e.Amount, e.Taxable))
+            .ShouldBe(new[] { (12.5m, false), (30m, true) }, ignoreOrder: true);
+    }
+
+    private IShiftDefaultExpensesApplier BuildDefaultExpensesApplier()
+        => new Klacks.Api.Application.Services.Schedules.ShiftDefaultExpensesApplier(
+            new ShiftExpensesRepository(_context, Substitute.For<ILogger<ShiftExpenses>>()),
+            new ExpensesRepository(_context, Substitute.For<ILogger<Expenses>>()));
+
     private BulkAddWorksCommandHandler CreateHandlerWithMockedMacroDataProvider(IMacroDataProvider macroDataProvider)
     {
         var contractDataProvider = CreateContractDataProviderMock();
@@ -623,6 +704,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
             Substitute.For<IOvertimeCascadeService>(),
             Substitute.For<IDayLockService>(),
             NonBlockingConflictChecker(),
+            BuildDefaultExpensesApplier(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
     }
 

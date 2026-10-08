@@ -198,8 +198,9 @@ public class ExpensesRefreshIntegrationTests
             httpContextAccessor,
             changeTracker,
             groupResolver,
-            Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>(),
+            DbBackedWorkRepository(),
             Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IDayLockService>(),
+            new Klacks.Api.Domain.Services.Schedules.ParentWorkLockGuard(new Klacks.Api.Domain.Services.Schedules.WorkLockLevelService()),
             Substitute.For<ILogger<Klacks.Api.Application.Handlers.Expenses.PostCommandHandler>>());
     }
 
@@ -231,7 +232,16 @@ public class ExpensesRefreshIntegrationTests
             changeTracker,
             groupResolver,
             Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IDayLockService>(),
+            new Klacks.Api.Domain.Services.Schedules.ParentWorkLockGuard(new Klacks.Api.Domain.Services.Schedules.WorkLockLevelService()),
             Substitute.For<ILogger<Klacks.Api.Application.Handlers.Expenses.DeleteCommandHandler>>());
+    }
+
+    private Klacks.Api.Application.Interfaces.IWorkRepository DbBackedWorkRepository()
+    {
+        var repository = Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>();
+        repository.GetNoTracking(Arg.Any<Guid>())
+            .Returns(ci => _context.Work.AsNoTracking().FirstOrDefaultAsync(w => w.Id == ci.Arg<Guid>()));
+        return repository;
     }
 
     private static IClientVisibilityGuard AllClientsVisible()
