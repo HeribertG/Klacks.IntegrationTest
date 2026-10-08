@@ -101,7 +101,7 @@ public class ProposePlanGuardrailSeamTests
             .Returns(new List<ScheduleValidationNotificationDto>());
 
         _checker = new PreCommitConflictChecker(_context, new Klacks.Api.Infrastructure.Repositories.Associations.ShiftRequiredQualificationRepository(_context, NSubstitute.Substitute.For<Microsoft.Extensions.Logging.ILogger<Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification>>()), timeline, resolver, new Klacks.Api.Application.Services.Schedules.ComplianceEscalationService(enforcementResolver), settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator, restrictedTimeWindowEvaluator,
-            NonReportingCompensatoryRestEvaluator(), holidayWorkEvaluator, NonReportingPlanningRuleEvaluator());
+            NonReportingCompensatoryRestEvaluator(), holidayWorkEvaluator, NonReportingPlanningRuleEvaluator(), NoDayDirectives());
     }
 
     [TearDown]
@@ -246,6 +246,14 @@ public class ProposePlanGuardrailSeamTests
     {
         var evaluator = Substitute.For<IPlanningRuleEvaluatorService>();
         evaluator.EvaluatePlannedChangeAsync(Arg.Any<IReadOnlyList<PlannedWorkRow>>(), Arg.Any<IReadOnlyList<PlannedRemovalRow>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ScheduleValidationNotificationDto>());
+        return evaluator;
+    }
+
+    private static Klacks.Api.Application.Interfaces.Schedules.IDayDirectiveConflictEvaluator NoDayDirectives()
+    {
+        var evaluator = Substitute.For<Klacks.Api.Application.Interfaces.Schedules.IDayDirectiveConflictEvaluator>();
+        evaluator.EvaluatePlannedAsync(Arg.Any<IReadOnlyList<PlannedWorkRow>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
         return evaluator;
     }

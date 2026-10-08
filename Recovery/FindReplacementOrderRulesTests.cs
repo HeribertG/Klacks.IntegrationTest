@@ -3,7 +3,7 @@
 /// <summary>
 /// find_replacement through the real mediator pipeline against the integration database, for the rules a candidate
 /// inherits from the order tree: a mandatory qualification set only on the sealed order excludes a candidate on a cut
-/// piece. All rows carry the INTEGRATION_TEST_FRO_ marker and are removed prefix-scoped.
+/// piece, and the employee's day directives (schedule commands, combined cumulatively) exclude him. All rows carry the INTEGRATION_TEST_FRO_ marker and are removed prefix-scoped.
 /// </summary>
 
 using Klacks.Api.Application.Queries.Schedules;
@@ -71,6 +71,58 @@ public sealed class FindReplacementOrderRulesTests : WizardHarnessTestBase
         after.Excluded.ShouldContain(
             c => c.ClientId == _candidateId && c.Reason == QualificationValidationKeys.Missing,
             "the piece inherits the order's mandatory qualification, the candidate does not hold it");
+    }
+
+    [Test]
+    public async Task Free_Directive_Excludes_The_Candidate_With_The_Directive_Reason()
+    {
+        var tokens = await KeywordTokensAsync();
+        await AddCommandAsync(tokens.FreeToken);
+
+        var result = await SendAsync(Query());
+
+        result.Eligible.ShouldNotContain(c => c.ClientId == _candidateId);
+        result.Excluded.ShouldContain(
+            c => c.ClientId == _candidateId && c.Reason == ScheduleValidationKeys.DayDirective,
+            "find_replacement must not propose an employee against a FREE directive");
+    }
+
+    [Test]
+    public async Task Directives_Of_A_Day_Combine_Cumulatively()
+    {
+        var tokens = await KeywordTokensAsync();
+        await AddCommandAsync(tokens.NegEarlyToken);
+        await AddCommandAsync(tokens.NegNightToken);
+
+        var onlyLate = await SendAsync(Query());
+        onlyLate.Eligible.ShouldContain(c => c.ClientId == _candidateId, "-EARLY and -NIGHT leave the late kind open (08:00-16:00 reaches the late band)");
+
+        await AddCommandAsync(tokens.NegLateToken);
+
+        var closed = await SendAsync(Query());
+        closed.Excluded.ShouldContain(
+            c => c.ClientId == _candidateId && c.Reason == ScheduleValidationKeys.DayDirective,
+            "-LATE on top of -EARLY and -NIGHT closes the day");
+    }
+
+    private async Task<Klacks.Api.Domain.Models.Schedules.ScheduleCommandKeywordSet> KeywordTokensAsync()
+    {
+        using var scope = CreateScope();
+        return await scope.ServiceProvider
+            .GetRequiredService<Klacks.Api.Domain.Interfaces.Schedules.IScheduleCommandKeywordProvider>()
+            .GetAsync(CancellationToken.None);
+    }
+
+    private async Task AddCommandAsync(string keyword)
+    {
+        Context.Set<ScheduleCommand>().Add(new ScheduleCommand
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _candidateId,
+            CurrentDate = SlotDay,
+            CommandKeyword = keyword,
+        });
+        await Context.SaveChangesAsync();
     }
 
     private FindReplacementQuery Query() => new(

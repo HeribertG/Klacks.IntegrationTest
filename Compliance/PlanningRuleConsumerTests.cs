@@ -226,7 +226,16 @@ public class PlanningRuleConsumerTests
             restrictedTimeWindow,
             compensatoryRest,
             holidayWork,
-            _planningRuleEvaluator);
+            _planningRuleEvaluator,
+            NoDayDirectives());
+    }
+
+    private static Klacks.Api.Application.Interfaces.Schedules.IDayDirectiveConflictEvaluator NoDayDirectives()
+    {
+        var evaluator = Substitute.For<Klacks.Api.Application.Interfaces.Schedules.IDayDirectiveConflictEvaluator>();
+        evaluator.EvaluatePlannedAsync(Arg.Any<IReadOnlyList<Klacks.Api.Application.DTOs.Schedules.PlannedWorkRow>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Klacks.Api.Application.DTOs.Notifications.ScheduleValidationNotificationDto>());
+        return evaluator;
     }
 
     private PeriodValidationLoader BuildPeriodLoader()
