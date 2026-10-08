@@ -1687,5 +1687,119 @@ public class ShiftManipulationIntegrationTests
         expenses.ShouldBe(0, "the edit form owns the default expenses: an emptied list removes them");
     }
 
+    [Test]
+    public async Task CutDialog_Update_Returns_The_Stored_RequiredQualifications_And_DefaultExpenses()
+    {
+        var created = await _postHandler.Handle(
+            new PostCommand<ShiftResource>(CreateTestShiftResource("K12_Response", ShiftStatus.SealedOrder,
+                fromDate: new DateOnly(2026, 1, 1))),
+            CancellationToken.None);
+        var originalShiftId = created!.Id;
+        var sealedOrderId = created.OriginalId!.Value;
+        await SeedQualificationAndExpenseAsync(originalShiftId);
+
+        var update = await CutListResourceAsync(sealedOrderId, originalShiftId);
+        update.StartShift = new TimeOnly(9, 0);
+
+        var results = await _batchCutsHandler.Handle(new PostBatchCutsCommand(
+            [new CutOperation { Type = "UPDATE", ParentId = sealedOrderId.ToString(), Data = update }]),
+            CancellationToken.None);
+
+        results[0].RequiredQualifications.Count.ShouldBe(1,
+            "the cut dialog response must show the qualifications the database keeps, not an empty list");
+        results[0].DefaultExpenses.Count.ShouldBe(1,
+            "the cut dialog response must show the default expenses the database keeps, not an empty list");
+    }
+
+    #endregion
+
+    #region Put must keep the shift fields the ShiftResource does not carry (2026-10-08)
+
+    private sealed record UnmappedShiftFields(
+        string? SourceSystemId,
+        string? ExternalOrderReference,
+        Guid? SupersedesOrderId,
+        int? SourceChildCountSnapshot,
+        Guid? ScenarioSourceShiftId);
+
+    private async Task<UnmappedShiftFields> SeedUnmappedFieldsAsync(Guid shiftId, Guid scenarioSourceShiftId)
+    {
+        var seeded = new UnmappedShiftFields(
+            $"{TestShiftPrefix}ERP",
+            $"{TestShiftPrefix}REF_{Guid.NewGuid():N}",
+            Guid.NewGuid(),
+            3,
+            scenarioSourceShiftId);
+
+        _context.ChangeTracker.Clear();
+        var shift = await _context.Shift.SingleAsync(s => s.Id == shiftId);
+        shift.SourceSystemId = seeded.SourceSystemId;
+        shift.ExternalOrderReference = seeded.ExternalOrderReference;
+        shift.SupersedesOrderId = seeded.SupersedesOrderId;
+        shift.SourceChildCountSnapshot = seeded.SourceChildCountSnapshot;
+        shift.ScenarioSourceShiftId = seeded.ScenarioSourceShiftId;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return seeded;
+    }
+
+    private async Task<UnmappedShiftFields> ReadUnmappedFieldsAsync(Guid shiftId)
+    {
+        _context.ChangeTracker.Clear();
+        var shift = await _context.Shift.AsNoTracking().SingleAsync(s => s.Id == shiftId);
+        return new UnmappedShiftFields(
+            shift.SourceSystemId,
+            shift.ExternalOrderReference,
+            shift.SupersedesOrderId,
+            shift.SourceChildCountSnapshot,
+            shift.ScenarioSourceShiftId);
+    }
+
+    [Test]
+    public async Task FormPut_Keeps_Erp_And_Scenario_Fields_The_Resource_Does_Not_Carry()
+    {
+        var created = await _postHandler.Handle(
+            new PostCommand<ShiftResource>(CreateTestShiftResource("Unmapped_FormPut", ShiftStatus.SealedOrder,
+                fromDate: new DateOnly(2026, 1, 1))),
+            CancellationToken.None);
+        var shiftId = created!.Id;
+        var seeded = await SeedUnmappedFieldsAsync(shiftId, created.OriginalId!.Value);
+
+        var loaded = await _shiftRepository.Get(shiftId);
+        _context.ChangeTracker.Clear();
+        var resource = _scheduleMapper.ToShiftResource(loaded!);
+        resource.Description = "Edited in the form";
+
+        await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
+
+        var stored = await ReadUnmappedFieldsAsync(shiftId);
+        stored.ShouldBe(seeded, "an edit form save must not null the ERP reference or the scenario clone tracking");
+        (await _context.Shift.AsNoTracking().SingleAsync(s => s.Id == shiftId)).Description
+            .ShouldBe("Edited in the form", "the scalar change of the form must still be saved");
+    }
+
+    [Test]
+    public async Task CutDialog_Update_Keeps_Erp_And_Scenario_Fields_The_Resource_Does_Not_Carry()
+    {
+        var created = await _postHandler.Handle(
+            new PostCommand<ShiftResource>(CreateTestShiftResource("Unmapped_Cut", ShiftStatus.SealedOrder,
+                fromDate: new DateOnly(2026, 1, 1))),
+            CancellationToken.None);
+        var originalShiftId = created!.Id;
+        var sealedOrderId = created.OriginalId!.Value;
+
+        var update = await CutListResourceAsync(sealedOrderId, originalShiftId);
+        update.StartShift = new TimeOnly(9, 0);
+        var seeded = await SeedUnmappedFieldsAsync(originalShiftId, sealedOrderId);
+
+        var results = await _batchCutsHandler.Handle(new PostBatchCutsCommand(
+            [new CutOperation { Type = "UPDATE", ParentId = sealedOrderId.ToString(), Data = update }]),
+            CancellationToken.None);
+
+        results[0].StartShift.ShouldBe(new TimeOnly(9, 0), "the scalar change of the cut dialog must still be saved");
+        var stored = await ReadUnmappedFieldsAsync(originalShiftId);
+        stored.ShouldBe(seeded, "a cut dialog update must not null the ERP reference or the scenario clone tracking");
+    }
+
     #endregion
 }
