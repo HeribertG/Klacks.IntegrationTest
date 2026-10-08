@@ -60,6 +60,7 @@ public class ShiftManipulationIntegrationTests
 
     // Services
     private IShiftRepository _shiftRepository = null!;
+    private ShiftRequiredQualificationRepository _requirementRepository = null!;
     private IUnitOfWork _unitOfWork = null!;
     private IShiftCutFacade _shiftCutFacade = null!;
     private ScheduleMapper _scheduleMapper = null!;
@@ -146,10 +147,14 @@ public class ShiftManipulationIntegrationTests
         var shiftResetServiceLogger = Substitute.For<ILogger<ShiftResetService>>();
         var shiftResetService = new ShiftResetService(_shiftRepository, shiftResetServiceLogger);
 
+        _requirementRepository = new ShiftRequiredQualificationRepository(
+            _context, Substitute.For<ILogger<Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification>>());
+
         // Create facade
         var facadeLogger = Substitute.For<ILogger<ShiftCutFacade>>();
         _shiftCutFacade = new ShiftCutFacade(
             _shiftRepository,
+            _requirementRepository,
             shiftTreeService,
             shiftResetService,
             shiftValidator,
@@ -165,7 +170,7 @@ public class ShiftManipulationIntegrationTests
         _postHandler = new PostCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, defaultShiftMacroResolver, orderSealingService, postHandlerLogger);
 
         var putHandlerLogger = Substitute.For<ILogger<PutCommandHandler>>();
-        _putHandler = new PutCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, putHandlerLogger);
+        _putHandler = new PutCommandHandler(_shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, putHandlerLogger);
 
         var batchCutsHandlerLogger = Substitute.For<ILogger<PostBatchCutsCommandHandler>>();
         _batchCutsHandler = new PostBatchCutsCommandHandler(_shiftCutFacade, _scheduleMapper, batchCutsHandlerLogger);
@@ -1897,7 +1902,6 @@ public class ShiftManipulationIntegrationTests
     public async Task CutPieces_Inherit_The_Mandatory_Qualification_Of_Their_Order()
     {
         var (_, root, piece2, piece3) = await CreateCutOrderWithMandatoryQualificationAsync("QSplit");
-        (await CountLiveChildrenAsync(piece2)).Qualifications.ShouldBe(0, "precondition: a CREATEd cut piece carries no qualification row");
         (await CountLiveChildrenAsync(root)).Qualifications.ShouldBe(0, "precondition: POST as sealed gives the plannable copy no qualification row");
 
         var matrix = await CreateEligibilityMatrixBuilder().BuildAsync(
@@ -2024,18 +2028,159 @@ public class ShiftManipulationIntegrationTests
 
         var matrix = await CreateEligibilityMatrixBuilder().BuildAsync([_employeeId], slots);
 
-        matrix.Ineligible.ShouldBeEmpty(
-            "the former copy now carries its own row (R, held by the employee); the order's Q must no longer veto its pieces");
+        matrix.Ineligible.ToList().ShouldBe(
+            [(_employeeId.ToString(), piece2, ScopePeriodFrom), (_employeeId.ToString(), piece3, ScopePeriodFrom)],
+            ignoreOrder: true,
+            "the former copy now uses its own row (R, held by the employee); the pieces took a copy of the order's Q when "
+            + "they were cut, so a later row on their parent does not reach them (deliberate since 2026-10-08)");
 
-        var orderQualification = (await _context.ShiftRequiredQualification.AsNoTracking().SingleAsync(q => q.ShiftId == order)).QualificationId;
-        await RequireAsync(piece2, orderQualification);
+        await RemoveOwnRowsAsync(piece3);
 
         matrix = await CreateEligibilityMatrixBuilder().BuildAsync([_employeeId], slots);
 
-        matrix.Ineligible.Count.ShouldBe(
-            1,
-            "a piece with its own row uses only that row; its sibling keeps the former copy's row");
-        matrix.Ineligible.ShouldContain((_employeeId.ToString(), piece2, ScopePeriodFrom));
+        matrix.Ineligible.ToList().ShouldBe(
+            [(_employeeId.ToString(), piece2, ScopePeriodFrom)],
+            "a piece without rows of its own (legacy, or all rows removed) uses the nearest link above it, the former "
+            + "copy's R; its sibling keeps its own Q");
+    }
+
+    private async Task RemoveOwnRowsAsync(Guid shiftId)
+    {
+        _context.ChangeTracker.Clear();
+        var rows = await _context.ShiftRequiredQualification.Where(q => q.ShiftId == shiftId).ToListAsync();
+        _context.ShiftRequiredQualification.RemoveRange(rows);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    private async Task<Guid> AddHeldQualificationAsync()    {
+        var qualificationId = await AddQualificationAsync();
+        _context.ClientQualification.Add(new Klacks.Api.Domain.Models.Associations.ClientQualification
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _employeeId,
+            QualificationId = qualificationId,
+            Level = QualificationLevel.Expert
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return qualificationId;
+    }
+
+    private async Task<List<Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification>> OwnRowsAsync(Guid shiftId)
+    {
+        _context.ChangeTracker.Clear();
+        return await _context.ShiftRequiredQualification.AsNoTracking().Where(q => q.ShiftId == shiftId).ToListAsync();
+    }
+
+    private async Task<Guid> OrderQualificationAsync(Guid order)
+        => (await OwnRowsAsync(order)).Single().QualificationId;
+
+    [Test]
+    public async Task Set_First_Own_Row_On_A_Shift_That_Inherits_Keeps_The_Inherited_Requirement()
+    {
+        var (order, root, _, _) = await CreateCutOrderWithMandatoryQualificationAsync("QMat_Set");
+        var added = await AddHeldQualificationAsync();
+        var handler = new Klacks.Api.Application.Handlers.Qualifications.SetShiftRequiredQualificationCommandHandler(
+            _requirementRepository, _unitOfWork);
+
+        await handler.Handle(
+            new Klacks.Api.Application.Commands.Qualifications.SetShiftRequiredQualificationCommand(root, added, true, QualificationLevel.Basic),
+            CancellationToken.None);
+
+        (await OwnRowsAsync(root)).Select(q => q.QualificationId).ShouldBe(
+            [await OrderQualificationAsync(order), added], ignoreOrder: true,
+            "adding a requirement to a shift that only inherited one must keep the inherited one as an own row");
+        var matrix = await CreateEligibilityMatrixBuilder().BuildAsync([_employeeId], [new EligibilitySlot(root, ScopePeriodFrom)]);
+        matrix.Ineligible.ShouldContain(
+            (_employeeId.ToString(), root, ScopePeriodFrom),
+            "the employee holds the added qualification but not the order's mandatory one");
+    }
+
+    [Test]
+    public async Task Set_Of_The_Inherited_Qualification_Itself_Materializes_Without_A_Duplicate()
+    {
+        var (order, root, _, _) = await CreateCutOrderWithMandatoryQualificationAsync("QMat_SetSame");
+        var orderQualification = await OrderQualificationAsync(order);
+        var handler = new Klacks.Api.Application.Handlers.Qualifications.SetShiftRequiredQualificationCommandHandler(
+            _requirementRepository, _unitOfWork);
+
+        await handler.Handle(
+            new Klacks.Api.Application.Commands.Qualifications.SetShiftRequiredQualificationCommand(root, orderQualification, true, QualificationLevel.Expert),
+            CancellationToken.None);
+
+        var rows = await OwnRowsAsync(root);
+        rows.Count.ShouldBe(1);
+        rows[0].MinLevel.ShouldBe(QualificationLevel.Expert, "the planner's value wins over the inherited one");
+    }
+
+    [Test]
+    public async Task FormPut_First_Own_Row_On_A_Shift_That_Inherits_Keeps_The_Inherited_Requirement()
+    {
+        var (order, root, _, _) = await CreateCutOrderWithMandatoryQualificationAsync("QMat_Put");
+        var added = await AddHeldQualificationAsync();
+        var loaded = await _shiftRepository.Get(root);
+        _context.ChangeTracker.Clear();
+        var resource = _scheduleMapper.ToShiftResource(loaded!);
+        resource.RequiredQualifications.ShouldBeEmpty("precondition: the form shows only own rows");
+        resource.RequiredQualifications =
+        [
+            new ShiftRequiredQualificationResource { QualificationId = added, IsMandatory = true, MinLevel = QualificationLevel.Basic }
+        ];
+
+        var saved = await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
+
+        (await OwnRowsAsync(root)).Select(q => q.QualificationId).ShouldBe(
+            [await OrderQualificationAsync(order), added], ignoreOrder: true,
+            "a form save that adds the first own row must keep the inherited requirement as an own row");
+        saved!.RequiredQualifications.Count.ShouldBe(2, "the response shows the materialized row, so the planner sees it");
+    }
+
+    [Test]
+    public async Task FormPut_Without_Rows_On_A_Shift_That_Inherits_Materializes_Nothing()
+    {
+        var (_, root, _, _) = await CreateCutOrderWithMandatoryQualificationAsync("QMat_PutEmpty");
+        var loaded = await _shiftRepository.Get(root);
+        _context.ChangeTracker.Clear();
+        var resource = _scheduleMapper.ToShiftResource(loaded!);
+        resource.Description = "Edited in the form";
+
+        await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
+
+        (await OwnRowsAsync(root)).ShouldBeEmpty("a save that adds no requirement keeps inheriting");
+    }
+
+    [Test]
+    public async Task CutCreate_Gives_New_Pieces_The_Effective_Rows_Of_Their_Parent()
+    {
+        var (order, _, piece2, piece3) = await CreateCutOrderWithMandatoryQualificationAsync("QMat_Cut");
+        var orderQualification = await OrderQualificationAsync(order);
+
+        foreach (var piece in new[] { piece2, piece3 })
+        {
+            (await OwnRowsAsync(piece)).Select(q => q.QualificationId).ShouldBe(
+                [orderQualification], "a CREATEd piece takes the rows that applied to its parent");
+        }
+
+        var shown = await new Klacks.Api.Application.Handlers.Qualifications.GetShiftRequiredQualificationsQueryHandler(_requirementRepository)
+            .Handle(new Klacks.Api.Application.Queries.Qualifications.GetShiftRequiredQualificationsQuery(piece2), CancellationToken.None);
+        shown.Select(q => q.QualificationId).ShouldBe([orderQualification], "the piece shows its requirement in the UI");
+
+        var childResource = CreateTestShiftResource("QMat_Cut_Child", ShiftStatus.SplitShift,
+            startShift: new TimeOnly(10, 0), endShift: new TimeOnly(11, 0), originalId: order, fromDate: new DateOnly(2026, 1, 1));
+        var grandChildResource = CreateTestShiftResource("QMat_Cut_GrandChild", ShiftStatus.SplitShift,
+            startShift: new TimeOnly(10, 0), endShift: new TimeOnly(10, 30), originalId: order, fromDate: new DateOnly(2026, 1, 1));
+        await _batchCutsHandler.Handle(new PostBatchCutsCommand(
+        [
+            new CutOperation { Type = "CREATE", ParentId = piece2.ToString(), Data = childResource },
+            new CutOperation { Type = "CREATE", ParentId = childResource.Id.ToString(), Data = grandChildResource }
+        ]), CancellationToken.None);
+
+        foreach (var piece in new[] { childResource.Id, grandChildResource.Id })
+        {
+            (await OwnRowsAsync(piece)).Select(q => q.QualificationId).ShouldBe(
+                [orderQualification], "a piece cut below a piece created in the same batch takes its parent's rows too");
+        }
     }
 
     /// <summary>
@@ -2049,6 +2194,7 @@ public class ShiftManipulationIntegrationTests
     public async Task KnownLimit_Chained_Group_Scenario_Clone_Loses_The_Order_Requirement()
     {
         var (_, _, piece2, _) = await CreateCutOrderWithMandatoryQualificationAsync("QSplit_Chained");
+        await RemoveOwnRowsAsync(piece2);
         var scenarioService = new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context);
         var firstToken = Guid.NewGuid();
         var firstMap = await scenarioService.CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, firstToken, null, CancellationToken.None);
