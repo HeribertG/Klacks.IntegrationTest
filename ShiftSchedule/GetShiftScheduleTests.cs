@@ -40,7 +40,7 @@ public class GetShiftScheduleTests
         _context = new DataBaseContext(options, mockHttpContextAccessor);
         _logger = Substitute.For<ILogger<ShiftScheduleService>>();
 
-        _service = new ShiftScheduleService(_context, _logger);
+        _service = new ShiftScheduleService(_context, new Klacks.Api.Infrastructure.Repositories.Associations.ShiftRequiredQualificationRepository(_context, NSubstitute.Substitute.For<Microsoft.Extensions.Logging.ILogger<Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification>>()), _logger);
 
         await CleanupTestData();
     }

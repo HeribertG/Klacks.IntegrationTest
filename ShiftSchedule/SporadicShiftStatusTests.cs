@@ -41,7 +41,7 @@ public class SporadicShiftStatusTests
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
         _context = new DataBaseContext(options, mockHttpContextAccessor);
         var logger = Substitute.For<ILogger<ShiftScheduleService>>();
-        _service = new ShiftScheduleService(_context, logger);
+        _service = new ShiftScheduleService(_context, new Klacks.Api.Infrastructure.Repositories.Associations.ShiftRequiredQualificationRepository(_context, NSubstitute.Substitute.For<Microsoft.Extensions.Logging.ILogger<Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification>>()), logger);
 
         await CleanupAsync();
     }

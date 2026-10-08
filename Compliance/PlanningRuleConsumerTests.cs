@@ -215,6 +215,7 @@ public class PlanningRuleConsumerTests
 
         return new PreCommitConflictChecker(
             _context,
+            new Klacks.Api.Infrastructure.Repositories.Associations.ShiftRequiredQualificationRepository(_context, NSubstitute.Substitute.For<Microsoft.Extensions.Logging.ILogger<Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification>>()),
             NewTimelineService(),
             LenientPolicyResolver(),
             new ComplianceEscalationService(enforcement),

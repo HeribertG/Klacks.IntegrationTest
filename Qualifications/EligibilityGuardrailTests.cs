@@ -93,7 +93,7 @@ public class EligibilityGuardrailTests
             .EvaluateAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyCollection<DateOnly>>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
 
-        _checker = new PreCommitConflictChecker(_context, timeline, resolver, new Klacks.Api.Application.Services.Schedules.ComplianceEscalationService(enforcementResolver), settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator, restrictedTimeWindowEvaluator,
+        _checker = new PreCommitConflictChecker(_context, new Klacks.Api.Infrastructure.Repositories.Associations.ShiftRequiredQualificationRepository(_context, NSubstitute.Substitute.For<Microsoft.Extensions.Logging.ILogger<Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification>>()), timeline, resolver, new Klacks.Api.Application.Services.Schedules.ComplianceEscalationService(enforcementResolver), settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator, restrictedTimeWindowEvaluator,
             NonReportingCompensatoryRestEvaluator(), holidayWorkEvaluator, NonReportingPlanningRuleEvaluator());
     }
 
@@ -178,6 +178,49 @@ public class EligibilityGuardrailTests
     {
         var row = new PlannedWorkRow(clientId, WorkDate, new TimeOnly(8, 0), new TimeOnly(16, 0), shiftId);
         return await _checker.CheckAsync(new[] { row }, null, CancellationToken.None);
+    }
+
+    private async Task<Shift> CreateTreeShiftAsync(ShiftStatus status, Guid? originalId, Guid? parentId)
+    {
+        var shift = await CreateShiftAsync();
+        shift.Status = status;
+        shift.OriginalId = originalId;
+        shift.ParentId = parentId;
+        await _context.SaveChangesAsync();
+        return shift;
+    }
+
+    [Test]
+    public async Task MandatoryQualification_Of_The_Sealed_Order_Blocks_A_Cut_Piece_Without_Own_Rows()
+    {
+        var client = await CreateClientAsync();
+        var order = await CreateTreeShiftAsync(ShiftStatus.SealedOrder, null, null);
+        await CreateTreeShiftAsync(ShiftStatus.OriginalShift, order.Id, null);
+        var piece = await CreateTreeShiftAsync(ShiftStatus.SplitShift, order.Id, null);
+        var qual = await CreateQualificationAsync();
+        await RequireAsync(order.Id, qual.Id, QualificationLevel.Basic);
+
+        var result = await CheckAsync(client.Id, piece.Id);
+
+        result.HasHardBlocking.ShouldBeTrue("the piece inherits the order's mandatory qualification (place_work, propose_plan, find_replacement, work writes)");
+        result.NewConflicts.ShouldContain(c => c.Comment == QualificationValidationKeys.Missing && c.Type == ScheduleValidationType.Error);
+    }
+
+    [Test]
+    public async Task Optional_Own_Row_Of_A_Piece_Replaces_The_Mandatory_Order_Row_Nearest_Wins()
+    {
+        var client = await CreateClientAsync();
+        var order = await CreateTreeShiftAsync(ShiftStatus.SealedOrder, null, null);
+        var piece = await CreateTreeShiftAsync(ShiftStatus.SplitShift, order.Id, null);
+        var mandatory = await CreateQualificationAsync();
+        var optional = await CreateQualificationAsync();
+        await RequireAsync(order.Id, mandatory.Id, QualificationLevel.Basic);
+        await RequireAsync(piece.Id, optional.Id, QualificationLevel.Basic, mandatory: false);
+
+        var result = await CheckAsync(client.Id, piece.Id);
+
+        result.NewConflicts.ShouldNotContain(c => c.Comment == QualificationValidationKeys.Missing,
+            "resolve first, filter IsMandatory after: the piece's own (optional) row is the nearest link and replaces the order's");
     }
 
     [Test]
