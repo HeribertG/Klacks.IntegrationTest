@@ -1930,6 +1930,23 @@ public class ShiftManipulationIntegrationTests
     }
 
     [Test]
+    public async Task Recovery_Preference_Read_Hands_A_Blacklist_On_The_Order_Down_To_The_Pieces()
+    {
+        var (order, root, piece2, piece3) = await CreateCutOrderWithMandatoryQualificationAsync("K16_Recovery");
+        await AddPreferenceAsync(order);
+        var repository = new ClientShiftPreferenceRepository(
+            _context, Substitute.For<ILogger<Klacks.Api.Domain.Models.Associations.ClientShiftPreference>>());
+
+        var scoped = await repository.GetScopedByClientIdsAsync([_employeeId], null);
+
+        scoped.Where(p => p.PreferenceType == ShiftPreferenceType.Blacklist).Select(p => p.ShiftId)
+            .ShouldBe([order, root, piece2, piece3], ignoreOrder: true,
+                "the recovery snapshot reads the same handed-down preferences as Wizard 1");
+        (await repository.GetScopedByClientIdsAsync([_employeeId], Guid.NewGuid())).ShouldBeEmpty(
+            "real preferences do not leak into another world");
+    }
+
+    [Test]
     public async Task Scenario_Clones_Inherit_The_Blacklist_And_The_Mandatory_Qualification_Of_The_Cloned_Order()
     {
         var (order, root, piece2, piece3) = await CreateCutOrderWithMandatoryQualificationAsync("K16_Scenario");
