@@ -233,6 +233,9 @@ public class ShiftManipulationIntegrationTests
     private static async Task CleanupTestDataWithContext(DataBaseContext context)
     {
         var sql = $@"
+            DELETE FROM client_shift_preference WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestShiftPrefix}%')
+                OR client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
+            DELETE FROM client_qualification WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
             DELETE FROM group_item WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestShiftPrefix}%');
             DELETE FROM group_item WHERE group_id IN (SELECT id FROM ""group"" WHERE name LIKE '{TestShiftPrefix}%');
             UPDATE shift SET scenario_source_shift_id = NULL WHERE name LIKE '{TestShiftPrefix}%';
@@ -1799,6 +1802,154 @@ public class ShiftManipulationIntegrationTests
         results[0].StartShift.ShouldBe(new TimeOnly(9, 0), "the scalar change of the cut dialog must still be saved");
         var stored = await ReadUnmappedFieldsAsync(originalShiftId);
         stored.ShouldBe(seeded, "a cut dialog update must not null the ERP reference or the scenario clone tracking");
+    }
+
+    #endregion
+
+    #region Cut pieces inherit preferences (K16) and mandatory qualifications (Q-Split) from their order (2026-10-08)
+
+    private static readonly DateOnly ScopePeriodFrom = new(2026, 1, 5);
+    private static readonly DateOnly ScopePeriodUntil = new(2026, 1, 11);
+
+    /// <summary>
+    /// Builds an order the way the UI does: POST as sealed (the plannable copy gets no qualification rows), a mandatory
+    /// qualification on the sealed order, then the first cut of the cut dialog (UPDATE of the copy into the top-level
+    /// piece plus two CREATEd pieces below it). Every shift of the order joins test group A, like a group-scoped order.
+    /// </summary>
+    private async Task<(Guid Order, Guid Root, Guid Piece2, Guid Piece3)> CreateCutOrderWithMandatoryQualificationAsync(string name)
+    {
+        var created = await _postHandler.Handle(
+            new PostCommand<ShiftResource>(CreateTestShiftResource(name, ShiftStatus.SealedOrder, fromDate: new DateOnly(2026, 1, 1))),
+            CancellationToken.None);
+        var root = created!.Id;
+        var order = created.OriginalId!.Value;
+
+        var qualification = new Klacks.Api.Domain.Models.Staffs.Qualification
+        {
+            Id = Guid.NewGuid(),
+            Name = new MultiLanguage { De = $"{TestShiftPrefix}Qual_{Guid.NewGuid():N}" }
+        };
+        _context.Qualification.Add(qualification);
+        _context.ShiftRequiredQualification.Add(new Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification
+        {
+            Id = Guid.NewGuid(),
+            ShiftId = order,
+            QualificationId = qualification.Id,
+            IsMandatory = true,
+            MinLevel = QualificationLevel.Basic
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var part1 = await CutListResourceAsync(order, root);
+        part1.Status = ShiftStatus.SplitShift;
+        part1.EndShift = new TimeOnly(10, 0);
+        var part2 = CreateTestShiftResource($"{name}_Part2", ShiftStatus.SplitShift,
+            startShift: new TimeOnly(10, 0), endShift: new TimeOnly(13, 0), originalId: order, fromDate: new DateOnly(2026, 1, 1));
+        var part3 = CreateTestShiftResource($"{name}_Part3", ShiftStatus.SplitShift,
+            startShift: new TimeOnly(13, 0), endShift: new TimeOnly(16, 0), originalId: order, fromDate: new DateOnly(2026, 1, 1));
+
+        await _batchCutsHandler.Handle(new PostBatchCutsCommand(
+        [
+            new CutOperation { Type = "UPDATE", ParentId = order.ToString(), Data = part1 },
+            new CutOperation { Type = "CREATE", ParentId = root.ToString(), Data = part2 },
+            new CutOperation { Type = "CREATE", ParentId = root.ToString(), Data = part3 }
+        ]), CancellationToken.None);
+        _context.ChangeTracker.Clear();
+
+        foreach (var shiftId in new[] { order, root, part2.Id, part3.Id })
+        {
+            _context.GroupItem.Add(new Klacks.Api.Domain.Models.Associations.GroupItem { Id = Guid.NewGuid(), GroupId = _groupAId, ShiftId = shiftId });
+        }
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        return (order, root, part2.Id, part3.Id);
+    }
+
+    private async Task AddPreferenceAsync(Guid shiftId, Guid? analyseToken = null)
+    {
+        _context.ClientShiftPreference.Add(new Klacks.Api.Domain.Models.Associations.ClientShiftPreference
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _employeeId,
+            ShiftId = shiftId,
+            PreferenceType = ShiftPreferenceType.Blacklist,
+            AnalyseToken = analyseToken
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    private WizardHardConstraintBuilder CreateHardConstraintBuilder()
+    {
+        var keywordProvider = Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IScheduleCommandKeywordProvider>();
+        keywordProvider.GetAsync(Arg.Any<CancellationToken>()).Returns(ScheduleCommandKeywordTestFactory.Default);
+        return new WizardHardConstraintBuilder(_context, keywordProvider);
+    }
+
+    private EligibilityMatrixBuilder CreateEligibilityMatrixBuilder() => new(
+        new ClientQualificationRepository(_context, Substitute.For<ILogger<Klacks.Api.Domain.Models.Associations.ClientQualification>>()),
+        new ShiftRequiredQualificationRepository(_context, Substitute.For<ILogger<Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification>>()),
+        Substitute.For<ISettingsReader>());
+
+    [Test]
+    public async Task CutPieces_Inherit_The_Mandatory_Qualification_Of_Their_Order()
+    {
+        var (_, root, piece2, piece3) = await CreateCutOrderWithMandatoryQualificationAsync("QSplit");
+        (await CountLiveChildrenAsync(piece2)).Qualifications.ShouldBe(0, "precondition: a CREATEd cut piece carries no qualification row");
+        (await CountLiveChildrenAsync(root)).Qualifications.ShouldBe(0, "precondition: POST as sealed gives the plannable copy no qualification row");
+
+        var matrix = await CreateEligibilityMatrixBuilder().BuildAsync(
+            [_employeeId],
+            [new EligibilitySlot(root, ScopePeriodFrom), new EligibilitySlot(piece2, ScopePeriodFrom), new EligibilitySlot(piece3, ScopePeriodFrom)]);
+
+        foreach (var piece in new[] { root, piece2, piece3 })
+        {
+            matrix.Ineligible.ShouldContain(
+                (_employeeId.ToString(), piece, ScopePeriodFrom),
+                "an employee without the order's mandatory qualification must never be planned on a piece of that order");
+        }
+    }
+
+    [Test]
+    public async Task Blacklist_On_The_Plannable_Copy_Reaches_All_Three_Pieces_In_Wizard1()
+    {
+        var (_, root, piece2, piece3) = await CreateCutOrderWithMandatoryQualificationAsync("K16");
+        await AddPreferenceAsync(root);
+
+        var constraints = await CreateHardConstraintBuilder().BuildAsync(
+            [_employeeId], ScopePeriodFrom, ScopePeriodUntil, analyseToken: null, CancellationToken.None);
+
+        constraints.ShiftPreferences.Select(p => p.ShiftRefId).ShouldBe([root, piece2, piece3], ignoreOrder: true);
+        constraints.ShiftPreferences.ShouldAllBe(p => p.Kind == Klacks.ScheduleOptimizer.Models.ShiftPreferenceKind.Blacklist);
+    }
+
+    [Test]
+    public async Task Scenario_Clones_Inherit_The_Blacklist_And_The_Mandatory_Qualification_Of_The_Cloned_Order()
+    {
+        var (order, root, piece2, piece3) = await CreateCutOrderWithMandatoryQualificationAsync("K16_Scenario");
+        await AddPreferenceAsync(order);
+        var token = Guid.NewGuid();
+
+        var idMap = await new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context)
+            .CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, token, null, CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        var clonePieces = new[] { idMap[root], idMap[piece2], idMap[piece3] };
+
+        var constraints = await CreateHardConstraintBuilder().BuildAsync(
+            [_employeeId], ScopePeriodFrom, ScopePeriodUntil, token, CancellationToken.None);
+        constraints.ShiftPreferences.Select(p => p.ShiftRefId).ShouldBe(
+            clonePieces.Append(idMap[order]), ignoreOrder: true,
+            "in a scenario the cloned blacklist reaches the cloned pieces, never the real ones");
+
+        var matrix = await CreateEligibilityMatrixBuilder().BuildAsync(
+            [_employeeId], clonePieces.Select(id => new EligibilitySlot(id, ScopePeriodFrom)).ToList());
+        foreach (var piece in clonePieces)
+        {
+            matrix.Ineligible.ShouldContain((_employeeId.ToString(), piece, ScopePeriodFrom));
+        }
     }
 
     #endregion
