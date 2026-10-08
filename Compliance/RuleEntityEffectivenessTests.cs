@@ -375,6 +375,10 @@ public class RuleEntityEffectivenessTests
         services.AddSingleton<IPlanningConstraintPresence, Klacks.Api.Application.Services.Schedules.PlanningRules.PlanningConstraintPresence>();
         services.AddSingleton<IPlanningRuleSetLoader, Klacks.Api.Application.Services.Schedules.PlanningRules.PlanningRuleSetLoader>();
         services.AddSingleton<IPlanningRuleEvaluatorService, Klacks.Api.Application.Services.Schedules.PlanningRules.PlanningRuleEvaluatorService>();
+        services.AddSingleton<Klacks.Api.Domain.Interfaces.Associations.IShiftRequiredQualificationRepository, Klacks.Api.Infrastructure.Repositories.Associations.ShiftRequiredQualificationRepository>();
+        services.AddSingleton<Klacks.Api.Application.Interfaces.IScheduleCommandRepository, Klacks.Api.Infrastructure.Repositories.Schedules.ScheduleCommandRepository>();
+        services.AddSingleton<Klacks.Api.Domain.Interfaces.Schedules.IScheduleCommandKeywordProvider, ScheduleCommandKeywordProvider>();
+        services.AddSingleton<Klacks.Api.Application.Interfaces.Schedules.IDayDirectiveConflictEvaluator, Klacks.Api.Application.Services.Schedules.DayDirectiveConflictEvaluator>();
         services.AddSingleton<IPreCommitConflictChecker, PreCommitConflictChecker>();
         return services.BuildServiceProvider();
     }
