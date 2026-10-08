@@ -92,7 +92,7 @@ public class MembershipWindowIntegrationTests
             });
 
         var snapshot = await new WizardAgentSnapshotBuilder(contractProvider, new MembershipWindowReader(_context))
-            .BuildAsync([member], PeriodFrom, PeriodUntil, new Dictionary<Guid, double>(), CancellationToken.None);
+            .BuildAsync([member], PeriodFrom, PeriodUntil, PeriodFrom, PeriodUntil, new Dictionary<Guid, double>(), CancellationToken.None);
 
         snapshot.ContractDays.Where(d => d.WorksOnDay).Select(d => d.Date)
             .ShouldBe([PeriodFrom, PeriodFrom.AddDays(1), LastMemberDay]);
