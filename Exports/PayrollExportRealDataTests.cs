@@ -2,8 +2,8 @@
 
 /// <summary>
 /// Read-only integration tests for the DATEV payroll export against the real database: they verify that
-/// PayrollExportDataLoader's seal-mirror query and day-granular projection reproduce an independently
-/// computed aggregate over the same closed Work rows, and that DatevLugBewegungsdatenFormatter turns that
+/// PayrollExportDataLoader's person-based query and day-granular projection reproduce an independently
+/// computed aggregate over the same closed Work rows of the latest closed month, and that DatevLugBewegungsdatenFormatter turns that
 /// projection into a well-formed 11-field Windows-1252 file. No rows are written or deleted.
 /// </summary>
 
@@ -32,7 +32,6 @@ public class PayrollExportRealDataTests
     private DataBaseContext _context = null!;
     private PayrollExportDataLoader _loader = null!;
 
-    private Guid _groupId;
     private DateOnly _fromDate;
     private DateOnly _untilDate;
     private decimal _expectedHours;
@@ -60,7 +59,7 @@ public class PayrollExportRealDataTests
         _context = new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
         _loader = new PayrollExportDataLoader(_context);
 
-        await DiscoverClosedGroupAsync();
+        await DiscoverClosedPeriodAsync();
     }
 
     [TearDown]
@@ -69,39 +68,27 @@ public class PayrollExportRealDataTests
         _context.Dispose();
     }
 
-    private async Task DiscoverClosedGroupAsync()
+    private async Task DiscoverClosedPeriodAsync()
     {
-        var candidate = await _context.Work
+        var latestClosed = await _context.Work
             .AsNoTracking()
             .Where(w => !w.IsDeleted
                 && w.AnalyseToken == null
                 && w.LockLevel == WorkLockLevel.Closed
                 && w.Client != null
-                && (w.Client.Type == EntityTypeEnum.Employee || w.Client.Type == EntityTypeEnum.ExternEmp)
-                && _context.GroupItem.Any(gi => gi.ShiftId == w.ShiftId && !gi.IsDeleted))
-            .SelectMany(w => _context.GroupItem
-                .Where(gi => gi.ShiftId == w.ShiftId && !gi.IsDeleted)
-                .Select(gi => new { gi.GroupId, w.CurrentDate }))
-            .GroupBy(x => x.GroupId)
-            .Select(g => new
-            {
-                GroupId = g.Key,
-                Count = g.Count(),
-                Min = g.Min(x => x.CurrentDate),
-                Max = g.Max(x => x.CurrentDate),
-            })
-            .OrderByDescending(g => g.Count)
+                && (w.Client.Type == EntityTypeEnum.Employee || w.Client.Type == EntityTypeEnum.ExternEmp))
+            .OrderByDescending(w => w.CurrentDate)
+            .Select(w => (DateOnly?)w.CurrentDate)
             .FirstOrDefaultAsync();
 
-        if (candidate == null)
+        if (latestClosed == null)
         {
             _hasData = false;
             return;
         }
 
-        _groupId = candidate.GroupId;
-        _fromDate = candidate.Min;
-        _untilDate = candidate.Max;
+        _fromDate = new DateOnly(latestClosed.Value.Year, latestClosed.Value.Month, 1);
+        _untilDate = _fromDate.AddMonths(1).AddDays(-1);
 
         var scoped = _context.Work
             .AsNoTracking()
@@ -111,24 +98,22 @@ public class PayrollExportRealDataTests
                 && w.CurrentDate >= _fromDate
                 && w.CurrentDate <= _untilDate
                 && w.Client != null
-                && (w.Client.Type == EntityTypeEnum.Employee || w.Client.Type == EntityTypeEnum.ExternEmp)
-                && _context.GroupItem.Any(gi => gi.ShiftId == w.ShiftId && gi.GroupId == _groupId && !gi.IsDeleted));
+                && (w.Client.Type == EntityTypeEnum.Employee || w.Client.Type == EntityTypeEnum.ExternEmp));
 
         _expectedHours = await scoped.SumAsync(w => w.WorkTime);
         _expectedSurcharges = await scoped.SumAsync(w => w.Surcharges);
         _expectedEmployeeCount = await scoped.Select(w => w.ClientId).Distinct().CountAsync();
         _hasData = _expectedEmployeeCount > 0;
     }
-
     [Test]
     public async Task LoadAsync_ProjectsClosedWorkIntoEmployeesMatchingIndependentAggregate()
     {
         if (!_hasData)
         {
-            Assert.Ignore("No closed employee Work rows in any group — cannot exercise the real-data payroll path.");
+            Assert.Ignore("No closed employee Work rows — cannot exercise the real-data payroll path.");
         }
 
-        var data = await _loader.LoadAsync(_groupId, _fromDate, _untilDate);
+        var data = await _loader.LoadAsync(_fromDate, _untilDate, null);
 
         data.Employees.Count.ShouldBe(_expectedEmployeeCount);
 
@@ -152,14 +137,13 @@ public class PayrollExportRealDataTests
     {
         if (!_hasData)
         {
-            Assert.Ignore("No closed employee Work rows in any group — cannot exercise the real-data payroll path.");
+            Assert.Ignore("No closed employee Work rows — cannot exercise the real-data payroll path.");
         }
 
-        var data = await _loader.LoadAsync(_groupId, _fromDate, _untilDate);
+        var data = await _loader.LoadAsync(_fromDate, _untilDate, null);
 
         var config = new PayrollExportGroupConfig
         {
-            GroupId = _groupId,
             TargetSystem = PayrollExportConstants.FormatKeyDatevLug,
             Delimiter = PayrollExportConstants.DefaultDelimiter,
             Encoding = PayrollExportConstants.DefaultEncoding,

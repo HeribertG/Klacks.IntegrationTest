@@ -65,6 +65,8 @@ public static class IntegrationTestFixturePurge
         $"DELETE FROM assigned_group WHERE client_id IN ({PrefixedClients})",
         $"DELETE FROM client_image WHERE client_id IN ({PrefixedClients})",
         $"DELETE FROM client_contract WHERE client_id IN ({PrefixedClients})",
+        $"DELETE FROM export_log_item WHERE export_log_id IN (SELECT id FROM export_log WHERE starts_with(exported_by, '{Prefix}'))",
+        $"DELETE FROM export_log WHERE starts_with(exported_by, '{Prefix}')",
         $"DELETE FROM sealed_day WHERE starts_with(reason, '{Prefix}')",
         $"DELETE FROM shift WHERE id IN ({PrefixedShifts})",
         $"DELETE FROM contract WHERE starts_with(name, '{Prefix}')",

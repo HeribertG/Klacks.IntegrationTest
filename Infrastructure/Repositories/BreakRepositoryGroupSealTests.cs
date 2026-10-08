@@ -137,7 +137,7 @@ public class BreakRepositoryGroupSealTests
         memberBreak!.LockLevel.ShouldBe(WorkLockLevel.Closed);
         break2!.LockLevel.ShouldBe(WorkLockLevel.None);
 
-        var data = await new PayrollExportDataLoader(_context).LoadAsync(_group1Id, PeriodStart, PeriodEnd);
+        var data = await new PayrollExportDataLoader(_context).LoadAsync(PeriodStart, PeriodEnd, null);
 
         var member = data.Employees.Single(e => e.ClientId == _memberClientId);
         member.Entries.ShouldContain(e => e.Kind == PayrollEntryKind.Absence && e.Date == DayWithoutWork);
