@@ -1952,5 +1952,126 @@ public class ShiftManipulationIntegrationTests
         }
     }
 
+    private async Task<Guid> AddQualificationAsync()
+    {
+        var qualification = new Klacks.Api.Domain.Models.Staffs.Qualification
+        {
+            Id = Guid.NewGuid(),
+            Name = new MultiLanguage { De = $"{TestShiftPrefix}Qual_{Guid.NewGuid():N}" }
+        };
+        _context.Qualification.Add(qualification);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return qualification.Id;
+    }
+
+    private async Task RequireAsync(Guid shiftId, Guid qualificationId)
+    {
+        _context.ShiftRequiredQualification.Add(new Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification
+        {
+            Id = Guid.NewGuid(),
+            ShiftId = shiftId,
+            QualificationId = qualificationId,
+            IsMandatory = true,
+            MinLevel = QualificationLevel.Basic
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    [Test]
+    public async Task Post_As_Sealed_Copies_The_Required_Qualifications_Onto_The_Plannable_Copy()
+    {
+        var qualificationId = await AddQualificationAsync();
+        var resource = CreateTestShiftResource("QSplit_PostSealed", ShiftStatus.SealedOrder, fromDate: new DateOnly(2026, 1, 1));
+        resource.RequiredQualifications =
+        [
+            new ShiftRequiredQualificationResource { QualificationId = qualificationId, IsMandatory = true, MinLevel = QualificationLevel.Proficient }
+        ];
+
+        var created = await _postHandler.Handle(new PostCommand<ShiftResource>(resource), CancellationToken.None);
+        var copy = created!.Id;
+        var order = created.OriginalId!.Value;
+
+        (await CountLiveChildrenAsync(order)).Qualifications.ShouldBe(1);
+        (await CountLiveChildrenAsync(copy)).Qualifications.ShouldBe(
+            1, "the plannable copy is what the planner sees and edits, so it must carry the order's requirement");
+        var copied = await _context.ShiftRequiredQualification.AsNoTracking().SingleAsync(q => q.ShiftId == copy);
+        copied.QualificationId.ShouldBe(qualificationId);
+        copied.IsMandatory.ShouldBeTrue();
+        copied.MinLevel.ShouldBe(QualificationLevel.Proficient);
+    }
+
+    [Test]
+    public async Task Planner_Rows_On_The_Former_Copy_And_On_A_Piece_Replace_The_Order_Requirement()
+    {
+        var (order, root, piece2, piece3) = await CreateCutOrderWithMandatoryQualificationAsync("QSplit_Nearest");
+        (await _context.Shift.AsNoTracking().SingleAsync(s => s.Id == piece2)).ParentId.ShouldBe(
+            root, "precondition: the cut dialog CREATEs the pieces below the former plannable copy");
+        var replacement = await AddQualificationAsync();
+        _context.ClientQualification.Add(new Klacks.Api.Domain.Models.Associations.ClientQualification
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _employeeId,
+            QualificationId = replacement,
+            Level = QualificationLevel.Expert
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        await RequireAsync(root, replacement);
+        IReadOnlyCollection<EligibilitySlot> slots =
+            [new EligibilitySlot(root, ScopePeriodFrom), new EligibilitySlot(piece2, ScopePeriodFrom), new EligibilitySlot(piece3, ScopePeriodFrom)];
+
+        var matrix = await CreateEligibilityMatrixBuilder().BuildAsync([_employeeId], slots);
+
+        matrix.Ineligible.ShouldBeEmpty(
+            "the former copy now carries its own row (R, held by the employee); the order's Q must no longer veto its pieces");
+
+        var orderQualification = (await _context.ShiftRequiredQualification.AsNoTracking().SingleAsync(q => q.ShiftId == order)).QualificationId;
+        await RequireAsync(piece2, orderQualification);
+
+        matrix = await CreateEligibilityMatrixBuilder().BuildAsync([_employeeId], slots);
+
+        matrix.Ineligible.Count.ShouldBe(
+            1,
+            "a piece with its own row uses only that row; its sibling keeps the former copy's row");
+        matrix.Ineligible.ShouldContain((_employeeId.ToString(), piece2, ScopePeriodFrom));
+    }
+
+    /// <summary>
+    /// Pins a KNOWN LIMIT, not a wanted behavior (2026-10-08): a group-scoped run whose source is a scenario (AutoWizard
+    /// stages 2/3, Harmonizer apply with a scenario source) lists the source scenario's clones of the shifts with work,
+    /// while the group itself brings the REAL order. CloneShifts maps the listed clone's OriginalId/ParentId only through
+    /// ids it cloned in this run, so the second-generation clone loses its order and former copy and with them the
+    /// order's mandatory qualification. Flip the assertion when CloneShifts resolves links through ScenarioSourceShiftId.
+    /// </summary>
+    [Test]
+    public async Task KnownLimit_Chained_Group_Scenario_Clone_Loses_The_Order_Requirement()
+    {
+        var (_, _, piece2, _) = await CreateCutOrderWithMandatoryQualificationAsync("QSplit_Chained");
+        var scenarioService = new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context);
+        var firstToken = Guid.NewGuid();
+        var firstMap = await scenarioService.CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, firstToken, null, CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        var firstClone = firstMap[piece2];
+
+        var firstMatrix = await CreateEligibilityMatrixBuilder().BuildAsync([_employeeId], [new EligibilitySlot(firstClone, ScopePeriodFrom)]);
+        firstMatrix.Ineligible.ShouldContain(
+            (_employeeId.ToString(), firstClone, ScopePeriodFrom), "precondition: a first-generation group clone keeps the order requirement");
+
+        var secondMap = await scenarioService.CloneScenarioDataAsync(
+            _groupAId, ScopePeriodFrom, ScopePeriodUntil, Guid.NewGuid(), [firstClone], CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        var secondClone = secondMap[firstClone];
+
+        var orphan = await _context.Shift.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == secondClone);
+        orphan.OriginalId.ShouldBeNull("the link to the first scenario's order clone is not remapped");
+        var secondMatrix = await CreateEligibilityMatrixBuilder().BuildAsync([_employeeId], [new EligibilitySlot(secondClone, ScopePeriodFrom)]);
+        secondMatrix.Ineligible.ShouldBeEmpty(
+            "KNOWN LIMIT: the second-generation clone no longer sees the order's mandatory qualification");
+    }
+
     #endregion
 }
