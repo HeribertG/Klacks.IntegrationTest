@@ -2184,17 +2184,20 @@ public class ShiftManipulationIntegrationTests
     }
 
     /// <summary>
-    /// Pins a KNOWN LIMIT, not a wanted behavior (2026-10-08): a group-scoped run whose source is a scenario (AutoWizard
-    /// stages 2/3, Harmonizer apply with a scenario source) lists the source scenario's clones of the shifts with work,
-    /// while the group itself brings the REAL order. CloneShifts maps the listed clone's OriginalId/ParentId only through
-    /// ids it cloned in this run, so the second-generation clone loses its order and former copy and with them the
-    /// order's mandatory qualification. Flip the assertion when CloneShifts resolves links through ScenarioSourceShiftId.
+    /// A group-scoped run whose source is a scenario (AutoWizard stages 2/3, Harmonizer apply with a scenario source)
+    /// lists the source scenario's clones of the shifts with work, while the group itself brings the REAL order. The
+    /// listed clone's OriginalId/ParentId point at the first scenario's clones, which this run does not clone; they are
+    /// resolved through their real shift (ScenarioSourceShiftId) to the clone this run made of it, so the second-generation
+    /// clone keeps its order and former copy and with them the order's mandatory qualification and blacklist. Until
+    /// 2026-10-08 this was pinned as a known limit (links set to null). The piece's own rows are removed first so only
+    /// the order carries the requirement and the link, not a cloned row, has to deliver it.
     /// </summary>
     [Test]
-    public async Task KnownLimit_Chained_Group_Scenario_Clone_Loses_The_Order_Requirement()
+    public async Task Chained_Group_Scenario_Clone_Keeps_The_Order_Requirement_And_Blacklist()
     {
-        var (_, _, piece2, _) = await CreateCutOrderWithMandatoryQualificationAsync("QSplit_Chained");
+        var (order, root, piece2, _) = await CreateCutOrderWithMandatoryQualificationAsync("QSplit_Chained");
         await RemoveOwnRowsAsync(piece2);
+        await AddPreferenceAsync(order);
         var scenarioService = new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context);
         var firstToken = Guid.NewGuid();
         var firstMap = await scenarioService.CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, firstToken, null, CancellationToken.None);
@@ -2206,18 +2209,50 @@ public class ShiftManipulationIntegrationTests
         firstMatrix.Ineligible.ShouldContain(
             (_employeeId.ToString(), firstClone, ScopePeriodFrom), "precondition: a first-generation group clone keeps the order requirement");
 
+        var secondToken = Guid.NewGuid();
         var secondMap = await scenarioService.CloneScenarioDataAsync(
-            _groupAId, ScopePeriodFrom, ScopePeriodUntil, Guid.NewGuid(), [firstClone], CancellationToken.None);
+            _groupAId, ScopePeriodFrom, ScopePeriodUntil, secondToken, [firstClone], CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
         var secondClone = secondMap[firstClone];
 
-        var orphan = await _context.Shift.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == secondClone);
-        orphan.OriginalId.ShouldBeNull("the link to the first scenario's order clone is not remapped");
+        var stored = await _context.Shift.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == secondClone);
+        stored.OriginalId.ShouldBe(secondMap[order], "the order link resolves to this run's clone of the real order");
+        stored.ParentId.ShouldBe(secondMap[root], "the parent link resolves to this run's clone of the real former copy");
+        stored.ScenarioSourceShiftId.ShouldBe(piece2);
         var secondMatrix = await CreateEligibilityMatrixBuilder().BuildAsync([_employeeId], [new EligibilitySlot(secondClone, ScopePeriodFrom)]);
-        secondMatrix.Ineligible.ShouldBeEmpty(
-            "KNOWN LIMIT: the second-generation clone no longer sees the order's mandatory qualification");
+        secondMatrix.Ineligible.ShouldContain(
+            (_employeeId.ToString(), secondClone, ScopePeriodFrom),
+            "the second-generation clone still sees the order's mandatory qualification");
+
+        var constraints = await CreateHardConstraintBuilder().BuildAsync(
+            [_employeeId], ScopePeriodFrom, ScopePeriodUntil, secondToken, CancellationToken.None);
+        constraints.ShiftPreferences.ShouldContain(
+            p => p.ShiftRefId == secondClone && p.Kind == Klacks.ScheduleOptimizer.Models.ShiftPreferenceKind.Blacklist,
+            "the order's blacklist reaches the second-generation clone");
     }
 
+    [Test]
+    public async Task Scenario_Clone_Of_A_Real_Piece_Points_At_The_Listed_Clone_That_Stands_In_For_Its_Parent()
+    {
+        var (_, root, piece2, piece3) = await CreateCutOrderWithMandatoryQualificationAsync("QSplit_StandIn");
+        var scenarioService = new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context);
+        var firstMap = await scenarioService.CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, Guid.NewGuid(), null, CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        var listedRootClone = firstMap[root];
+
+        var secondMap = await scenarioService.CloneScenarioDataAsync(
+            _groupAId, ScopePeriodFrom, ScopePeriodUntil, Guid.NewGuid(), [listedRootClone], CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        secondMap.ShouldNotContainKey(root, "precondition: the listed clone stands in for the real former copy");
+        foreach (var piece in new[] { piece2, piece3 })
+        {
+            var clone = await _context.Shift.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == secondMap[piece]);
+            clone.ParentId.ShouldBe(secondMap[listedRootClone], "a real piece's parent link resolves to the clone of its stand-in");
+        }
+    }
     #endregion
 }
