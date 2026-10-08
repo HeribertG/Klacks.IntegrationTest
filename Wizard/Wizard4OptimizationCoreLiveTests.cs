@@ -108,7 +108,7 @@ public class Wizard4OptimizationCoreLiveTests
         var keywordProvider = Substitute.For<IScheduleCommandKeywordProvider>();
         keywordProvider.GetAsync(Arg.Any<CancellationToken>()).Returns(ScheduleCommandKeywordTestFactory.Default);
         var wizardBuilder = new WizardContextBuilder(
-            new WizardAgentSnapshotBuilder(provider),
+            new WizardAgentSnapshotBuilder(provider, new Klacks.Api.Infrastructure.Repositories.Associations.MembershipWindowReader(_context)),
             new WizardShiftBuilder(_context),
             new WizardHardConstraintBuilder(_context, keywordProvider),
             periodHours,
