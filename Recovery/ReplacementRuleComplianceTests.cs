@@ -26,6 +26,7 @@ using Klacks.Api.Infrastructure.Mediator;
 using Klacks.IntegrationTest.Wizard;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
 
@@ -216,6 +217,83 @@ public sealed class ReplacementRuleComplianceTests : WizardHarnessTestBase
             + "not only in the logs");
         (await ReplacementWorkChangeCountAsync(warnOutcome.Token)).ShouldBe(1,
             "the Warn-mode delta must exist as a Replacement WorkChange in the scenario");
+    }
+
+    [Test]
+    public async Task CoverAbsence_FailureAfterTheReplacementWorkChanges_RollsTheWholeScenarioBack()
+    {
+        Context.Work.Add(new Work
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _absentId,
+            CurrentDate = AbsenceDay,
+            ShiftId = _shiftId,
+            StartTime = ShiftStart,
+            EndTime = ShiftEnd,
+            WorkTime = 8m,
+            ParentWorkId = null,
+            AnalyseToken = null,
+            IsDeleted = false,
+        });
+        await Context.SaveChangesAsync();
+
+        using var scope = CreateScope();
+        var services = scope.ServiceProvider;
+        var coveredBeforeFailure = 0;
+        var failingRecorder = NSubstitute.Substitute.For<Klacks.Api.Application.Interfaces.Schedules.IReplacementRequestRecorder>();
+        failingRecorder.RecordProposalsAsync(default!, default!, default)
+            .ReturnsForAnyArgs<IReadOnlyList<Klacks.Api.Application.DTOs.Schedules.CoveredSlot>>(ci =>
+            {
+                coveredBeforeFailure = ci.ArgAt<IReadOnlyList<Klacks.Api.Application.DTOs.Schedules.CoveredSlot>>(1).Count;
+                throw new InvalidOperationException("simulated failure after the replacement WorkChanges");
+            });
+        var escalation = NSubstitute.Substitute.For<Klacks.Api.Domain.Interfaces.Assistant.IEscalationChainService>();
+        var handler = new Klacks.Api.Application.Handlers.Schedules.CoverAbsenceCommandHandler(
+            services.GetRequiredService<Klacks.Api.Application.Interfaces.IAnalyseScenarioRepository>(),
+            services.GetRequiredService<Klacks.Api.Application.Interfaces.IAnalyseScenarioService>(),
+            services.GetRequiredService<Klacks.Api.Domain.Interfaces.Schedules.IScheduleEntriesService>(),
+            services.GetRequiredService<Klacks.Api.Application.Services.Schedules.Recovery.IRecoverySnapshotBuilder>(),
+            services.GetRequiredService<Klacks.ScheduleRecovery.Engine.IRecoveryEngine>(),
+            services.GetRequiredService<Klacks.Api.Application.Interfaces.Schedules.ICompliancePartitionService>(),
+            services.GetRequiredService<IMediator>(),
+            services.GetRequiredService<Klacks.Api.Domain.Interfaces.IUnitOfWork>(),
+            escalation,
+            services.GetRequiredService<Klacks.Api.Domain.Interfaces.Settings.ICompanyClock>(),
+            services.GetRequiredService<Klacks.Api.Application.Interfaces.IClientVisibilityGuard>(),
+            services.GetRequiredService<Klacks.Api.Application.Interfaces.IGroupVisibilityGuard>(),
+            services.GetRequiredService<Klacks.Api.Application.Interfaces.Schedules.IScenarioNameGenerator>(),
+            failingRecorder,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Klacks.Api.Application.Handlers.Schedules.CoverAbsenceCommandHandler>.Instance);
+
+        try
+        {
+            await Should.ThrowAsync<InvalidOperationException>(() => handler.Handle(
+                new CoverAbsenceCommand(_absentId, AbsenceDay, _groupId, Guid.Parse(AbsenceGuid)),
+                CancellationToken.None));
+
+            coveredBeforeFailure.ShouldBe(1, "the replacement WorkChange must have been posted before the injected failure");
+            (await Context.AnalyseScenarios.AsNoTracking().CountAsync(s => s.GroupId == _groupId)).ShouldBe(0,
+                "the scenario row must be rolled back with everything else");
+            (await Context.Work.AsNoTracking().CountAsync(w =>
+                    w.AnalyseToken != null && (w.ClientId == _absentId || w.ClientId == _candidateId))).ShouldBe(0,
+                "no cloned scenario Work may survive the rollback");
+            (await Context.WorkChange.AsNoTracking().CountAsync(wc => wc.ReplaceClientId == _candidateId)).ShouldBe(0,
+                "the replacement WorkChange posted before the failure must be rolled back");
+            (await Context.Break.AsNoTracking().CountAsync(b => b.ClientId == _absentId && b.AnalyseToken != null)).ShouldBe(0,
+                "the scenario absence break must be rolled back");
+            await escalation.DidNotReceiveWithAnyArgs().StartChainAsync(default!, default);
+        }
+        finally
+        {
+            var leakedTokens = await Context.AnalyseScenarios.IgnoreQueryFilters().AsNoTracking()
+                .Where(s => s.GroupId == _groupId)
+                .Select(s => s.Token)
+                .ToListAsync();
+            foreach (var token in leakedTokens)
+            {
+                await PurgeScenarioTokenAsync(token);
+            }
+        }
     }
 
     private async Task<TResponse> SendAsync<TResponse>(IRequest<TResponse> request)
