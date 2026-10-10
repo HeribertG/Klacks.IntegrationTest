@@ -231,6 +231,7 @@ public class AcceptLockSeamDataLossCharacterizationTests
             Substitute.For<Microsoft.AspNetCore.Http.IHttpContextAccessor>(),
             Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IPeriodHoursService>(),
             Substitute.For<Klacks.Api.Application.Interfaces.IWorkNotificationService>(),
+            Substitute.For<Klacks.Api.Domain.Interfaces.Assistant.IEscalationChainService>(),
             Substitute.For<ILogger<AcceptAnalyseScenarioCommandHandler>>());
     }
 

@@ -219,6 +219,7 @@ public class AcceptScenarioPeriodHoursRefreshSeamTests
             Substitute.For<IHttpContextAccessor>(),
             PeriodHoursService(_context),
             Substitute.For<IWorkNotificationService>(),
+            Substitute.For<Klacks.Api.Domain.Interfaces.Assistant.IEscalationChainService>(),
             Substitute.For<ILogger<AcceptAnalyseScenarioCommandHandler>>());
     }
 
