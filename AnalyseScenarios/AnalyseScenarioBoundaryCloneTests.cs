@@ -157,7 +157,7 @@ public class AnalyseScenarioBoundaryCloneTests
         var realWork = await CreateRealWorkAsync(client.Id, shift.Id, boundaryStartDate);
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var cloneCount = await _context.Work.IgnoreQueryFilters()
@@ -174,7 +174,7 @@ public class AnalyseScenarioBoundaryCloneTests
         await CreateRealWorkAsync(client.Id, shift.Id, boundaryEndDate);
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var cloneCount = await _context.Work.IgnoreQueryFilters()
@@ -191,7 +191,7 @@ public class AnalyseScenarioBoundaryCloneTests
         await CreateRealWorkAsync(client.Id, shift.Id, beyondDate);
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var cloneCount = await _context.Work.IgnoreQueryFilters()
@@ -220,7 +220,7 @@ public class AnalyseScenarioBoundaryCloneTests
         await _context.SaveChangesAsync();
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var clonedChanges = await _context.WorkChange.IgnoreQueryFilters()
@@ -249,7 +249,7 @@ public class AnalyseScenarioBoundaryCloneTests
         await _context.SaveChangesAsync();
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var clonedExpenses = await _context.Expenses.IgnoreQueryFilters()
@@ -268,7 +268,7 @@ public class AnalyseScenarioBoundaryCloneTests
         await CreateRealWorkAsync(client.Id, shift.Id, PeriodFrom.AddDays(-3));
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         await _service.PromoteScenarioWorksAsync(token, PeriodFrom, PeriodUntil, CancellationToken.None);
@@ -324,7 +324,7 @@ public class AnalyseScenarioBoundaryCloneTests
         await _context.SaveChangesAsync();
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         await _service.PromoteScenarioWorksAsync(token, PeriodFrom, PeriodUntil, CancellationToken.None);

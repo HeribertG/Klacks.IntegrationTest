@@ -244,7 +244,7 @@ public class AcceptScenarioPeriodHoursRefreshSeamTests
         await _context.Set<AnalyseScenario>().AddAsync(scenario);
         await _context.SaveChangesAsync();
         var shiftIdMap = await new AnalyseScenarioService(_context).CloneScenarioDataAsync(
-            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
         await AddWorkAsync(client.Id, shiftIdMap[shift.Id], token);
 

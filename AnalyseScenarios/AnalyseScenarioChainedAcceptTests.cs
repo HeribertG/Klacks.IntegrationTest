@@ -134,6 +134,7 @@ public class AnalyseScenarioChainedAcceptTests
             untilDate: PeriodEnd,
             token: token,
             additionalShiftIds: new[] { sourceShiftId },
+            null,
             ct: CancellationToken.None);
         await _context.SaveChangesAsync();
         return idMap[sourceShiftId];

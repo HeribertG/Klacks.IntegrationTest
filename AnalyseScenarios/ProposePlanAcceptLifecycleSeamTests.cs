@@ -200,7 +200,7 @@ public class ProposePlanAcceptLifecycleSeamTests
         var token = Guid.NewGuid();
         var scenario = await CreateScenarioRowAsync(token);
         var shiftIdMap = await _cloneService.CloneScenarioDataAsync(
-            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var cloneShiftId = shiftIdMap[shift.Id];

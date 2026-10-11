@@ -141,7 +141,7 @@ public class AnalyseScenarioGroupShiftSetCloneTests
 
         var token = Guid.NewGuid();
         var idMap = await _service.CloneScenarioDataAsync(
-            group.Id, PeriodFrom, PeriodUntil, token, new[] { withWork.Id }, CancellationToken.None);
+            group.Id, PeriodFrom, PeriodUntil, token, new[] { withWork.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var clones = await LoadClonesAsync(token);
@@ -161,12 +161,12 @@ public class AnalyseScenarioGroupShiftSetCloneTests
 
         var token1 = Guid.NewGuid();
         var stageOneMap = await _service.CloneScenarioDataAsync(
-            group.Id, PeriodFrom, PeriodUntil, token1, null, CancellationToken.None);
+            group.Id, PeriodFrom, PeriodUntil, token1, null, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var token2 = Guid.NewGuid();
         var stageTwoMap = await _service.CloneScenarioDataAsync(
-            group.Id, PeriodFrom, PeriodUntil, token2, new[] { stageOneMap[withWork.Id] }, CancellationToken.None);
+            group.Id, PeriodFrom, PeriodUntil, token2, new[] { stageOneMap[withWork.Id] }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var clones = await LoadClonesAsync(token2);
@@ -189,7 +189,7 @@ public class AnalyseScenarioGroupShiftSetCloneTests
 
         var token = Guid.NewGuid();
         await _service.CloneScenarioDataAsync(
-            group.Id, PeriodFrom, PeriodUntil, token, new[] { outside.Id }, CancellationToken.None);
+            group.Id, PeriodFrom, PeriodUntil, token, new[] { outside.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var clones = await LoadClonesAsync(token);
@@ -206,7 +206,7 @@ public class AnalyseScenarioGroupShiftSetCloneTests
 
         var token = Guid.NewGuid();
         await _service.CloneScenarioDataAsync(
-            null, PeriodFrom, PeriodUntil, token, new[] { listed.Id }, CancellationToken.None);
+            null, PeriodFrom, PeriodUntil, token, new[] { listed.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var clones = await LoadClonesAsync(token);

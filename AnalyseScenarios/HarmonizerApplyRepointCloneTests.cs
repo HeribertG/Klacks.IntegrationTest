@@ -154,7 +154,7 @@ public class HarmonizerApplyRepointCloneTests
 
         var token = Guid.NewGuid();
         var (_, workIdMap) = await _service.CloneScenarioDataWithMapsAsync(
-            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         workIdMap.ShouldContainKey(work.Id);
@@ -191,7 +191,7 @@ public class HarmonizerApplyRepointCloneTests
 
         var token = Guid.NewGuid();
         var (_, workIdMap) = await _service.CloneScenarioDataWithMapsAsync(
-            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
         var cloneId = workIdMap[work.Id];
 
@@ -267,7 +267,7 @@ public class HarmonizerApplyRepointCloneTests
 
         var token = Guid.NewGuid();
         var (_, workIdMap) = await _service.CloneScenarioDataWithMapsAsync(
-            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
         var keepClone = workIdMap[keep.Id];
         var dropClone = workIdMap[drop.Id];

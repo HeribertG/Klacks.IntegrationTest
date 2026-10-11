@@ -138,7 +138,7 @@ public class AnalyseScenarioInputFidelityCloneTests
         await _context.SaveChangesAsync();
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var clonedCommands = await _context.ScheduleCommands.IgnoreQueryFilters()
@@ -159,7 +159,7 @@ public class AnalyseScenarioInputFidelityCloneTests
         await _context.SaveChangesAsync();
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var cloneShiftId = await _context.Shift.IgnoreQueryFilters()
@@ -189,7 +189,7 @@ public class AnalyseScenarioInputFidelityCloneTests
         await _context.SaveChangesAsync();
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var clonedLock = await _context.Work.IgnoreQueryFilters()
@@ -216,7 +216,7 @@ public class AnalyseScenarioInputFidelityCloneTests
         await _context.SaveChangesAsync();
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         await _service.SoftDeleteScenarioDataAsync(token, CancellationToken.None);
@@ -250,7 +250,7 @@ public class AnalyseScenarioInputFidelityCloneTests
         await _context.SaveChangesAsync();
 
         var token = Guid.NewGuid();
-        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         await _service.PromoteScenarioWorksAsync(token, PeriodFrom, PeriodUntil, CancellationToken.None);

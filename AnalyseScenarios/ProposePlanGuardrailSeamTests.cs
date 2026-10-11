@@ -197,7 +197,7 @@ public class ProposePlanGuardrailSeamTests
         await CreateRealWorkAsync(client.Id, shift.Id);
 
         var token = Guid.NewGuid();
-        await _cloneService.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _cloneService.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         // Overlaps the cloned 08:00-16:00 work on the same day -> collision, but ONLY if the checker
@@ -218,7 +218,7 @@ public class ProposePlanGuardrailSeamTests
         await CreateRealWorkAsync(client.Id, shift.Id);
 
         var token = Guid.NewGuid();
-        await _cloneService.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _cloneService.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         // A different token addresses a scenario world that has no cloned work -> nothing to collide with.

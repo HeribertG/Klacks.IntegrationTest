@@ -158,6 +158,7 @@ public class AnalyseScenarioShiftDeleteGuardTests
             untilDate: new DateOnly(2026, 1, 31),
             token: token,
             additionalShiftIds: new[] { realShift.Id },
+            null,
             ct: CancellationToken.None);
         await _context.SaveChangesAsync();
 
@@ -184,6 +185,7 @@ public class AnalyseScenarioShiftDeleteGuardTests
             untilDate: new DateOnly(2026, 1, 31),
             token: token,
             additionalShiftIds: new[] { realShift.Id },
+            null,
             ct: CancellationToken.None);
         await _context.SaveChangesAsync();
 

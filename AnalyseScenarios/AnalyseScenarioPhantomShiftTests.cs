@@ -137,6 +137,7 @@ public class AnalyseScenarioPhantomShiftTests
             untilDate: new DateOnly(2026, 1, 31),
             token: token,
             additionalShiftIds: new[] { realShift.Id },
+            null,
             ct: CancellationToken.None);
         await _context.SaveChangesAsync();
 
@@ -157,7 +158,7 @@ public class AnalyseScenarioPhantomShiftTests
         var realShift = await CreateRealShiftAsync("Source2");
         var token = Guid.NewGuid();
         await _service.CloneScenarioDataAsync(null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31),
-            token, new[] { realShift.Id }, CancellationToken.None);
+            token, new[] { realShift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         realShift.IsDeleted = true;
@@ -175,7 +176,7 @@ public class AnalyseScenarioPhantomShiftTests
         var realShift = await CreateRealShiftAsync("Source3");
         var token = Guid.NewGuid();
         await _service.CloneScenarioDataAsync(null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31),
-            token, new[] { realShift.Id }, CancellationToken.None);
+            token, new[] { realShift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var newSplit = new Shift
@@ -208,7 +209,7 @@ public class AnalyseScenarioPhantomShiftTests
         var realShift = await CreateRealShiftAsync("Source4");
         var token = Guid.NewGuid();
         var idMap = await _service.CloneScenarioDataAsync(null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31),
-            token, new[] { realShift.Id }, CancellationToken.None);
+            token, new[] { realShift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var cloneId = idMap[realShift.Id];
@@ -282,7 +283,7 @@ public class AnalyseScenarioPhantomShiftTests
         await _context.SaveChangesAsync();
 
         await _service.CloneScenarioDataAsync(null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31),
-            token, new[] { realShift.Id }, CancellationToken.None);
+            token, new[] { realShift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var clonedPrefCount = await _context.Set<Klacks.Api.Domain.Models.Associations.ClientShiftPreference>()
@@ -330,7 +331,7 @@ public class AnalyseScenarioPhantomShiftTests
 
         var token = Guid.NewGuid();
         await _service.CloneScenarioDataAsync(null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31),
-            token, new[] { realShift.Id }, CancellationToken.None);
+            token, new[] { realShift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         await _service.SoftDeleteRealScheduleDataAsync(null, token, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31),

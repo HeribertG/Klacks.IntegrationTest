@@ -1954,7 +1954,7 @@ public class ShiftManipulationIntegrationTests
         var token = Guid.NewGuid();
 
         var idMap = await new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context)
-            .CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, token, null, CancellationToken.None);
+            .CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, token, null, null, CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
         var clonePieces = new[] { idMap[root], idMap[piece2], idMap[piece3] };
@@ -2217,7 +2217,7 @@ public class ShiftManipulationIntegrationTests
         await AddPreferenceAsync(order);
         var scenarioService = new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context);
         var firstToken = Guid.NewGuid();
-        var firstMap = await scenarioService.CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, firstToken, null, CancellationToken.None);
+        var firstMap = await scenarioService.CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, firstToken, null, null, CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
         var firstClone = firstMap[piece2];
@@ -2228,7 +2228,7 @@ public class ShiftManipulationIntegrationTests
 
         var secondToken = Guid.NewGuid();
         var secondMap = await scenarioService.CloneScenarioDataAsync(
-            _groupAId, ScopePeriodFrom, ScopePeriodUntil, secondToken, [firstClone], CancellationToken.None);
+            _groupAId, ScopePeriodFrom, ScopePeriodUntil, secondToken, [firstClone], null, CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
         var secondClone = secondMap[firstClone];
@@ -2254,13 +2254,13 @@ public class ShiftManipulationIntegrationTests
     {
         var (_, root, piece2, piece3) = await CreateCutOrderWithMandatoryQualificationAsync("QSplit_StandIn");
         var scenarioService = new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context);
-        var firstMap = await scenarioService.CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, Guid.NewGuid(), null, CancellationToken.None);
+        var firstMap = await scenarioService.CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, Guid.NewGuid(), null, null, CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
         var listedRootClone = firstMap[root];
 
         var secondMap = await scenarioService.CloneScenarioDataAsync(
-            _groupAId, ScopePeriodFrom, ScopePeriodUntil, Guid.NewGuid(), [listedRootClone], CancellationToken.None);
+            _groupAId, ScopePeriodFrom, ScopePeriodUntil, Guid.NewGuid(), [listedRootClone], null, CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
 

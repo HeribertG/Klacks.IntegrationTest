@@ -230,7 +230,7 @@ public class EvaluateScenarioReaderSeamTests
 
         var token = Guid.NewGuid();
         await CreateScenarioRowAsync(token);
-        await _cloneService.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+        await _cloneService.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         await InjectScenarioBreakAsync(anna.Id, token);
@@ -255,7 +255,7 @@ public class EvaluateScenarioReaderSeamTests
         var token = Guid.NewGuid();
         await CreateScenarioRowAsync(token);
         var shiftIdMap = await _cloneService.CloneScenarioDataAsync(
-            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, CancellationToken.None);
+            null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         // Bob has no real work; a propose_plan placement adds a scenario-only work on the clone shift.

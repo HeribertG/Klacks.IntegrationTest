@@ -248,7 +248,7 @@ public class AcceptLockSeamDataLossCharacterizationTests
         var token = Guid.NewGuid();
         var scenario = await CreateScenarioRowAsync(token, groupId: null);
         var shiftIdMap = await _cloneService.CloneScenarioDataAsync(
-            null, PeriodFrom, PeriodUntil, token, new[] { scenarioShift.Id }, CancellationToken.None);
+            null, PeriodFrom, PeriodUntil, token, new[] { scenarioShift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
         await InjectScenarioPlacementAsync(cover.Id, shiftIdMap[scenarioShift.Id], token);
 
@@ -319,7 +319,7 @@ public class AcceptLockSeamDataLossCharacterizationTests
         var scenario = await CreateScenarioRowAsync(token, groupId: group.Id);
         // Cloning the group data clones the Confirmed work into the token (clone carries LockLevel=Confirmed).
         await _cloneService.CloneScenarioDataWithMapsAsync(
-            group.Id, PeriodFrom, PeriodUntil, token, new[] { realShift.Id }, CancellationToken.None);
+            group.Id, PeriodFrom, PeriodUntil, token, new[] { realShift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var accepted = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);

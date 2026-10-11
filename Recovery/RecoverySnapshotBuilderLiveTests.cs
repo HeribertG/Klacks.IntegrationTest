@@ -54,7 +54,7 @@ public sealed class RecoverySnapshotBuilderLiveTests : WizardHarnessTestBase
         foreach (var fixture in await CandidateFixturesAsync())
         {
             var snapshot = await builder.BuildAsync(
-                fixture.GroupId, fixture.ClientId, [fixture.Date], CancellationToken.None);
+                fixture.GroupId, fixture.ClientId, [fixture.Date], null, CancellationToken.None);
             if (snapshot.Agents.Count > 0 && snapshot.GetWorks(fixture.ClientId, fixture.Date).Count > 0)
             {
                 return (fixture, snapshot);
@@ -99,7 +99,7 @@ public sealed class RecoverySnapshotBuilderLiveTests : WizardHarnessTestBase
         var fixture = resolved.Value.Fixture;
         var first = resolved.Value.Snapshot;
         var second = await builder.BuildAsync(
-            fixture.GroupId, fixture.ClientId, [fixture.Date], CancellationToken.None);
+            fixture.GroupId, fixture.ClientId, [fixture.Date], null, CancellationToken.None);
 
         first.Agents.Select(a => a.Id).ShouldBe(second.Agents.Select(a => a.Id).ToList());
         first.GetWorks(fixture.ClientId, fixture.Date).Select(w => w.ShiftId)
