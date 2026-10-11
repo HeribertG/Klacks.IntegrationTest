@@ -218,7 +218,7 @@ public class EvaluateScenarioReaderSeamTests
         var loader = Substitute.For<IPeriodValidationLoader>();
         loader.LoadAsync(Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
             .Returns(new List<PeriodIssueDto>());
-        return new EvaluateScenarioQueryHandler(scenarioRepo, entries, loader);
+        return new EvaluateScenarioQueryHandler(scenarioRepo, entries, loader, Klacks.IntegrationTest.TestHelpers.UnrestrictedGroupVisibility.Create());
     }
 
     [Test]

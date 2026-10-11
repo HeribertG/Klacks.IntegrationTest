@@ -165,6 +165,7 @@ public class HarmonizerApplyTransactionTests
             Substitute.For<IScheduleSnapshotMarkerService>(),
             TestCompanyClock.Utc(),
             NameGenerator(TestPrefix + "Run"),
+            Klacks.IntegrationTest.TestHelpers.UnrestrictedGroupVisibility.CreateScenarioTokenAccess(),
             Substitute.For<ILogger<HarmonizerApplyService>>());
 
     private static HarmonyBitmap BuildBitmap(Guid agentId, Guid shiftId, Guid workId)

@@ -188,6 +188,7 @@ public class ProposePlanAcceptLifecycleSeamTests
             Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IPeriodHoursService>(),
             Substitute.For<Klacks.Api.Application.Interfaces.IWorkNotificationService>(),
             Substitute.For<Klacks.Api.Domain.Interfaces.Assistant.IEscalationChainService>(),
+            Klacks.IntegrationTest.TestHelpers.UnrestrictedGroupVisibility.Create(),
             Substitute.For<ILogger<AcceptAnalyseScenarioCommandHandler>>());
     }
 

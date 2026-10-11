@@ -220,6 +220,7 @@ public class AcceptScenarioPeriodHoursRefreshSeamTests
             PeriodHoursService(_context),
             Substitute.For<IWorkNotificationService>(),
             Substitute.For<Klacks.Api.Domain.Interfaces.Assistant.IEscalationChainService>(),
+            Klacks.IntegrationTest.TestHelpers.UnrestrictedGroupVisibility.Create(),
             Substitute.For<ILogger<AcceptAnalyseScenarioCommandHandler>>());
     }
 

@@ -224,6 +224,7 @@ public class HarmonizerApplyRepointCloneTests
             Substitute.For<IScheduleSnapshotMarkerService>(),
             TestCompanyClock.Utc(),
             NameGenerator(TestPrefix + "Scenario"),
+            Klacks.IntegrationTest.TestHelpers.UnrestrictedGroupVisibility.CreateScenarioTokenAccess(),
             Substitute.For<ILogger<HarmonizerApplyService>>());
 
         var repointed = await apply.RepointClonedWorksAsync(
@@ -300,6 +301,7 @@ public class HarmonizerApplyRepointCloneTests
             Substitute.For<IScheduleSnapshotMarkerService>(),
             TestCompanyClock.Utc(),
             NameGenerator(TestPrefix + "Scenario"),
+            Klacks.IntegrationTest.TestHelpers.UnrestrictedGroupVisibility.CreateScenarioTokenAccess(),
             Substitute.For<ILogger<HarmonizerApplyService>>());
 
         var repointed = await apply.RepointClonedWorksAsync(

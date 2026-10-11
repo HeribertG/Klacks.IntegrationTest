@@ -219,6 +219,7 @@ public class WizardApplyDoublePromotionTests
             Substitute.For<IScheduleTimelineService>(),
             TestCompanyClock.Utc(),
             NameGenerator(TestPrefix + "Scenario"),
+            Klacks.IntegrationTest.TestHelpers.UnrestrictedGroupVisibility.CreateScenarioTokenAccess(),
             Substitute.For<ILogger<WizardApplyService>>());
     }
 
