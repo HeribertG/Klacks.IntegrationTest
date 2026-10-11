@@ -85,7 +85,7 @@ public class BulkDeleteWorksIntegrationTests
 
         _handler = new BulkDeleteWorksCommandHandler(
             workRepository,
-            AllClientsVisible(),
+            AllRowsVisible(),
             scheduleMapper,
             periodHoursService,
             completionService,
@@ -111,6 +111,13 @@ public class BulkDeleteWorksIntegrationTests
         };
         accessor.HttpContext.Returns(httpContext);
         return accessor;
+    }
+
+    private static IScheduleRowAccessGuard AllRowsVisible()
+    {
+        var scenarios = Substitute.For<IScenarioTokenAccessGuard>();
+        scenarios.IsVisibleAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        return new Klacks.Api.Application.Services.Groups.ScheduleRowAccessGuard(AllClientsVisible(), scenarios);
     }
 
     private static IClientVisibilityGuard AllClientsVisible()
