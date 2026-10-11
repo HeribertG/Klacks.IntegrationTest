@@ -168,6 +168,28 @@ public class AcceptStaleScenarioSeamTests
         ex.Staleness.AcceptedScenarioNames.ShouldBe(new[] { TestPrefix + "B" });
     }
 
+    [Test]
+    public async Task UnsealAfterCreation_IsRefusedAsStale()
+    {
+        _realWork.LockLevel = WorkLockLevel.Confirmed;
+        await _context.SaveChangesAsync();
+        var scenario = await CreateClonedScenarioAsync("UNSEAL");
+        await Task.Delay(ClockGapMilliseconds);
+
+        var unsealed = await WorkRepository().UnsealByDayAndGroup(WorkDate, _group.Id, WorkLockLevel.Confirmed);
+        unsealed.ShouldBe(1);
+
+        var ex = await Should.ThrowAsync<ScenarioStaleException>(() =>
+            Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None));
+
+        ex.Staleness.ChangedEntryCount.ShouldBe(1, "the unsealed work is movable again and the accept would overwrite it");
+    }
+    private WorkRepository WorkRepository() => new(
+        _context,
+        Substitute.For<ILogger<Work>>(),
+        Substitute.For<Klacks.Api.Domain.Services.Common.IClientBaseQueryService>(),
+        Substitute.For<Klacks.Api.Domain.Interfaces.Macros.IWorkMacroService>(),
+        Substitute.For<Klacks.Api.Domain.Interfaces.Associations.IClientContractDataProvider>());
     private async Task<AnalyseScenario> CreateClonedScenarioAsync(string suffix)
     {
         var token = Guid.NewGuid();

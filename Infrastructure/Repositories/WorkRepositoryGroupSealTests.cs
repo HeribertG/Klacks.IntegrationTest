@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Shouldly;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Services.Clients;
@@ -21,6 +22,9 @@ namespace Klacks.IntegrationTest.Infrastructure.Repositories;
 [Category("RealDatabase")]
 public class WorkRepositoryGroupSealTests
 {
+    private const string AuditActor = "INTEGRATION_TEST_seal_audit_actor";
+    private const string AuditAuthenticationType = "IntegrationTest";
+
     private DataBaseContext _context = null!;
     private WorkRepository _repo = null!;
 
@@ -48,7 +52,12 @@ public class WorkRepositoryGroupSealTests
             .UseSnakeCaseNamingConvention()
             .Options;
 
-        _context = new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
+        var httpContextAccessor = Substitute.For<IHttpContextAccessor>();
+        httpContextAccessor.HttpContext.Returns(new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, AuditActor)], AuditAuthenticationType))
+        });
+        _context = new DataBaseContext(options, httpContextAccessor);
 
         var fuzzySearchService = Substitute.For<IClientFuzzySearchService>();
         fuzzySearchService.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -124,6 +133,76 @@ public class WorkRepositoryGroupSealTests
 
         work1!.LockLevel.ShouldBe(WorkLockLevel.None);
         work2!.LockLevel.ShouldBe(WorkLockLevel.Confirmed);
+    }
+
+    [Test]
+    public async Task SealByDayAndGroup_StampsUpdateTimeAndActor()
+    {
+        var before = DateTime.UtcNow.AddSeconds(-1);
+
+        await _repo.SealByDayAndGroup(TestDate, _group1Id, WorkLockLevel.Approved, "test-user");
+
+        await ShouldBeStampedAsync(_work1Id, before);
+    }
+
+    [Test]
+    public async Task UnsealByDayAndGroup_StampsUpdateTimeAndActor()
+    {
+        await PreSealWithoutAuditAsync(WorkLockLevel.Approved);
+        var before = DateTime.UtcNow.AddSeconds(-1);
+
+        await _repo.UnsealByDayAndGroup(TestDate, _group1Id, WorkLockLevel.Approved);
+
+        await ShouldBeStampedAsync(_work1Id, before);
+    }
+
+    [Test]
+    public async Task SealByPeriodAndGroup_StampsUpdateTimeAndActor()
+    {
+        var before = DateTime.UtcNow.AddSeconds(-1);
+
+        await _repo.SealByPeriodAndGroup(PeriodStart, PeriodEnd, _group1Id, WorkLockLevel.Closed, "test-user");
+
+        await ShouldBeStampedAsync(_work1Id, before);
+    }
+
+    [Test]
+    public async Task UnsealByPeriodAndGroup_StampsUpdateTimeAndActor()
+    {
+        await PreSealWithoutAuditAsync(WorkLockLevel.Closed);
+        var before = DateTime.UtcNow.AddSeconds(-1);
+
+        await _repo.UnsealByPeriodAndGroup(PeriodStart, PeriodEnd, _group1Id, WorkLockLevel.Closed);
+
+        await ShouldBeStampedAsync(_work1Id, before);
+    }
+
+    /// <summary>
+    /// Locks the first work the way a seal before this fix did: lock columns only, no UpdateTime, so the unseal is the
+    /// only statement that can stamp it.
+    /// </summary>
+    private async Task PreSealWithoutAuditAsync(WorkLockLevel level)
+    {
+        await _context.Work
+            .Where(x => x.Id == _work1Id)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.LockLevel, level)
+                .SetProperty(x => x.SealedAt, DateTime.UtcNow)
+                .SetProperty(x => x.SealedBy, "pre-sealer")
+                .SetProperty(x => x.UpdateTime, (DateTime?)null));
+    }
+
+    /// <summary>
+    /// A lock change is a change of the entry: the scenario staleness check and every audit reader rely on UpdateTime,
+    /// which a bulk ExecuteUpdate bypassing OnBeforeSaving would otherwise leave untouched.
+    /// </summary>
+    private async Task ShouldBeStampedAsync(Guid id, DateTime notBefore)
+    {
+        _context.ChangeTracker.Clear();
+        var entry = await _context.Work.AsNoTracking().SingleAsync(x => x.Id == id);
+        entry.UpdateTime.ShouldNotBeNull("a lock change must stamp UpdateTime");
+        entry.UpdateTime!.Value.ShouldBeGreaterThanOrEqualTo(notBefore);
+        entry.CurrentUserUpdated.ShouldBe(AuditActor);
     }
 
     private async Task SeedTwoGroupsWithOneClientEach()
