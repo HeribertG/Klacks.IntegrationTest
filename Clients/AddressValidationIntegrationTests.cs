@@ -5,12 +5,14 @@
 /// Tests international addresses (Germany, Austria, France, Italy, Liechtenstein)
 /// and verifies state auto-fill, state mismatch detection, and geocoding results.
 /// </summary>
-/// <param name="_geocodingService">Real GeocodingService calling Nominatim API</param>
+/// <param name="_geocodingService">Real GeocodingService calling the public Nominatim API (default geo service policy)</param>
 /// <param name="_stateResolver">Resolves Nominatim state names to DB abbreviations</param>
 
 using Shouldly;
 using Klacks.Api.Domain.Interfaces.RouteOptimization;
 using Klacks.Api.Domain.Models.Settings;
+using Klacks.Api.Domain.Models.Settings.GeoServices;
+using Klacks.Api.Domain.Services.GeoServices;
 using Klacks.Api.Domain.Services.Common;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services;
@@ -18,6 +20,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using NUnit.Framework;
 
@@ -46,7 +49,9 @@ public class AddressValidationIntegrationTests
         var cache = new MemoryCache(new MemoryCacheOptions());
         var logger = Substitute.For<ILogger<GeocodingService>>();
 
-        _geocodingService = new GeocodingService(httpClientFactory, cache, logger);
+        var geoServicesPolicy = new GeoServicesPolicy(Options.Create(new GeoServicesOptions()));
+
+        _geocodingService = new GeocodingService(httpClientFactory, cache, geoServicesPolicy, logger);
     }
 
     [SetUp]
