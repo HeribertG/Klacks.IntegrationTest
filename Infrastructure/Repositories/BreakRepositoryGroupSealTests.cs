@@ -383,6 +383,26 @@ public class BreakRepositoryGroupSealTests
         await ShouldBeStampedAsync(_break1Id, before);
     }
 
+    [Test]
+    public async Task ReopenTransferringTheOwner_StampsUpdateTimeAndActor()
+    {
+        await SeedMemberOfBothGroupsAsync();
+        await _repo.SealByPeriodAndGroup(PeriodStart, PeriodEnd, _group2Id, WorkLockLevel.Closed, "closer-b");
+        await AddGroupSealedDayAsync(_group2Id);
+        await _repo.SealByPeriodAndGroup(PeriodStart, PeriodEnd, _group1Id, WorkLockLevel.Closed, "closer-a");
+        await AddGroupSealedDayAsync(_group1Id);
+        await _context.Break
+            .Where(b => b.Id == _memberBreakId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(b => b.UpdateTime, (DateTime?)null)
+                .SetProperty(b => b.CurrentUserUpdated, (string?)null));
+        var before = DateTime.UtcNow.AddSeconds(-1);
+
+        await _repo.UnsealByPeriodAndGroup(PeriodStart, PeriodEnd, _group2Id, WorkLockLevel.Closed);
+
+        await ShouldBeStampedAsync(_memberBreakId, before);
+    }
+
     /// <summary>
     /// Locks the first break the way a seal before this fix did: lock columns only, no UpdateTime, so the unseal is the
     /// only statement that can stamp it.
