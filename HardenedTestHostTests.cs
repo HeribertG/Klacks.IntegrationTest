@@ -2,9 +2,10 @@
 
 /// <summary>
 /// Guards the hardened test host: a booted HardenedTestWebApplicationFactory must not run a single
-/// hosted service of Klacks' own beyond the four that have no switch and neither call out nor write
+/// hosted service of Klacks' own beyond the five that have no switch and neither call out nor write
 /// (ONNX warm-up, which reads its disable flag and returns, the ONNX idle unloader, the schedule time
-/// zone check and the messaging field encryption bootstrap). A background service added later without a
+/// zone check, the geo services startup reporter, which only logs the configuration, and the messaging
+/// field encryption bootstrap). A background service added later without a
 /// BackgroundServices flag, or a flag the reflection in the factory does not reach, turns this red
 /// instead of quietly talking to Slack, Telegram, IMAP or an LLM provider from the next test run.
 /// Only Klacks' own types are checked: framework and library services (web host, data protection,
@@ -14,6 +15,7 @@
 /// </summary>
 
 using Klacks.Api.Application.Configuration;
+using Klacks.Api.Infrastructure.Services;
 using Klacks.Api.Infrastructure.Services.Schedules;
 using Klacks.Api.KnowledgeIndex.Application.Interfaces;
 using Klacks.Api.KnowledgeIndex.Application.Services;
@@ -39,6 +41,7 @@ public class HardenedTestHostTests
         nameof(OnnxWarmupService),
         nameof(OnnxSessionIdleUnloadService),
         nameof(ScheduleTimeZoneStartupCheckService),
+        nameof(GeoServicesStartupReporter),
         MessagingEncryptionInitializerName
     };
 
