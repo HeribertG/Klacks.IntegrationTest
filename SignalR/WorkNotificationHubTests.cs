@@ -3,6 +3,7 @@ using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Application.DTOs.Notifications;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
@@ -38,6 +39,9 @@ public class SignalRTestWebApplicationFactory : HardenedTestWebApplicationFactor
                 options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
                 options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
             });
+
+            services.AddScoped(_ => UnrestrictedGroupVisibility.Create());
+            services.AddScoped(_ => UnrestrictedGroupVisibility.CreateScenarioTokenAccess());
 
             services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
             {
