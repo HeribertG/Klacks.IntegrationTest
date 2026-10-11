@@ -303,7 +303,7 @@ public class ExpenseWorkChangeScopeIntegrationTests
     {
         var accessor = BuildHttpContextAccessor();
         return new ExpensesHandlers.PostCommandHandler(
-            new ExpensesRepository(_context, Substitute.For<ILogger<Expenses>>()), AllClientsVisible(),
+            new ExpensesRepository(_context, Substitute.For<ILogger<Expenses>>()), AllRowsVisible(),
             new ScheduleMapper(), BuildUnitOfWork(), BuildPeriodHoursService(), BuildScheduleEntriesService(),
             Substitute.For<IWorkNotificationService>(), accessor, Substitute.For<IScheduleChangeTracker>(),
             BuildGroupResolver(accessor), DbBackedWorkRepository(), Substitute.For<IDayLockService>(), NewLockGuard(),
@@ -314,7 +314,7 @@ public class ExpenseWorkChangeScopeIntegrationTests
     {
         var accessor = BuildHttpContextAccessor();
         return new ExpensesHandlers.PutCommandHandler(
-            new ExpensesRepository(_context, Substitute.For<ILogger<Expenses>>()), AllClientsVisible(),
+            new ExpensesRepository(_context, Substitute.For<ILogger<Expenses>>()), AllRowsVisible(),
             new ScheduleMapper(), BuildUnitOfWork(), BuildPeriodHoursService(), BuildScheduleEntriesService(),
             Substitute.For<IWorkNotificationService>(), accessor, Substitute.For<IScheduleChangeTracker>(),
             BuildGroupResolver(accessor), DbBackedWorkRepository(), Substitute.For<IDayLockService>(), NewLockGuard(),
@@ -325,7 +325,7 @@ public class ExpenseWorkChangeScopeIntegrationTests
     {
         var accessor = BuildHttpContextAccessor();
         return new ExpensesHandlers.DeleteCommandHandler(
-            new ExpensesRepository(_context, Substitute.For<ILogger<Expenses>>()), AllClientsVisible(),
+            new ExpensesRepository(_context, Substitute.For<ILogger<Expenses>>()), AllRowsVisible(),
             new ScheduleMapper(), BuildUnitOfWork(), BuildPeriodHoursService(), BuildScheduleEntriesService(),
             Substitute.For<IWorkNotificationService>(), accessor, Substitute.For<IScheduleChangeTracker>(),
             BuildGroupResolver(accessor), Substitute.For<IDayLockService>(), NewLockGuard(),
@@ -334,7 +334,7 @@ public class ExpenseWorkChangeScopeIntegrationTests
 
     private WorkChangeHandlers.PutCommandHandler BuildWorkChangePutHandler()
         => new(
-            BuildWorkChangeRepository(), DbBackedWorkRepository(), AllClientsVisible(), new ScheduleMapper(),
+            BuildWorkChangeRepository(), DbBackedWorkRepository(), AllRowsVisible(), new ScheduleMapper(),
             BuildPeriodHoursService(), BuildSavingCompletionService(), Substitute.For<IWorkChangeResultService>(),
             Substitute.For<IWorkNotificationFacade>(), Substitute.For<IDayLockService>(),
             Substitute.For<IReplacementRequestRecorder>(), BuildHttpContextAccessor(), NewLockGuard(),
@@ -342,7 +342,7 @@ public class ExpenseWorkChangeScopeIntegrationTests
 
     private WorkChangeHandlers.DeleteCommandHandler BuildWorkChangeDeleteHandler()
         => new(
-            BuildWorkChangeRepository(), DbBackedWorkRepository(), AllClientsVisible(), new ScheduleMapper(),
+            BuildWorkChangeRepository(), DbBackedWorkRepository(), AllRowsVisible(), new ScheduleMapper(),
             BuildPeriodHoursService(), Substitute.For<IWorkNotificationService>(), BuildSavingCompletionService(),
             Substitute.For<IWorkChangeResultService>(), BuildHttpContextAccessor(), Substitute.For<IDayLockService>(),
             Substitute.For<IReplacementRequestRecorder>(), NewLockGuard(),
@@ -386,6 +386,13 @@ public class ExpenseWorkChangeScopeIntegrationTests
 
     private static SelectedGroupContextResolver BuildGroupResolver(IHttpContextAccessor accessor)
         => new(accessor, Substitute.For<IShiftGroupFilterService>());
+
+    private static IScheduleRowAccessGuard AllRowsVisible()
+    {
+        var scenarios = Substitute.For<IScenarioTokenAccessGuard>();
+        scenarios.IsVisibleAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        return new Klacks.Api.Application.Services.Groups.ScheduleRowAccessGuard(AllClientsVisible(), scenarios);
+    }
 
     private static IClientVisibilityGuard AllClientsVisible()
     {

@@ -189,7 +189,7 @@ public class ExpensesRefreshIntegrationTests
 
         return new Klacks.Api.Application.Handlers.Expenses.PostCommandHandler(
             expensesRepo,
-            AllClientsVisible(),
+            AllRowsVisible(),
             scheduleMapper,
             unitOfWork,
             periodHoursService,
@@ -222,7 +222,7 @@ public class ExpensesRefreshIntegrationTests
 
         return new Klacks.Api.Application.Handlers.Expenses.DeleteCommandHandler(
             expensesRepo,
-            AllClientsVisible(),
+            AllRowsVisible(),
             scheduleMapper,
             unitOfWork,
             periodHoursService,
@@ -242,6 +242,13 @@ public class ExpensesRefreshIntegrationTests
         repository.GetNoTracking(Arg.Any<Guid>())
             .Returns(ci => _context.Work.AsNoTracking().FirstOrDefaultAsync(w => w.Id == ci.Arg<Guid>()));
         return repository;
+    }
+
+    private static IScheduleRowAccessGuard AllRowsVisible()
+    {
+        var scenarios = Substitute.For<IScenarioTokenAccessGuard>();
+        scenarios.IsVisibleAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(true);
+        return new Klacks.Api.Application.Services.Groups.ScheduleRowAccessGuard(AllClientsVisible(), scenarios);
     }
 
     private static IClientVisibilityGuard AllClientsVisible()
