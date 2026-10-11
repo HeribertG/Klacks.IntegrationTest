@@ -184,13 +184,44 @@ public class AcceptStaleScenarioSeamTests
 
         ex.Staleness.ChangedEntryCount.ShouldBe(1, "the unsealed work is movable again and the accept would overwrite it");
     }
+    [Test]
+    public async Task SealAfterCreation_IsRefusedAsStale()
+    {
+        var scenario = await CreateClonedScenarioAsync("SEAL");
+        await Task.Delay(ClockGapMilliseconds);
+
+        var sealedCount = await WorkRepository().SealByDayAndGroup(WorkDate, _group.Id, WorkLockLevel.Confirmed, "sealer");
+        sealedCount.ShouldBe(1);
+
+        var ex = await Should.ThrowAsync<ScenarioStaleException>(() =>
+            Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None));
+
+        ex.Staleness.ChangedEntryCount.ShouldBe(1, "the sealed work stays and its movable clone would be promoted next to it");
+    }
+
+    [Test]
+    public async Task ChildBuiltFromAParentAfterARealEdit_IsRefusedAsStale()
+    {
+        var parent = await CreateClonedScenarioAsync("PARENT");
+        await Task.Delay(ClockGapMilliseconds);
+        _realWork.StartTime = new TimeOnly(9, 0);
+        await _context.SaveChangesAsync();
+        await Task.Delay(ClockGapMilliseconds);
+        var child = await CreateClonedScenarioAsync("CHILD", parent.Token);
+
+        var ex = await Should.ThrowAsync<ScenarioStaleException>(() =>
+            Handler().Handle(new AcceptAnalyseScenarioCommand(child.Id), CancellationToken.None));
+
+        ex.Staleness.ChangedEntryCount.ShouldBe(1, "the child carries the parent's snapshot, which predates the edit");
+    }
+
     private WorkRepository WorkRepository() => new(
         _context,
         Substitute.For<ILogger<Work>>(),
         Substitute.For<Klacks.Api.Domain.Services.Common.IClientBaseQueryService>(),
         Substitute.For<Klacks.Api.Domain.Interfaces.Macros.IWorkMacroService>(),
         Substitute.For<Klacks.Api.Domain.Interfaces.Associations.IClientContractDataProvider>());
-    private async Task<AnalyseScenario> CreateClonedScenarioAsync(string suffix)
+    private async Task<AnalyseScenario> CreateClonedScenarioAsync(string suffix, Guid? sourceToken = null)
     {
         var token = Guid.NewGuid();
         var scenario = new AnalyseScenario
@@ -201,10 +232,11 @@ public class AcceptStaleScenarioSeamTests
             GroupId = _group.Id,
             FromDate = PeriodFrom,
             UntilDate = PeriodUntil,
-            Status = AnalyseScenarioStatus.Active
+            Status = AnalyseScenarioStatus.Active,
+            SourceToken = sourceToken
         };
         await _context.Set<AnalyseScenario>().AddAsync(scenario);
-        await _scenarioService.CloneScenarioDataAsync(_group.Id, PeriodFrom, PeriodUntil, token, null, null, CancellationToken.None);
+        await _scenarioService.CloneScenarioDataAsync(_group.Id, PeriodFrom, PeriodUntil, token, null, sourceToken, CancellationToken.None);
         await _context.SaveChangesAsync();
         return scenario;
     }
