@@ -7,6 +7,7 @@
 /// </summary>
 
 using Klacks.Api.Application.Interfaces;
+using Klacks.Api.Domain.Models.Associations;
 using NSubstitute;
 
 namespace Klacks.IntegrationTest.TestHelpers;
@@ -17,6 +18,7 @@ public static class UnrestrictedGroupVisibility
     {
         var guard = Substitute.For<IGroupVisibilityGuard>();
         guard.IsUnrestrictedAsync(Arg.Any<CancellationToken>()).Returns(true);
+        guard.GetScopeAsync(Arg.Any<CancellationToken>()).Returns(GroupVisibilityScope.Unrestricted());
         guard.IsGroupVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
         guard.AreAllGroupsVisibleAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns(true);
         return guard;

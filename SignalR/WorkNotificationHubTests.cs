@@ -83,6 +83,10 @@ public class WorkNotificationHubTests
     private string _connectionString = null!;
     private DataBaseContext _context = null!;
 
+    private static readonly string User1Id = Guid.NewGuid().ToString();
+    private static readonly string User2Id = Guid.NewGuid().ToString();
+    private static readonly string User3Id = Guid.NewGuid().ToString();
+
     private Guid _testClientId;
     private Guid _testShiftId;
 
@@ -209,8 +213,8 @@ public class WorkNotificationHubTests
     public async Task WorkCreated_SendsNotificationToOtherClients_NotToSender()
     {
         // Arrange
-        var token1 = GenerateTestToken("user1");
-        var token2 = GenerateTestToken("user2");
+        var token1 = GenerateTestToken(User1Id);
+        var token2 = GenerateTestToken(User2Id);
 
         await using var connection1 = CreateHubConnection(token1);
         await using var connection2 = CreateHubConnection(token2);
@@ -291,8 +295,8 @@ public class WorkNotificationHubTests
         _context.Work.Add(work);
         await _context.SaveChangesAsync();
 
-        var token1 = GenerateTestToken("user1");
-        var token2 = GenerateTestToken("user2");
+        var token1 = GenerateTestToken(User1Id);
+        var token2 = GenerateTestToken(User2Id);
 
         await using var connection1 = CreateHubConnection(token1);
         await using var connection2 = CreateHubConnection(token2);
@@ -338,9 +342,9 @@ public class WorkNotificationHubTests
     public async Task MultipleClients_AllReceiveNotificationExceptSender()
     {
         // Arrange
-        var token1 = GenerateTestToken("user1");
-        var token2 = GenerateTestToken("user2");
-        var token3 = GenerateTestToken("user3");
+        var token1 = GenerateTestToken(User1Id);
+        var token2 = GenerateTestToken(User2Id);
+        var token3 = GenerateTestToken(User3Id);
 
         await using var connection1 = CreateHubConnection(token1);
         await using var connection2 = CreateHubConnection(token2);
