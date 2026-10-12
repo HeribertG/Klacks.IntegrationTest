@@ -82,13 +82,21 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
             Guid userId,
             string skillName,
             IReadOnlyDictionary<string, object> parameters,
-            string purpose = PendingConfirmationPurposes.GateReplay) =>
+            string purpose = PendingConfirmationPurposes.GateReplay,
+            string channel = PendingConfirmationChannels.Chat) =>
             string.Empty;
 
-        public PendingConfirmation? Consume(string token, Guid userId, string? expectedSkillName = null) => null;
+        public PendingConfirmation? Consume(
+            string token,
+            Guid userId,
+            string? expectedSkillName = null,
+            string channel = PendingConfirmationChannels.Chat) => null;
 
         public PendingConfirmationHandle? PeekLatestForUser(
-            Guid userId, TimeSpan maxAge, string purpose = PendingConfirmationPurposes.GateReplay) => null;
+            Guid userId,
+            TimeSpan maxAge,
+            string purpose = PendingConfirmationPurposes.GateReplay,
+            string channel = PendingConfirmationChannels.Chat) => null;
 
         public void CreateProposalHint(Guid userId, string applySkillName)
         {
