@@ -5,7 +5,9 @@
 /// AcceptAnalyseScenarioCommandHandler leaves sealed days untouched. Real works, breaks and notes on a globally or
 /// group-sealed day survive unchanged although the scenario changed them, a scenario work added on a sealed day is not
 /// promoted, unlocked days of the same scenario are accepted normally, a slot moved away from a sealed client is not
-/// half applied, and a locked break is kept without being duplicated. The result reports the entries not taken over.
+/// half applied, and a locked break is kept without being duplicated. A replacement with an employee whose day is sealed
+/// is neither written nor removed. The result reports the entries not taken over, and the staleness check before the
+/// accept ignores changes the accept leaves in place.
 /// </summary>
 
 using Klacks.Api.Application.Commands.AnalyseScenarios;
@@ -164,6 +166,92 @@ public class AcceptDayLockSeamTests
             .ShouldHaveSingleItem().Id.ShouldBe(lockedBreak.Id);
     }
 
+    [Test]
+    public async Task Accept_ScenarioReplacementWithAnEmployeeWhoseDayIsSealed_IsNotTakenOver()
+    {
+        var (group, shift) = await CreateGroupWithShiftAsync("G4");
+        var (replacerGroup, _) = await CreateGroupWithShiftAsync("G4R");
+        var worker = await CreateClientAsync("C4", group.Id);
+        var replacer = await CreateClientAsync("C4R", replacerGroup.Id);
+        var realWork = await AddRealWorkAsync(worker.Id, shift.Id, SealedDate);
+        await SealAsync(SealedDate, replacerGroup.Id);
+
+        var scenario = await CreateScenarioAsync(group.Id, shift.Id);
+        var clone = await _context.Work.SingleAsync(w => w.AnalyseToken == scenario.Token && w.CurrentDate == SealedDate);
+        await _context.WorkChange.AddAsync(NewReplacement(clone.Id, replacer.Id, scenario.Token));
+        await _context.SaveChangesAsync();
+
+        var result = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);
+
+        result.SkippedLockedWorkChanges.ShouldBe(1);
+        result.SkippedLockedTotal.ShouldBe(1);
+        await using var verify = NewContext();
+        (await LiveRealWorksAsync(verify, SealedDate, worker.Id)).ShouldHaveSingleItem().Id.ShouldBe(realWork.Id);
+        (await verify.WorkChange.CountAsync(wc => wc.AnalyseToken == null && wc.ReplaceClientId == replacer.Id))
+            .ShouldBe(0, "the replacer's sealed day must not receive the scenario's replacement");
+    }
+
+    [Test]
+    public async Task Accept_RealReplacementWithAnEmployeeWhoseDayIsSealed_IsNotRemoved()
+    {
+        var (group, shift) = await CreateGroupWithShiftAsync("G5");
+        var (replacerGroup, _) = await CreateGroupWithShiftAsync("G5R");
+        var worker = await CreateClientAsync("C5", group.Id);
+        var replacer = await CreateClientAsync("C5R", replacerGroup.Id);
+        var realWork = await AddRealWorkAsync(worker.Id, shift.Id, SealedDate);
+        var realReplacement = NewReplacement(realWork.Id, replacer.Id, null);
+        await _context.WorkChange.AddAsync(realReplacement);
+        await _context.SaveChangesAsync();
+        await SealAsync(SealedDate, replacerGroup.Id);
+
+        var scenario = await CreateScenarioAsync(group.Id, shift.Id);
+        var clone = await _context.Work.SingleAsync(w => w.AnalyseToken == scenario.Token && w.CurrentDate == SealedDate);
+        _context.WorkChange.Remove(await _context.WorkChange.SingleAsync(wc => wc.WorkId == clone.Id));
+        await _context.SaveChangesAsync();
+
+        var result = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);
+
+        result.SkippedLockedWorkChanges.ShouldBe(1, "the scenario removed the replacement, which stays");
+        await using var verify = NewContext();
+        (await LiveRealWorksAsync(verify, SealedDate, worker.Id)).ShouldHaveSingleItem().Id.ShouldBe(realWork.Id);
+        (await verify.WorkChange.Where(wc => wc.AnalyseToken == null && wc.WorkId == realWork.Id).ToListAsync())
+            .ShouldHaveSingleItem().Id.ShouldBe(realReplacement.Id);
+    }
+
+    [Test]
+    public async Task Staleness_IgnoresChangesOnASealedDay_ButReportsChangesOnAnOpenDay()
+    {
+        var (group, shift) = await CreateGroupWithShiftAsync("G6");
+        var client = await CreateClientAsync("C6", group.Id);
+        var sealedWork = await AddRealWorkAsync(client.Id, shift.Id, SealedDate);
+        var openWork = await AddRealWorkAsync(client.Id, shift.Id, OpenDate);
+        await SealAsync(SealedDate, group.Id);
+        var scenario = await CreateScenarioAsync(group.Id, shift.Id);
+
+        sealedWork.Information = TestPrefix + ChangedText;
+        await _context.Expenses.AddAsync(new Expenses { Id = Guid.NewGuid(), WorkId = sealedWork.Id, Amount = 12m, Description = TestPrefix });
+        openWork.Information = TestPrefix + ChangedText;
+        await _context.SaveChangesAsync();
+
+        var staleness = await _service.FindRealPlanChangesSinceCreationAsync(scenario, CancellationToken.None);
+
+        staleness.ShouldNotBeNull();
+        staleness.ChangedEntryCount.ShouldBe(1, "only the open-day edit is overwritten by the accept");
+    }
+
+    private static WorkChange NewReplacement(Guid workId, Guid replaceClientId, Guid? token) => new()
+    {
+        Id = Guid.NewGuid(),
+        WorkId = workId,
+        Type = WorkChangeType.ReplacementWithin,
+        ReplaceClientId = replaceClientId,
+        StartTime = Start,
+        EndTime = End,
+        ChangeTime = 8m,
+        Description = TestPrefix,
+        AnalyseToken = token
+    };
+
     private DataBaseContext NewContext()
     {
         var options = new DbContextOptionsBuilder<DataBaseContext>()
@@ -189,6 +277,7 @@ public class AcceptDayLockSeamTests
             DELETE FROM sealed_day WHERE reason LIKE '{TestPrefix}%';
             DELETE FROM ""group"" WHERE name LIKE '{TestPrefix}%';
             DELETE FROM absence WHERE name->>'de' LIKE '{TestPrefix}%';
+            DELETE FROM membership WHERE client_id IN (SELECT id FROM client WHERE name LIKE '{TestPrefix}%');
             DELETE FROM client WHERE name LIKE '{TestPrefix}%';
         ";
         await context.Database.ExecuteSqlRawAsync(sql);
@@ -234,7 +323,13 @@ public class AcceptDayLockSeamTests
             Name = TestPrefix + suffix,
             FirstName = "Test",
             Company = string.Empty,
-            LegalEntity = false
+            LegalEntity = false,
+            Membership = new Membership
+            {
+                Id = Guid.NewGuid(),
+                ValidFrom = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                ValidUntil = null
+            }
         };
         await _context.Set<Client>().AddAsync(client);
         await _context.Set<GroupItem>().AddAsync(new GroupItem { Id = Guid.NewGuid(), GroupId = groupId, ClientId = client.Id });

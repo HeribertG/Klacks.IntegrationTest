@@ -5,8 +5,9 @@
 /// the original's movable entries in its period with the scenario. When the original changed after the scenario was
 /// created - another scenario accepted in between (owner example: A created, B created, B accepted, then A accepted
 /// would silently drop B's replacement) or an edit by hand - the accept is refused with ScenarioStaleException until the
-/// caller acknowledges it with OverrideStale. Runs the production staleness queries on Npgsql, including the
-/// accepted-sibling lookup.
+/// caller acknowledges it with OverrideStale. A seal or unseal after creation is not stale: the accept keeps the locked
+/// side of the slot and discards the clone, so nothing is overwritten. Runs the production staleness queries on Npgsql,
+/// including the accepted-sibling lookup.
 /// </summary>
 
 using Klacks.Api.Application.Commands.AnalyseScenarios;
@@ -169,7 +170,7 @@ public class AcceptStaleScenarioSeamTests
     }
 
     [Test]
-    public async Task UnsealAfterCreation_IsRefusedAsStale()
+    public async Task UnsealAfterCreation_IsNotStale_BecauseTheLockedCloneKeepsTheRealWork()
     {
         _realWork.LockLevel = WorkLockLevel.Confirmed;
         await _context.SaveChangesAsync();
@@ -179,13 +180,17 @@ public class AcceptStaleScenarioSeamTests
         var unsealed = await WorkRepository().UnsealByDayAndGroup(WorkDate, _group.Id, WorkLockLevel.Confirmed);
         unsealed.ShouldBe(1);
 
-        var ex = await Should.ThrowAsync<ScenarioStaleException>(() =>
-            Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None));
+        var accepted = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);
 
-        ex.Staleness.ChangedEntryCount.ShouldBe(1, "the unsealed work is movable again and the accept would overwrite it");
+        accepted.Accepted.ShouldBeTrue("the scenario's copy is locked, so the accept keeps the unsealed real work");
+        await using var verify = NewContext();
+        (await verify.Work.Where(w => w.AnalyseToken == null && w.CurrentDate == WorkDate && w.ClientId == _realWork.ClientId)
+                .ToListAsync())
+            .ShouldHaveSingleItem().Id.ShouldBe(_realWork.Id);
     }
+
     [Test]
-    public async Task SealAfterCreation_IsRefusedAsStale()
+    public async Task SealAfterCreation_IsNotStale_BecauseTheAcceptKeepsTheSealedWork()
     {
         var scenario = await CreateClonedScenarioAsync("SEAL");
         await Task.Delay(ClockGapMilliseconds);
@@ -193,10 +198,16 @@ public class AcceptStaleScenarioSeamTests
         var sealedCount = await WorkRepository().SealByDayAndGroup(WorkDate, _group.Id, WorkLockLevel.Confirmed, "sealer");
         sealedCount.ShouldBe(1);
 
-        var ex = await Should.ThrowAsync<ScenarioStaleException>(() =>
-            Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None));
+        var accepted = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);
 
-        ex.Staleness.ChangedEntryCount.ShouldBe(1, "the sealed work stays and its movable clone would be promoted next to it");
+        accepted.Accepted.ShouldBeTrue("the sealed work stays and its clone is discarded, so nothing is overwritten");
+        await using var verify = NewContext();
+        var live = (await verify.Work
+                .Where(w => w.AnalyseToken == null && w.CurrentDate == WorkDate && w.ClientId == _realWork.ClientId)
+                .ToListAsync())
+            .ShouldHaveSingleItem();
+        live.Id.ShouldBe(_realWork.Id);
+        live.LockLevel.ShouldBe(WorkLockLevel.Confirmed);
     }
 
     [Test]
