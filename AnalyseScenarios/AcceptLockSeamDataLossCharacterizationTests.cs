@@ -1,4 +1,4 @@
-﻿// Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
 
 /// <summary>
 /// Regression guard for the Accept-path lock-seam (Phase 0 of the autofill/recovery button pipeline,
@@ -258,7 +258,7 @@ public class AcceptLockSeamDataLossCharacterizationTests
         var unrelated = await CreateRealWorkAsync(victim.Id, realShift.Id, WorkLockLevel.None);
 
         var accepted = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);
-        accepted.ShouldBeTrue();
+        accepted.Accepted.ShouldBeTrue();
 
         await using var verify = NewContext();
         var promotedCover = await verify.Work
@@ -290,7 +290,7 @@ public class AcceptLockSeamDataLossCharacterizationTests
         var scenario = await CreateScenarioRowAsync(token, groupId: group.Id);
 
         var accepted = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);
-        accepted.ShouldBeTrue();
+        accepted.Accepted.ShouldBeTrue();
 
         await using var verify = NewContext();
 
@@ -324,7 +324,7 @@ public class AcceptLockSeamDataLossCharacterizationTests
         await _context.SaveChangesAsync();
 
         var accepted = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);
-        accepted.ShouldBeTrue();
+        accepted.Accepted.ShouldBeTrue();
 
         await using var verify = NewContext();
 

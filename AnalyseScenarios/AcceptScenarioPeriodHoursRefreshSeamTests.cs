@@ -249,7 +249,7 @@ public class AcceptScenarioPeriodHoursRefreshSeamTests
         await _context.SaveChangesAsync();
         await AddWorkAsync(client.Id, shiftIdMap[shift.Id], token);
 
-        (await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None)).ShouldBeTrue();
+        (await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None)).Accepted.ShouldBeTrue();
 
         await using var verify = NewContext();
         var totals = await WorkRepository(verify).GetPeriodHoursForClients([client.Id], PeriodFrom, PeriodUntil);

@@ -125,7 +125,7 @@ public class AcceptStaleScenarioSeamTests
 
         var accepted = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);
 
-        accepted.ShouldBeTrue();
+        accepted.Accepted.ShouldBeTrue();
     }
 
     [Test]
@@ -148,7 +148,7 @@ public class AcceptStaleScenarioSeamTests
 
         var accepted = await Handler().Handle(
             new AcceptAnalyseScenarioCommand(scenario.Id, OverrideStale: true), CancellationToken.None);
-        accepted.ShouldBeTrue();
+        accepted.Accepted.ShouldBeTrue();
     }
 
     [Test]
@@ -159,7 +159,7 @@ public class AcceptStaleScenarioSeamTests
         var scenarioB = await CreateClonedScenarioAsync("B");
         await Task.Delay(ClockGapMilliseconds);
 
-        (await Handler().Handle(new AcceptAnalyseScenarioCommand(scenarioB.Id), CancellationToken.None)).ShouldBeTrue();
+        (await Handler().Handle(new AcceptAnalyseScenarioCommand(scenarioB.Id), CancellationToken.None)).Accepted.ShouldBeTrue();
 
         var ex = await Should.ThrowAsync<ScenarioStaleException>(() =>
             Handler().Handle(new AcceptAnalyseScenarioCommand(scenarioA.Id), CancellationToken.None));

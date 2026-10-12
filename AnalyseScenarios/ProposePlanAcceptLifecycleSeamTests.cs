@@ -1,4 +1,4 @@
-﻿// Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
 
 /// <summary>
 /// Integration test for the propose_plan -> accept_scenario lifecycle seam: a propose_plan placement
@@ -208,7 +208,7 @@ public class ProposePlanAcceptLifecycleSeamTests
         await InjectScenarioPlacementAsync(client.Id, cloneShiftId, token);
 
         var accepted = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);
-        accepted.ShouldBeTrue();
+        accepted.Accepted.ShouldBeTrue();
 
         await using var verify = NewContext();
 
