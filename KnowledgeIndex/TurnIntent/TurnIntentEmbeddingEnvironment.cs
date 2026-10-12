@@ -3,7 +3,8 @@
 /// <summary>
 /// Shared set-up of the turn-intent probe and trainer: loads the language-plugin keywords into
 /// MutationIntentDetector exactly as Program.cs does, locates the Klacks.Api source directory and embeds texts with
-/// the real OnnxEmbeddingProvider (optionally through a JSON cache keyed by embedding space and text).
+/// the real OnnxEmbeddingProvider (optionally through a JSON cache keyed by embedding space and text); also times
+/// uncached embedding calls on a fresh provider, the first of which includes the cold session build.
 /// </summary>
 /// <param name="report">Receives progress lines</param>
 /// <param name="texts">Texts to embed with EmbedQueryAsync</param>
@@ -80,6 +81,25 @@ public static class TurnIntentEmbeddingEnvironment
 
         SaveCache(cachePath, cache);
         return (vectors, provider.EmbeddingSpaceId);
+    }
+
+    public static async Task<double[]> MeasureLatencyMillisecondsAsync(
+        IReadOnlyList<string> texts, OnnxEmbeddingRuntimeProfile? profile = null, List<float[]>? vectors = null)
+    {
+        await using var provider = new OnnxEmbeddingProvider(
+            new ModelLoader(new HttpClient()), ResolveEmbeddingDirectory(), profile);
+
+        var timings = new double[texts.Count];
+        for (var i = 0; i < texts.Count; i++)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var vector = await provider.EmbedQueryAsync(texts[i], CancellationToken.None);
+            stopwatch.Stop();
+            timings[i] = stopwatch.Elapsed.TotalMilliseconds;
+            vectors?.Add(vector);
+        }
+
+        return timings;
     }
 
     private static string ResolvePluginRoot() =>
