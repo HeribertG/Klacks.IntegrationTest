@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Shouldly;
 using Klacks.Api.Application.Commands;
 using Klacks.Api.Application.Commands.Shifts;
@@ -19,6 +20,8 @@ using Klacks.Api.Infrastructure.Repositories.Staffs;
 using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Domain.Interfaces.Staffs;
 using Klacks.Api.Application.Services.Schedules;
+using System.Security.Claims;
+using Klacks.Api.Domain.Constants;
 using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Infrastructure.Services;
 using Klacks.Api.Infrastructure.Services.Schedules;
@@ -68,6 +71,8 @@ public class ShiftManipulationIntegrationTests
     // Handlers
     private PostCommandHandler _postHandler = null!;
     private PutCommandHandler _putHandler = null!;
+    private DeleteCommandHandler _deleteHandler = null!;
+    private SealedOrderFamilyDeletion _familyDeletion = null!;
     private PostBatchCutsCommandHandler _batchCutsHandler = null!;
     private PostResetCutsCommandHandler _resetCutsHandler = null!;
 
@@ -171,6 +176,9 @@ public class ShiftManipulationIntegrationTests
 
         var putHandlerLogger = Substitute.For<ILogger<PutCommandHandler>>();
         _putHandler = new PutCommandHandler(_shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, putHandlerLogger);
+        _familyDeletion = new SealedOrderFamilyDeletion(
+            _shiftRepository, _unitOfWork, Substitute.For<ILogger<SealedOrderFamilyDeletion>>());
+        _deleteHandler = DeleteHandlerFor(role: null);
 
         var batchCutsHandlerLogger = Substitute.For<ILogger<PostBatchCutsCommandHandler>>();
         _batchCutsHandler = new PostBatchCutsCommandHandler(_shiftCutFacade, _scheduleMapper, batchCutsHandlerLogger);
@@ -241,6 +249,8 @@ public class ShiftManipulationIntegrationTests
             DELETE FROM client_shift_preference WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestShiftPrefix}%')
                 OR client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
             DELETE FROM client_qualification WHERE client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
+            DELETE FROM work WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestShiftPrefix}%')
+                OR client_id IN (SELECT id FROM client WHERE company LIKE '{TestCustomerPrefix}%' OR name LIKE '{TestShiftPrefix}%');
             DELETE FROM group_item WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestShiftPrefix}%');
             DELETE FROM group_item WHERE group_id IN (SELECT id FROM ""group"" WHERE name LIKE '{TestShiftPrefix}%');
             UPDATE shift SET scenario_source_shift_id = NULL WHERE name LIKE '{TestShiftPrefix}%';
@@ -515,24 +525,26 @@ public class ShiftManipulationIntegrationTests
         var originalRgt = before.Rgt;
         var originalOriginalId = before.OriginalId;
 
-        // Act - a form save that, like a buggy frontend, sends NULL tree fields and a changed name
-        var putResource = CreateTestShiftResource("TreePreserve_Renamed", ShiftStatus.SplitShift);
-        putResource.Id = splitId;
+        // Act - a form save that, like a buggy frontend, sends NULL tree fields and changes only what the form
+        // leaves editable on a cut piece (a default expense); the content of a cut piece is locked since 2026-10-13
+        var putResource = _scheduleMapper.ToShiftResource((await _shiftRepository.Get(splitId))!);
+        _context.ChangeTracker.Clear();
         putResource.RootId = null;
         putResource.ParentId = null;
         putResource.OriginalId = null;
         putResource.Lft = null;
         putResource.Rgt = null;
+        putResource.DefaultExpenses = [new ShiftExpensesResource { Amount = 12m, Description = "Tree preserve", Taxable = false }];
         await _putHandler.Handle(new PutCommand<ShiftResource>(putResource), CancellationToken.None);
 
-        // Assert - the cut hierarchy is preserved, the editable field still changed
-        var after = await _context.Shift.AsNoTracking().FirstAsync(s => s.Id == splitId);
+        // Assert - the cut hierarchy is preserved, the editable part still changed
+        var after = await _context.Shift.AsNoTracking().Include(s => s.ShiftExpenses).FirstAsync(s => s.Id == splitId);
         after.RootId.ShouldBe(originalRootId, "root_id must be preserved on a form save (no orphaning)");
         after.ParentId.ShouldBe(originalParentId, "parent_id must be preserved on a form save");
         after.OriginalId.ShouldBe(originalOriginalId, "original_id must be preserved on a form save");
         after.Lft.ShouldBe(originalLft, "lft must be preserved on a form save");
         after.Rgt.ShouldBe(originalRgt, "rgt must be preserved on a form save");
-        after.Name.ShouldContain("Renamed");
+        after.ShiftExpenses.Count(e => !e.IsDeleted).ShouldBe(1, "the editable default expenses of a cut piece are still saved");
     }
 
     [Test]
@@ -1776,14 +1788,14 @@ public class ShiftManipulationIntegrationTests
         var loaded = await _shiftRepository.Get(shiftId);
         _context.ChangeTracker.Clear();
         var resource = _scheduleMapper.ToShiftResource(loaded!);
-        resource.Description = "Edited in the form";
+        resource.UntilDate = new DateOnly(2026, 12, 31);
 
         await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
 
         var stored = await ReadUnmappedFieldsAsync(shiftId);
         stored.ShouldBe(seeded, "an edit form save must not null the ERP reference or the scenario clone tracking");
-        (await _context.Shift.AsNoTracking().SingleAsync(s => s.Id == shiftId)).Description
-            .ShouldBe("Edited in the form", "the scalar change of the form must still be saved");
+        (await _context.Shift.AsNoTracking().SingleAsync(s => s.Id == shiftId)).UntilDate
+            .ShouldBe(new DateOnly(2026, 12, 31), "the editable first end date of the form must still be saved");
     }
 
     [Test]
@@ -2160,7 +2172,6 @@ public class ShiftManipulationIntegrationTests
         var loaded = await _shiftRepository.Get(root);
         _context.ChangeTracker.Clear();
         var resource = _scheduleMapper.ToShiftResource(loaded!);
-        resource.Description = "Edited in the form";
 
         await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
 
@@ -2270,6 +2281,436 @@ public class ShiftManipulationIntegrationTests
             var clone = await _context.Shift.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == secondMap[piece]);
             clone.ParentId.ShouldBe(secondMap[listedRootClone], "a real piece's parent link resolves to the clone of its stand-in");
         }
+    }
+    #endregion
+
+    #region Shift lock: a sealed order, a plannable shift and a cut piece keep their content (2026-10-13)
+
+    private static readonly JsonSerializerOptions WireOptions = new(JsonSerializerDefaults.Web);
+
+    private async Task<(Guid SealedOrder, Guid Plannable, Guid Piece)> CreateLockedFamilyAsync(string suffix)
+    {
+        var created = await _postHandler.Handle(
+            new PostCommand<ShiftResource>(CreateTestShiftResource(suffix, ShiftStatus.SealedOrder, fromDate: new DateOnly(2026, 1, 1))),
+            CancellationToken.None);
+        var plannable = created!.Id;
+        var sealedOrder = created.OriginalId!.Value;
+
+        var piece = CreateTestShiftResource($"{suffix}_Piece", ShiftStatus.SplitShift,
+            fromDate: new DateOnly(2026, 1, 1), untilDate: new DateOnly(2026, 6, 30), originalId: sealedOrder);
+        var cut = await _batchCutsHandler.Handle(
+            new PostBatchCutsCommand([new CutOperation { Type = "CREATE", ParentId = plannable.ToString(), Data = piece }]),
+            CancellationToken.None);
+        _context.ChangeTracker.Clear();
+        return (sealedOrder, plannable, cut.Single().Id);
+    }
+
+    private async Task<ShiftResource> LoadThroughTheWireAsync(Guid shiftId)
+    {
+        var loaded = await _shiftRepository.Get(shiftId);
+        _context.ChangeTracker.Clear();
+        var json = JsonSerializer.Serialize(_scheduleMapper.ToShiftResource(loaded!), WireOptions);
+        return JsonSerializer.Deserialize<ShiftResource>(json, WireOptions)!;
+    }
+
+    private async Task<Shift> StoredAsync(Guid shiftId)
+    {
+        _context.ChangeTracker.Clear();
+        return await _context.Shift.AsNoTracking().Include(s => s.GroupItems).Include(s => s.ShiftExpenses)
+            .Include(s => s.RequiredQualifications).SingleAsync(s => s.Id == shiftId);
+    }
+
+    private static IEnumerable<TestCaseData> LockedRowSelectors()
+    {
+        yield return new TestCaseData(0).SetName("SealedOrder");
+        yield return new TestCaseData(1).SetName("PlannableShift");
+        yield return new TestCaseData(2).SetName("CutPiece");
+    }
+
+    private static Guid PickRow((Guid SealedOrder, Guid Plannable, Guid Piece) family, int selector) => selector switch
+    {
+        0 => family.SealedOrder,
+        1 => family.Plannable,
+        _ => family.Piece
+    };
+
+    [TestCaseSource(nameof(LockedRowSelectors))]
+    public async Task Lock_GetThenPutUnchanged_IsAccepted_AndChangesNothing(int selector)
+    {
+        var shiftId = PickRow(await CreateLockedFamilyAsync($"Lock_Roundtrip{selector}"), selector);
+        var before = await StoredAsync(shiftId);
+        var resource = await LoadThroughTheWireAsync(shiftId);
+
+        var saved = await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
+
+        saved.ShouldNotBeNull("an unchanged save of a locked shift must be accepted, or the edit form could not save groups");
+        var after = await StoredAsync(shiftId);
+        after.Status.ShouldBe(before.Status);
+        after.Name.ShouldBe(before.Name);
+        after.StartShift.ShouldBe(before.StartShift);
+        after.EndShift.ShouldBe(before.EndShift);
+        after.FromDate.ShouldBe(before.FromDate);
+        after.UntilDate.ShouldBe(before.UntilDate);
+        after.WorkTime.ShouldBe(before.WorkTime);
+        after.ParentId.ShouldBe(before.ParentId);
+        after.RootId.ShouldBe(before.RootId);
+        after.Lft.ShouldBe(before.Lft);
+        after.Rgt.ShouldBe(before.Rgt);
+    }
+
+    [TestCaseSource(nameof(LockedRowSelectors))]
+    public async Task Lock_ChangingLockedContent_IsRefused_WithTheLockedFieldNames_AndLeavesTheRowUntouched(int selector)
+    {
+        var shiftId = PickRow(await CreateLockedFamilyAsync($"Lock_Refuse{selector}"), selector);
+        var before = await StoredAsync(shiftId);
+        var resource = await LoadThroughTheWireAsync(shiftId);
+        resource.Name = $"{TestShiftPrefix}Renamed{selector}";
+        resource.EndShift = new TimeOnly(18, 0);
+        resource.Description = "Changed";
+
+        var thrown = await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() =>
+            _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None));
+
+        thrown.ConflictCode.ShouldBe(Klacks.Api.Application.Exceptions.ShiftLockedException.ErrorCode);
+        thrown.Message.ShouldContain(nameof(Shift.Name));
+        thrown.Message.ShouldContain(nameof(Shift.EndShift));
+        thrown.Message.ShouldContain(nameof(Shift.Description));
+        var after = await StoredAsync(shiftId);
+        after.Name.ShouldBe(before.Name);
+        after.EndShift.ShouldBe(before.EndShift);
+        after.Description.ShouldBe(before.Description);
+    }
+
+    [TestCaseSource(nameof(LockedRowSelectors))]
+    public async Task Lock_StatusRegression_IsRefused(int selector)
+    {
+        var shiftId = PickRow(await CreateLockedFamilyAsync($"Lock_Regress{selector}"), selector);
+        var resource = await LoadThroughTheWireAsync(shiftId);
+        resource.Status = ShiftStatus.OriginalOrder;
+
+        var thrown = await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() =>
+            _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None));
+
+        thrown.Message.ShouldContain(nameof(Shift.Status));
+        (await StoredAsync(shiftId)).Status.ShouldNotBe(ShiftStatus.OriginalOrder);
+    }
+
+    [TestCaseSource(nameof(LockedRowSelectors))]
+    public async Task Lock_GroupsExpensesAndQualifications_StillSave(int selector)
+    {
+        var shiftId = PickRow(await CreateLockedFamilyAsync($"Lock_Editable{selector}"), selector);
+        var qualificationId = await AddQualificationAsync();
+        var resource = await LoadThroughTheWireAsync(shiftId);
+        resource.Groups = [new SimpleGroupResource { Id = _groupAId }];
+        resource.DefaultExpenses = [new ShiftExpensesResource { Amount = 7.5m, Description = "Meal", Taxable = false }];
+        resource.RequiredQualifications =
+            [new ShiftRequiredQualificationResource { QualificationId = qualificationId, IsMandatory = true, MinLevel = QualificationLevel.Basic }];
+
+        await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
+
+        var after = await StoredAsync(shiftId);
+        after.GroupItems.Count(g => !g.IsDeleted && g.GroupId == _groupAId).ShouldBe(1);
+        after.ShiftExpenses.Count(e => !e.IsDeleted).ShouldBe(1);
+        after.RequiredQualifications.Count(q => !q.IsDeleted && q.QualificationId == qualificationId).ShouldBe(1);
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    public async Task Lock_EndDate_CanBeSetOnce_ThenItIsLocked(int selector)
+    {
+        var shiftId = PickRow(await CreateLockedFamilyAsync($"Lock_Until{selector}"), selector);
+        var first = await LoadThroughTheWireAsync(shiftId);
+        first.UntilDate.ShouldBeNull("precondition: a freshly sealed order and its plannable shift have no end date");
+        first.UntilDate = new DateOnly(2026, 9, 30);
+
+        await _putHandler.Handle(new PutCommand<ShiftResource>(first), CancellationToken.None);
+
+        (await StoredAsync(shiftId)).UntilDate.ShouldBe(new DateOnly(2026, 9, 30));
+
+        var second = await LoadThroughTheWireAsync(shiftId);
+        second.UntilDate = new DateOnly(2026, 10, 31);
+
+        var thrown = await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() =>
+            _putHandler.Handle(new PutCommand<ShiftResource>(second), CancellationToken.None));
+
+        thrown.Message.ShouldContain(nameof(Shift.UntilDate));
+        (await StoredAsync(shiftId)).UntilDate.ShouldBe(new DateOnly(2026, 9, 30));
+    }
+
+    [TestCaseSource(nameof(LockedRowSelectors))]
+    public async Task Lock_Delete_IsRefused_AndTheRowStaysLive(int selector)
+    {
+        var shiftId = PickRow(await CreateLockedFamilyAsync($"Lock_Delete{selector}"), selector);
+
+        var thrown = await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() =>
+            _deleteHandler.Handle(new DeleteCommand<ShiftResource>(shiftId), CancellationToken.None));
+
+        thrown.ConflictCode.ShouldBe(Klacks.Api.Application.Exceptions.ShiftLockedException.ErrorCode);
+        var stored = await _context.Shift.AsNoTracking().SingleAsync(s => s.Id == shiftId);
+        stored.IsDeleted.ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task Lock_DraftOrder_StaysFullyEditable_AndDeletable()
+    {
+        var draft = CreateTestShiftResource("Lock_Draft", ShiftStatus.OriginalOrder);
+        draft.ClientId = _customerId;
+        var created = await _postHandler.Handle(new PostCommand<ShiftResource>(draft), CancellationToken.None);
+        _context.ChangeTracker.Clear();
+        var resource = await LoadThroughTheWireAsync(created!.Id);
+        resource.Name = $"{TestShiftPrefix}Lock_DraftRenamed";
+        resource.EndShift = new TimeOnly(18, 0);
+
+        var saved = await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
+
+        saved!.Name.ShouldBe($"{TestShiftPrefix}Lock_DraftRenamed");
+        saved.EndShift.ShouldBe(new TimeOnly(18, 0));
+
+        var deleted = await _deleteHandler.Handle(new DeleteCommand<ShiftResource>(created.Id), CancellationToken.None);
+
+        deleted.ShouldNotBeNull();
+        (await _context.Shift.AsNoTracking().SingleOrDefaultAsync(s => s.Id == created.Id)).ShouldBeNull("the soft-deleted draft is filtered out");
+    }
+
+    [Test]
+    public async Task Lock_Repository_WritersOfTheSystem_StillChangeALockedOrder()
+    {
+        var family = await CreateLockedFamilyAsync("Lock_Direct");
+        var sealedOrder = await _shiftRepository.GetNoTracking(family.SealedOrder);
+        sealedOrder!.UntilDate = new DateOnly(2026, 8, 31);
+        await _shiftRepository.PutWithSealedOrderHandling(sealedOrder);
+        await _unitOfWork.CompleteAsync();
+        _context.ChangeTracker.Clear();
+
+        var again = await _shiftRepository.GetNoTracking(family.SealedOrder);
+        again!.UntilDate = new DateOnly(2026, 10, 15);
+        again.Name = $"{TestShiftPrefix}Lock_Direct_Superseded";
+        await _shiftRepository.PutWithSealedOrderHandling(again);
+        await _unitOfWork.CompleteAsync();
+
+        var stored = await StoredAsync(family.SealedOrder);
+        stored.UntilDate.ShouldBe(new DateOnly(2026, 10, 15), "supersession and the set-end-date skill write through the repository and set the end date again");
+        stored.Name.ShouldBe($"{TestShiftPrefix}Lock_Direct_Superseded");
+    }
+
+    private DeleteCommandHandler DeleteHandlerFor(string? role)
+    {
+        var accessor = Substitute.For<IHttpContextAccessor>();
+        var httpContext = new DefaultHttpContext();
+        if (role != null)
+        {
+            httpContext.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "test"));
+        }
+
+        accessor.HttpContext.Returns(httpContext);
+        return new DeleteCommandHandler(
+            _shiftRepository, _scheduleMapper, _unitOfWork, _familyDeletion, accessor, Substitute.For<ILogger<DeleteCommandHandler>>());
+    }
+
+    private async Task AddWorkAsync(Guid shiftId, Guid? analyseToken = null, bool deleted = false)
+    {
+        _context.Work.Add(new Work
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _employeeId,
+            ShiftId = shiftId,
+            CurrentDate = new DateOnly(2026, 3, 2),
+            StartTime = new TimeOnly(8, 0),
+            EndTime = new TimeOnly(16, 0),
+            WorkTime = 8m,
+            AnalyseToken = analyseToken,
+            IsDeleted = deleted
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    private async Task GiveTheFamilyDependentsAsync((Guid SealedOrder, Guid Plannable, Guid Piece) family)
+    {
+        foreach (var shiftId in new[] { family.SealedOrder, family.Plannable, family.Piece })
+        {
+            var resource = await LoadThroughTheWireAsync(shiftId);
+            resource.Groups = [new SimpleGroupResource { Id = _groupAId }];
+            resource.DefaultExpenses = [new ShiftExpensesResource { Amount = 3m, Description = "Family expense", Taxable = false }];
+            await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
+        }
+
+        _context.ChangeTracker.Clear();
+    }
+
+    private async Task<List<Shift>> FamilyRowsAsync(Guid sealedOrder) =>
+        await _context.Shift.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => s.Id == sealedOrder || s.OriginalId == sealedOrder)
+            .ToListAsync();
+
+    [Test]
+    public async Task Lock_AdministratorDeletesASealedOrderFamilyWithoutWorks_RowsAndDependentsAreSoftDeleted()
+    {
+        var family = await CreateLockedFamilyAsync("Lock_FamilyDelete");
+        await GiveTheFamilyDependentsAsync(family);
+        var ids = new[] { family.SealedOrder, family.Plannable, family.Piece };
+
+        var deleted = await DeleteHandlerFor(Roles.Admin)
+            .Handle(new DeleteCommand<ShiftResource>(family.SealedOrder), CancellationToken.None);
+
+        deleted.ShouldNotBeNull();
+        deleted!.Id.ShouldBe(family.SealedOrder);
+        _context.ChangeTracker.Clear();
+        var rows = await FamilyRowsAsync(family.SealedOrder);
+        rows.Count.ShouldBe(3);
+        rows.ShouldAllBe(row => row.IsDeleted, "the order, its plannable copy and the cut piece go together");
+        (await _context.Shift.AsNoTracking().CountAsync(s => ids.Contains(s.Id))).ShouldBe(0, "the soft-deleted rows are filtered out");
+
+        var groupItems = await _context.GroupItem.IgnoreQueryFilters().AsNoTracking().Where(g => g.ShiftId.HasValue && ids.Contains(g.ShiftId.Value)).ToListAsync();
+        groupItems.Count.ShouldBeGreaterThan(0);
+        groupItems.ShouldAllBe(g => g.IsDeleted, "the group links are soft-deleted and keep their shift id");
+        var expenses = await _context.ShiftExpenses.IgnoreQueryFilters().AsNoTracking().Where(e => ids.Contains(e.ShiftId)).ToListAsync();
+        expenses.Count.ShouldBeGreaterThan(0);
+        expenses.ShouldAllBe(e => e.IsDeleted);
+    }
+
+    [Test]
+    public async Task Lock_AdministratorFamilyDelete_RefusedWhileAWorkExistsOnTheCutPiece_AndNothingIsDeleted()
+    {
+        var family = await CreateLockedFamilyAsync("Lock_FamilyWorks");
+        await AddWorkAsync(family.Piece);
+
+        var thrown = await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() =>
+            DeleteHandlerFor(Roles.Admin).Handle(new DeleteCommand<ShiftResource>(family.SealedOrder), CancellationToken.None));
+
+        thrown.ConflictCode.ShouldBe(Klacks.Api.Application.Exceptions.ShiftLockedException.ErrorCode);
+        thrown.Message.ShouldContain("works exist");
+        (await FamilyRowsAsync(family.SealedOrder)).ShouldAllBe(row => !row.IsDeleted);
+    }
+
+    [Test]
+    public async Task Lock_AdministratorFamilyDelete_ASoftDeletedWorkDoesNotBlock()
+    {
+        var family = await CreateLockedFamilyAsync("Lock_FamilyDeletedWork");
+        await AddWorkAsync(family.Piece, deleted: true);
+
+        await DeleteHandlerFor(Roles.Admin).Handle(new DeleteCommand<ShiftResource>(family.SealedOrder), CancellationToken.None);
+
+        (await FamilyRowsAsync(family.SealedOrder)).ShouldAllBe(row => row.IsDeleted);
+    }
+
+    [Test]
+    public async Task Lock_AdministratorFamilyDelete_AScenarioWorkOnAFamilyShiftBlocksToo()
+    {
+        var family = await CreateLockedFamilyAsync("Lock_FamilyScenarioWork");
+        await AddWorkAsync(family.Plannable, analyseToken: Guid.NewGuid());
+
+        var thrown = await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() =>
+            DeleteHandlerFor(Roles.Admin).Handle(new DeleteCommand<ShiftResource>(family.SealedOrder), CancellationToken.None));
+
+        thrown.Message.ShouldContain("works exist");
+        (await FamilyRowsAsync(family.SealedOrder)).ShouldAllBe(row => !row.IsDeleted);
+    }
+
+    [Test]
+    public async Task Lock_AdministratorFamilyDelete_RefusedWhileAnActiveScenarioHoldsACloneOfTheFamily()
+    {
+        var family = await CreateLockedFamilyAsync("Lock_FamilyScenarioClone");
+        var token = Guid.NewGuid();
+        await new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context).CloneScenarioDataAsync(
+            null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31), token, new[] { family.Plannable }, null, CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var thrown = await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() =>
+            DeleteHandlerFor(Roles.Admin).Handle(new DeleteCommand<ShiftResource>(family.SealedOrder), CancellationToken.None));
+
+        thrown.Message.ShouldContain("scenario");
+        (await FamilyRowsAsync(family.SealedOrder)).ShouldAllBe(row => !row.IsDeleted);
+    }
+
+    [TestCase(Roles.Authorised)]
+    [TestCase(null)]
+    public async Task Lock_FamilyDelete_ForASupervisorOrWithoutARole_IsRefused_EvenWithoutWorks(string? role)
+    {
+        var family = await CreateLockedFamilyAsync($"Lock_FamilyRole{role ?? "None"}");
+
+        await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() =>
+            DeleteHandlerFor(role).Handle(new DeleteCommand<ShiftResource>(family.SealedOrder), CancellationToken.None));
+
+        (await FamilyRowsAsync(family.SealedOrder)).ShouldAllBe(row => !row.IsDeleted);
+    }
+
+    [Test]
+    public async Task Lock_AdministratorCannotDeleteAPlannableShiftOrACutPieceOnItsOwn()
+    {
+        var family = await CreateLockedFamilyAsync("Lock_FamilyChild");
+
+        foreach (var childId in new[] { family.Plannable, family.Piece })
+        {
+            await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() =>
+                DeleteHandlerFor(Roles.Admin).Handle(new DeleteCommand<ShiftResource>(childId), CancellationToken.None));
+        }
+
+        (await FamilyRowsAsync(family.SealedOrder)).ShouldAllBe(row => !row.IsDeleted);
+    }
+
+    [Test]
+    public async Task Lock_DeleteShiftSkill_AdministratorDeletesTheFamily_SupervisorGetsTheRefusal()
+    {
+        var supervisorSkillFamily = await CreateLockedFamilyAsync("Lock_SkillSupervisor");
+        var adminFamily = await CreateLockedFamilyAsync("Lock_SkillAdmin");
+        var mediator = Substitute.For<IMediator>();
+        mediator.Send(Arg.Any<DeleteCommand<ShiftResource>>(), Arg.Any<CancellationToken>())
+            .Returns(call => DeleteHandlerFor(Roles.Authorised).Handle(call.Arg<DeleteCommand<ShiftResource>>(), CancellationToken.None));
+        var skill = new DeleteShiftSkill(_shiftRepository, mediator, _familyDeletion);
+        SkillExecutionContext Ctx(params string[] permissions) => new()
+        {
+            UserId = Guid.NewGuid(),
+            TenantId = Guid.NewGuid(),
+            UserName = "tester",
+            UserPermissions = permissions
+        };
+
+        await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() => skill.ExecuteAsync(
+            Ctx("CanDeleteShifts"), new Dictionary<string, object> { ["shiftId"] = supervisorSkillFamily.SealedOrder.ToString() }));
+        var result = await skill.ExecuteAsync(
+            Ctx(Roles.Admin, "CanDeleteShifts"), new Dictionary<string, object> { ["shiftId"] = adminFamily.SealedOrder.ToString() });
+
+        result.Success.ShouldBeTrue();
+        (await FamilyRowsAsync(supervisorSkillFamily.SealedOrder)).ShouldAllBe(row => !row.IsDeleted);
+        (await FamilyRowsAsync(adminFamily.SealedOrder)).ShouldAllBe(row => row.IsDeleted);
+    }
+
+    [Test]
+    public async Task Lock_ScenarioClone_OfASealedOrder_CannotBeWrittenThroughThePutHandler_AndAcceptLeavesTheRealOrderUntouched()
+    {
+        var family = await CreateLockedFamilyAsync("Lock_ScenarioBackdoor");
+        var before = await StoredAsync(family.SealedOrder);
+        var token = Guid.NewGuid();
+        var service = new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context);
+        var idMap = await service.CloneScenarioDataAsync(
+            null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31), token, new[] { family.SealedOrder }, null, CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        var cloneId = idMap[family.SealedOrder];
+
+        var clone = await LoadThroughTheWireAsync(cloneId);
+        clone.Name = $"{TestShiftPrefix}BackdoorRename";
+        clone.EndShift = new TimeOnly(23, 0);
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            _putHandler.Handle(new PutCommand<ShiftResource>(clone), CancellationToken.None),
+            "the repository refuses to edit a shift in scenario mode, so the lock policy leaving scenario rows alone opens no back door");
+
+        await service.ValidateNoAcceptConflictsAsync(token, CancellationToken.None);
+        await service.PromoteScenarioWorksAsync(token, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31), CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var after = await StoredAsync(family.SealedOrder);
+        after.Name.ShouldBe(before.Name);
+        after.EndShift.ShouldBe(before.EndShift);
+        after.Description.ShouldBe(before.Description);
+        after.Status.ShouldBe(ShiftStatus.SealedOrder);
+        after.IsDeleted.ShouldBeFalse("accepting a scenario never changes or removes the real order");
+        var cloneAfter = await _context.Shift.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == cloneId);
+        cloneAfter.IsDeleted.ShouldBeTrue("accept soft-deletes the clone instead of writing it back");
+        cloneAfter.Name.ShouldBe(before.Name, "the rejected PUT changed nothing on the clone either");
     }
     #endregion
 }
