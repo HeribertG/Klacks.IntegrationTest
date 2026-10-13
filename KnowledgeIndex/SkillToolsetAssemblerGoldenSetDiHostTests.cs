@@ -29,6 +29,16 @@
 /// minutes. Unset or non-positive means no cap (the nightly run). Capped figures are NOT comparable to
 /// full-set figures - the sets are not shuffled, so the first N cases carry a skewed language mix.
 /// </param>
+/// <param name="KLACKS_GOLDENSET_LANGS_SOURCES">
+/// Optional environment variable: comma-separated skill names; the language-coverage set is reduced to the cases
+/// whose accepted targets include one of them (the other sets are untouched). Used to compare a skill change
+/// before and after on exactly the cases that can move.
+/// </param>
+/// <param name="KLACKS_GOLDENSET_SKIP_GAPS">
+/// Optional environment variable: "True" leaves out the extra set knowledge-index-golden-hard-gaps.json, which
+/// carries cases for skills whose description changed without any case in the other sets (search_shifts views,
+/// open_schedule, get_client_details notes, annotation skills, close_period).
+/// </param>
 
 using Klacks.Api.Application.Interfaces.Assistant;
 using Klacks.Api.Application.Interfaces.Settings;
@@ -53,6 +63,10 @@ namespace Klacks.IntegrationTest.KnowledgeIndex;
 public class SkillToolsetAssemblerGoldenSetDiHostTests
 {
     public const string MaxCasesEnvVar = "KLACKS_GOLDENSET_MAX_CASES";
+    public const string LanguageSetSourcesEnvVar = "KLACKS_GOLDENSET_LANGS_SOURCES";
+    public const string SkipGapsSetEnvVar = "KLACKS_GOLDENSET_SKIP_GAPS";
+    private const char SourceListSeparator = ',';
+    private const string GapsLabel = "ASSEMBLER GAPS";
 
     private const string CoreLabel = "ASSEMBLER CORE";
     private const string ExtendedLabel = "ASSEMBLER EXTENDED";
@@ -75,6 +89,9 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 
     private static readonly string LanguageCoverageSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard-langs.json");
+
+    private static readonly string GapsGoldenSetPath =
+        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard-gaps.json");
 
     private sealed class NoOpPendingConfirmationStore : IPendingConfirmationStore
     {
@@ -203,7 +220,9 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 
         var core = ApplyCap(HardGoldenSetItem.Load(GoldenSetPath), caseCap);
         var extended = ApplyCap(HardGoldenSetItem.Load(ExtendedGoldenSetPath), caseCap);
-        var languages = ApplyCap(HardGoldenSetItem.Load(LanguageCoverageSetPath), caseCap);
+        var languages = ApplyCap(
+            ApplySourceFilter(HardGoldenSetItem.Load(LanguageCoverageSetPath), ResolveLanguageSetSources()),
+            caseCap);
 
         var probe = new AssemblerProbe(assembler, retrieval, agent, userRights, alwaysOnNames);
 
@@ -214,6 +233,12 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
         WriteCombined(coreRecall, extRecall);
 
         var langRecall = await probe.MeasureSetAsync(LanguageCoverageLabel, languages);
+
+        if (Environment.GetEnvironmentVariable(SkipGapsSetEnvVar) != bool.TrueString
+            && File.Exists(GapsGoldenSetPath))
+        {
+            await probe.MeasureSetAsync(GapsLabel, HardGoldenSetItem.Load(GapsGoldenSetPath));
+        }
 
         // Retrieval failing inside AssembleAsync is caught there and degrades to always-on plus
         // guarantees. That would still produce plausible-looking figures, so it is checked explicitly.
@@ -444,6 +469,17 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 
     private static List<HardGoldenSetItem> ApplyCap(List<HardGoldenSetItem> cases, int? cap) =>
         cap is null ? cases : cases.Take(cap.Value).ToList();
+
+    private static string[]? ResolveLanguageSetSources()
+    {
+        var raw = Environment.GetEnvironmentVariable(LanguageSetSourcesEnvVar);
+        return string.IsNullOrWhiteSpace(raw)
+            ? null
+            : raw.Split(SourceListSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private static List<HardGoldenSetItem> ApplySourceFilter(List<HardGoldenSetItem> cases, string[]? sources) =>
+        sources is null ? cases : cases.Where(item => sources.Any(item.Accepts)).ToList();
 
     private static async Task<IReadOnlySet<string>> LoadAlwaysOnSkillNamesAsync(IServiceScope scope)
     {
