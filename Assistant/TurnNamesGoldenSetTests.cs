@@ -96,6 +96,7 @@ public class TurnNamesGoldenSetTests
         result.Dimensions!.ItemsTotal.ShouldBe(SeedPersons.Length);
 
         WriteScorecard(modelId, result);
+        TurnEvalScorecardBreakdown.Write(result);
 
         var passRate = TurnEvalPassRateGate.ComputePassRate(result.Dimensions);
         passRate.ShouldBeGreaterThanOrEqualTo(

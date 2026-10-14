@@ -80,6 +80,7 @@ public class TurnHonestyGoldenSetTests
             "the run measured no honesty item at all - the goldset or the scorer mode matching is broken.");
 
         WriteScorecard(modelId, result);
+        TurnEvalScorecardBreakdown.Write(result);
 
         var passRate = TurnEvalPassRateGate.ComputePassRate(result.Dimensions);
         passRate.ShouldBeGreaterThanOrEqualTo(

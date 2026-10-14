@@ -72,6 +72,7 @@ public class TurnSelectionGoldenSetTests
         result.Run.IsPartial.ShouldBe(isPartial);
 
         WriteScorecard(goldsetName, modelId, result);
+        TurnEvalScorecardBreakdown.Write(result);
 
         var passRate = TurnEvalPassRateGate.ComputePassRate(result.Dimensions);
         passRate.ShouldBeGreaterThanOrEqualTo(
@@ -106,7 +107,9 @@ public class TurnSelectionGoldenSetTests
             TestContext.WriteLine(
                 $"MISS {item.ItemId}: expected={item.ExpectedTool ?? item.ExpectedRecipe ?? "(none)"}, chosen={item.ChosenTool ?? "(none)"}, " +
                 $"slotScore={Format(item.SlotScore)}, toolAvailable={item.ExpectedToolAvailable?.ToString() ?? "n/a"}, " +
-                $"recipe={item.EngineRecipeWouldTrigger}, excluded={item.Excluded}, errored={item.Errored}, error={item.Error ?? "-"}");
+                $"recipe={item.EngineRecipeWouldTrigger}, excluded={item.Excluded}, errored={item.Errored}, error={item.Error ?? "-"}, " +
+                $"role={item.Role?.ToString() ?? "run"}, rightsRefusal={item.RightsRefusalCorrect?.ToString() ?? "n/a"}, " +
+                $"refusalStated={item.RefusalStated?.ToString() ?? "n/a"}, toolChoiceRequired={item.ToolChoiceRequired}");
         }
     }
 
