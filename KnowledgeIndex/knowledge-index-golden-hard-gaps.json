@@ -96,5 +96,16 @@
   { "query": "show me the latest incoming chat messages", "expectedSourceId": "read_messages", "lang": "other", "langCode": "en" },
   { "query": "affiche les derniers messages reçus sur Telegram", "expectedSourceId": "read_messages", "lang": "other", "langCode": "fr" },
   { "query": "mostrami gli ultimi messaggi ricevuti", "expectedSourceId": "read_messages", "lang": "other", "langCode": "it" },
-  { "query": "pokaż ostatnie wiadomości z komunikatora", "expectedSourceId": "read_messages", "lang": "other", "langCode": "pl" }
+  { "query": "pokaż ostatnie wiadomości z komunikatora", "expectedSourceId": "read_messages", "lang": "other", "langCode": "pl" },
+  { "query": "bestätige den Urlaubseintrag von Frau Vogt", "expectedSourceId": "confirm_break", "lang": "de", "langCode": "de" },
+  { "query": "fixiere die Krankheitsabsenz von Herrn Keller damit sie nicht gelöscht werden kann", "expectedSourceId": "confirm_break", "lang": "de", "langCode": "de" },
+  { "query": "lock the vacation entry of Anna Weber so only an admin can delete it", "expectedSourceId": "confirm_break", "lang": "other", "langCode": "en" },
+  { "query": "confirme l'absence pour congés de Madame Dubois", "expectedSourceId": "confirm_break", "lang": "other", "langCode": "fr" },
+  { "query": "conferma l'assenza per ferie di Marco Rossi", "expectedSourceId": "confirm_break", "lang": "other", "langCode": "it" },
+  { "query": "hebe die Bestätigung der Ferienabsenz von Frau Vogt auf", "expectedSourceId": "unconfirm_break", "lang": "de", "langCode": "de" },
+  { "query": "remove the confirmation from the sick leave entry of Anna Weber", "expectedSourceId": "unconfirm_break", "lang": "other", "langCode": "en" },
+  { "query": "annule la confirmation de l'absence maladie de Madame Dubois", "expectedSourceId": "unconfirm_break", "lang": "other", "langCode": "fr" },
+  { "query": "togli la conferma dall'assenza per malattia di Marco Rossi", "expectedSourceId": "unconfirm_break", "lang": "other", "langCode": "it" },
+  { "query": "bestätige die Frühschicht von Herrn Keller am Montag", "expectedSourceId": "confirm_work", "lang": "de", "langCode": "de" },
+  { "query": "hebe die Bestätigung des Einsatzes von Frau Vogt am Dienstag auf", "expectedSourceId": "unconfirm_work", "lang": "de", "langCode": "de" }
 ]
