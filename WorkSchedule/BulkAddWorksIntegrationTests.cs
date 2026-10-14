@@ -172,6 +172,7 @@ public class BulkAddWorksIntegrationTests
             Substitute.For<IDayLockService>(),
             NonBlockingConflictChecker(),
             BuildDefaultExpensesApplier(),
+            Substitute.For<IClientPlanningPeriodGuard>(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
 
         await SetupTestData();
@@ -705,6 +706,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
             Substitute.For<IDayLockService>(),
             NonBlockingConflictChecker(),
             BuildDefaultExpensesApplier(),
+            Substitute.For<IClientPlanningPeriodGuard>(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
     }
 

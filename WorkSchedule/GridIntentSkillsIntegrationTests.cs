@@ -27,7 +27,10 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Shouldly;
+using Klacks.Api.Application.Commands;
+using Klacks.Api.Application.Commands.Works;
 using Klacks.Api.Application.Constants;
+using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.Skills;
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
@@ -905,6 +908,173 @@ public class GridIntentSkillsIntegrationTests
 
         result.Success.ShouldBeTrue(result.Message);
         (await StoredAsync(workId)).ClientId.ShouldBe(_targetClientId);
+    }
+
+    [Test]
+    public async Task PlaceWork_BeforeTheMembershipStarts_IsRefusedForSkillSinglePostAndBulkAlike_AndNothingIsWritten()
+    {
+        await AddMembershipAsync(_targetClientId, _date.AddDays(1));
+        using var scope = _factory.Services.CreateScope();
+        ActAs(scope, "planner-1");
+        var mediator = scope.ServiceProvider.GetRequiredService<Klacks.Api.Infrastructure.Mediator.IMediator>();
+
+        var skill = await Skill<PlaceWorkSkill>(scope).ExecuteAsync(Ctx(), PlaceParameters(_targetClientId, _date));
+        var post = await Should.ThrowAsync<InvalidRequestException>(
+            () => mediator.Send(new PostCommand<WorkResource>(NewWorkResource(_targetClientId, _date)), CancellationToken.None));
+        var bulk = await Should.ThrowAsync<InvalidRequestException>(
+            () => mediator.Send(new BulkAddWorksCommand(BulkRequest(_targetClientId, _date)), CancellationToken.None));
+
+        skill.Success.ShouldBeFalse();
+        skill.Message.ShouldContain("Nothing was placed");
+        foreach (var message in new[] { skill.Message, post.Message, bulk.Message })
+        {
+            message.ShouldContain("membership");
+            message.ShouldContain(SeedPrefix + "Target");
+        }
+
+        (await WorksOfAsync(_targetClientId)).ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task PlaceWork_OnTheMembershipBoundaryDay_IsWritten()
+    {
+        await AddMembershipAsync(_targetClientId, _date, _date);
+        using var scope = _factory.Services.CreateScope();
+        ActAs(scope, "planner-1");
+
+        var result = await Skill<PlaceWorkSkill>(scope).ExecuteAsync(Ctx(), PlaceParameters(_targetClientId, _date));
+
+        result.Success.ShouldBeTrue(result.Message);
+        (await WorksOfAsync(_targetClientId)).ShouldHaveSingleItem().CurrentDate.ShouldBe(_date);
+    }
+
+    [Test]
+    public async Task PlaceWork_OutsideTheGroupPeriodInTheSelectedGroup_IsRefused_AndInsideItIsWritten()
+    {
+        var groupId = await SeedGroupAsync("PlaceGroupPeriod");
+        await AddToGroupAsync(_targetClientId, groupId, validFrom: _date.AddDays(-5), validUntil: _date);
+        var plannerId = await SeedPlannerAsync(groupId);
+        using var scope = _factory.Services.CreateScope();
+        ActAs(scope, plannerId, selectedGroupId: groupId);
+
+        var refused = await Skill<PlaceWorkSkill>(scope).ExecuteAsync(Ctx(), PlaceParameters(_targetClientId, _date.AddDays(1)));
+        var placed = await Skill<PlaceWorkSkill>(scope).ExecuteAsync(Ctx(), PlaceParameters(_targetClientId, _date));
+
+        refused.Success.ShouldBeFalse();
+        refused.Message.ShouldContain("group period");
+        placed.Success.ShouldBeTrue(placed.Message);
+        (await WorksOfAsync(_targetClientId)).ShouldHaveSingleItem().CurrentDate.ShouldBe(_date);
+    }
+
+    [Test]
+    public async Task BulkAdd_OfPlannerOutput_OutsideTheMembership_IsStillWritten_LikeBeforeTheGuard()
+    {
+        await AddMembershipAsync(_targetClientId, _date.AddDays(1));
+        using var scope = _factory.Services.CreateScope();
+        ActAs(scope, "planner-1");
+        var mediator = scope.ServiceProvider.GetRequiredService<Klacks.Api.Infrastructure.Mediator.IMediator>();
+
+        var response = await mediator.Send(
+            new BulkAddWorksCommand(BulkRequest(_targetClientId, _date), PlanningPeriodCheck.SkipForPlannerOutput),
+            CancellationToken.None);
+
+        response.SuccessCount.ShouldBe(1);
+        (await WorksOfAsync(_targetClientId)).ShouldHaveSingleItem().CurrentDate.ShouldBe(_date);
+    }
+
+    [Test]
+    public async Task Put_MovingAWorkToADayAfterTheMembershipEnded_IsRefused_AndTheWorkStaysWhereItWas()
+    {
+        await AddMembershipAsync(_sourceClientId, _date.AddDays(-30), _date);
+        var workId = await SeedWorkAsync(_sourceClientId, _date);
+        using var scope = _factory.Services.CreateScope();
+        ActAs(scope, "planner-1");
+        var mediator = scope.ServiceProvider.GetRequiredService<Klacks.Api.Infrastructure.Mediator.IMediator>();
+        var moved = NewWorkResource(_sourceClientId, _date.AddDays(1));
+        moved.Id = workId;
+
+        var ex = await Should.ThrowAsync<InvalidRequestException>(
+            () => mediator.Send(new PutCommand<WorkResource>(moved), CancellationToken.None));
+
+        ex.Message.ShouldContain("membership");
+        (await StoredAsync(workId)).CurrentDate.ShouldBe(_date);
+    }
+
+    [Test]
+    public async Task Put_OfAWorkWhoseCellWasLockedSince_KeepingItsCell_IsStillSaved()
+    {
+        var workId = await SeedWorkAsync(_sourceClientId, _date);
+        await AddMembershipAsync(_sourceClientId, _date.AddDays(1));
+        using var scope = _factory.Services.CreateScope();
+        ActAs(scope, "planner-1");
+        var mediator = scope.ServiceProvider.GetRequiredService<Klacks.Api.Infrastructure.Mediator.IMediator>();
+        var edited = NewWorkResource(_sourceClientId, _date);
+        edited.Id = workId;
+        edited.Information = SeedPrefix + "Edited";
+
+        var result = await mediator.Send(new PutCommand<WorkResource>(edited), CancellationToken.None);
+
+        result.ShouldNotBeNull();
+        (await StoredAsync(workId)).Information.ShouldBe(SeedPrefix + "Edited");
+    }
+
+    [Test]
+    public async Task PlanningPeriodGuard_WithoutAnyHttpContext_StillChecksTheMembership_AndDoesNotFail()
+    {
+        await AddMembershipAsync(_targetClientId, _date, _date);
+        using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<IHttpContextAccessor>().HttpContext = null;
+        var guard = scope.ServiceProvider.GetRequiredService<Klacks.Api.Application.Interfaces.Schedules.IClientPlanningPeriodGuard>();
+
+        await guard.EnsureWithinPeriodsAsync([(_targetClientId, _date)], CancellationToken.None);
+        var ex = await Should.ThrowAsync<InvalidRequestException>(
+            () => guard.EnsureWithinPeriodsAsync([(_targetClientId, _date.AddDays(1))], CancellationToken.None));
+
+        ex.Message.ShouldContain("membership");
+    }
+
+    private Dictionary<string, object> PlaceParameters(Guid clientId, DateOnly date) => new()
+    {
+        ["clientId"] = clientId.ToString(),
+        ["shiftId"] = _shiftId.ToString(),
+        ["date"] = date.ToString("yyyy-MM-dd")
+    };
+
+    private WorkResource NewWorkResource(Guid clientId, DateOnly date) => new()
+    {
+        Id = Guid.NewGuid(),
+        ClientId = clientId,
+        ShiftId = _shiftId,
+        CurrentDate = date,
+        StartTime = ShiftStart,
+        EndTime = ShiftEnd,
+        WorkTime = SeedWorkTime
+    };
+
+    private BulkAddWorksRequest BulkRequest(Guid clientId, DateOnly date) => new()
+    {
+        PeriodStart = date,
+        PeriodEnd = date,
+        Works =
+        [
+            new BulkWorkItem
+            {
+                ClientId = clientId,
+                ShiftId = _shiftId,
+                CurrentDate = date,
+                StartTime = ShiftStart,
+                EndTime = ShiftEnd,
+                WorkTime = SeedWorkTime
+            }
+        ]
+    };
+
+    private async Task<List<Work>> WorksOfAsync(Guid clientId)
+    {
+        _context.ChangeTracker.Clear();
+        return await _context.Work.IgnoreQueryFilters().AsNoTracking()
+            .Where(w => w.ClientId == clientId && !w.IsDeleted)
+            .ToListAsync();
     }
 
     private static Dictionary<string, object> ReassignById(Guid workId, Guid targetClientId) => new()

@@ -220,7 +220,21 @@ public class WizardApplyDoublePromotionTests
             TestCompanyClock.Utc(),
             NameGenerator(TestPrefix + "Scenario"),
             Klacks.IntegrationTest.TestHelpers.UnrestrictedGroupVisibility.CreateScenarioTokenAccess(),
+            NoPlanningPeriodViolations(),
             Substitute.For<ILogger<WizardApplyService>>());
+    }
+
+    private static Klacks.Api.Application.Interfaces.Schedules.IClientPlanningPeriodGuard NoPlanningPeriodViolations()
+    {
+        var guard = Substitute.For<Klacks.Api.Application.Interfaces.Schedules.IClientPlanningPeriodGuard>();
+        guard.FindViolationsAsync(Arg.Any<IReadOnlyCollection<(Guid ClientId, DateOnly Date)>>(), Arg.Any<CancellationToken>())
+            .Returns(new List<PlanningPeriodViolation>());
+        guard.FindViolationsInGroupsAsync(
+                Arg.Any<IReadOnlyCollection<(Guid ClientId, DateOnly Date)>>(),
+                Arg.Any<IReadOnlyCollection<Guid>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new List<PlanningPeriodViolation>());
+        return guard;
     }
 
     [Test, Explicit("Read/write W1 apply double-promotion against the real test DB (port 5434); cleans up after itself.")]
