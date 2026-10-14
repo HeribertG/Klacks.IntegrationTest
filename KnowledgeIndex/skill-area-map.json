@@ -201,6 +201,7 @@
  "get_period_hours": "period",
  "get_period_status": "period",
  "get_plan_status": "schedule",
+ "get_replacement_status": "schedule",
  "get_scheduling_defaults": "settings",
  "get_shift_details": "shift",
  "get_spam_filter_settings": "inbox",

@@ -31,6 +31,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Klacks.Api.Application.Commands.Assistant;
 using Klacks.Api.Application.Handlers.Assistant;
+using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Services.Assistant.Conditions;
 using Klacks.Api.Application.Services.Assistant.Escalation;
 using Klacks.Api.Application.Services.Assistant.Triggers;
@@ -218,7 +219,7 @@ public class ProactiveApprovalChainExhaustScenarioTests
         DataBaseContext context, TimeProvider timeProvider, Guid currentUserId)
     {
         var handler = new AcknowledgeEscalationChainCommandHandler(
-            NewChainService(context, timeProvider), new EscalationChainRepository(context));
+            NewChainService(context, timeProvider), new EscalationChainRepository(context), VisibleToEveryone());
 
         var identity = new ClaimsIdentity(
             new[] { new Claim(ClaimTypes.NameIdentifier, currentUserId.ToString()) }, "Test");
@@ -230,6 +231,13 @@ public class ProactiveApprovalChainExhaustScenarioTests
                 HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(identity) }
             }
         };
+    }
+
+    private static IEscalationChainVisibilityFilter VisibleToEveryone()
+    {
+        var filter = Substitute.For<IEscalationChainVisibilityFilter>();
+        filter.IsVisibleAsync(Arg.Any<EscalationChain>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        return filter;
     }
 
     private static async Task GivenReportedConditionAsync(Guid conditionId)
