@@ -91,6 +91,8 @@ public class BulkDeleteWorksIntegrationTests
             completionService,
             notificationFacade,
             Substitute.For<IOvertimeCascadeService>(),
+            new Klacks.Api.Infrastructure.Services.Schedules.ContainerWorkCascadeService(
+                _context, Substitute.For<ILogger<Klacks.Api.Infrastructure.Services.Schedules.ContainerWorkCascadeService>>()),
             Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IDayLockService>(),
             BuildAdminHttpContextAccessor(),
             new Klacks.Api.Domain.Services.Schedules.ParentWorkLockGuard(

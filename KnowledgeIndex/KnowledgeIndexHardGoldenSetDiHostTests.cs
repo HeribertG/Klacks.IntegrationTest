@@ -52,6 +52,9 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
     private static readonly string LanguageCoverageSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard-langs.json");
 
+    private static readonly string GapsGoldenSetPath =
+        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard-gaps.json");
+
     private static readonly string OffTopicPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-offtopic.json");
 
@@ -114,6 +117,13 @@ public class KnowledgeIndexHardGoldenSetDiHostTests
             "CORE", core, embeddingProvider, repository, retrieval, reranker, alwaysOnNames);
         var extRecall = await MeasureSetAsync(
             "EXTENDED", extended, embeddingProvider, repository, retrieval, reranker, alwaysOnNames);
+
+        if (File.Exists(GapsGoldenSetPath))
+        {
+            await MeasureSetAsync(
+                "GAPS", HardGoldenSetItem.Load(GapsGoldenSetPath), embeddingProvider, repository, retrieval,
+                reranker, alwaysOnNames);
+        }
 
         var combinedCases = core.Count + extended.Count;
         var combinedRaw = coreRecall.Raw + extRecall.Raw;
