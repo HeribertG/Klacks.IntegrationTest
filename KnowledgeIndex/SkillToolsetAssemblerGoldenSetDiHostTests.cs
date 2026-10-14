@@ -100,7 +100,8 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
             string skillName,
             IReadOnlyDictionary<string, object> parameters,
             string purpose = PendingConfirmationPurposes.GateReplay,
-            string channel = PendingConfirmationChannels.Chat) =>
+            string channel = PendingConfirmationChannels.Chat,
+            ConfirmationBinding? binding = null) =>
             string.Empty;
 
         public PendingConfirmation? Consume(
