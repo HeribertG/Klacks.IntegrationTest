@@ -82,5 +82,19 @@
 
   { "query": "ups, das war ein Fehler, mach meine letzte Änderung rückgängig", "expectedSourceId": "rollback_my_last_change", "lang": "de", "langCode": "de" },
   { "query": "deshaz mi último cambio", "expectedSourceId": "rollback_my_last_change", "lang": "other", "langCode": "es" },
-  { "query": "cofnij moją ostatnią zmianę", "expectedSourceId": "rollback_my_last_change", "lang": "other", "langCode": "pl" }
+  { "query": "cofnij moją ostatnią zmianę", "expectedSourceId": "rollback_my_last_change", "lang": "other", "langCode": "pl" },
+  { "query": "schick Hans Muster eine Nachricht, dass seine Schicht morgen ausfällt", "expectedSourceId": "send_message", "lang": "de", "langCode": "de" },
+  { "query": "sende Maria per Telegram, sie soll mich zurückrufen", "expectedSourceId": "send_message", "lang": "de", "langCode": "de" },
+  { "query": "schreib mir eine SMS als Erinnerung an die Teamsitzung", "expectedSourceId": "send_message", "lang": "de", "langCode": "de" },
+  { "query": "send Peter a WhatsApp that his shift starts at seven", "expectedSourceId": "send_message", "lang": "other", "langCode": "en" },
+  { "query": "envoie un message à Julie pour lui dire que son service commence à 8 heures", "expectedSourceId": "send_message", "lang": "other", "langCode": "fr" },
+  { "query": "manda un messaggio a Marco che domani ha il giorno libero", "expectedSourceId": "send_message", "lang": "other", "langCode": "it" },
+  { "query": "envía un mensaje a Laura diciendo que su turno empieza a las nueve", "expectedSourceId": "send_message", "lang": "other", "langCode": "es" },
+  { "query": "zeig mir die letzten Telegram-Nachrichten", "expectedSourceId": "read_messages", "lang": "de", "langCode": "de" },
+  { "query": "welche Messenger-Nachrichten sind heute eingegangen", "expectedSourceId": "read_messages", "lang": "de", "langCode": "de" },
+  { "query": "hat mir jemand per WhatsApp geschrieben", "expectedSourceId": "read_messages", "lang": "de", "langCode": "de" },
+  { "query": "show me the latest incoming chat messages", "expectedSourceId": "read_messages", "lang": "other", "langCode": "en" },
+  { "query": "affiche les derniers messages reçus sur Telegram", "expectedSourceId": "read_messages", "lang": "other", "langCode": "fr" },
+  { "query": "mostrami gli ultimi messaggi ricevuti", "expectedSourceId": "read_messages", "lang": "other", "langCode": "it" },
+  { "query": "pokaż ostatnie wiadomości z komunikatora", "expectedSourceId": "read_messages", "lang": "other", "langCode": "pl" }
 ]
