@@ -48,6 +48,7 @@ using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NUnit.Framework;
@@ -71,7 +72,20 @@ public class ProactiveApprovalChainExhaustScenarioTests
     private static readonly DateTime StartedAtUtc = new(2026, 9, 21, 10, 0, 0, DateTimeKind.Utc);
 
     [OneTimeSetUp]
-    public async Task OneTimeSetUp() => await CleanupAsync();
+    public async Task OneTimeSetUp()
+    {
+        var migrationOptions = new DbContextOptionsBuilder<DataBaseContext>()
+            .UseNpgsql(TestHostDatabase.ConnectionString)
+            .UseSnakeCaseNamingConvention()
+            .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning))
+            .Options;
+        await using (var context = new DataBaseContext(migrationOptions, Substitute.For<IHttpContextAccessor>()))
+        {
+            await context.Database.MigrateAsync();
+        }
+
+        await CleanupAsync();
+    }
 
     [TearDown]
     public async Task TearDown() => await CleanupAsync();
