@@ -107,5 +107,15 @@
   { "query": "annule la confirmation de l'absence maladie de Madame Dubois", "expectedSourceId": "unconfirm_break", "lang": "other", "langCode": "fr" },
   { "query": "togli la conferma dall'assenza per malattia di Marco Rossi", "expectedSourceId": "unconfirm_break", "lang": "other", "langCode": "it" },
   { "query": "bestätige die Frühschicht von Herrn Keller am Montag", "expectedSourceId": "confirm_work", "lang": "de", "langCode": "de" },
-  { "query": "hebe die Bestätigung des Einsatzes von Frau Vogt am Dienstag auf", "expectedSourceId": "unconfirm_work", "lang": "de", "langCode": "de" }
+  { "query": "hebe die Bestätigung des Einsatzes von Frau Vogt am Dienstag auf", "expectedSourceId": "unconfirm_work", "lang": "de", "langCode": "de" },
+  { "query": "Wer wurde wegen Müllers Ausfall schon angerufen?", "expectedSourceId": "get_replacement_status", "lang": "de", "langCode": "de" },
+  { "query": "Hat schon jemand die Vertretung für die kranke Frau Keller zugesagt?", "expectedSourceId": "get_replacement_status", "lang": "de", "langCode": "de" },
+  { "query": "Is the shift for the sick employee covered yet?", "expectedSourceId": "get_replacement_status", "lang": "other", "langCode": "en" },
+  { "query": "Who has already been asked to cover for Anna Weber and what did they answer?", "expectedSourceId": "get_replacement_status", "lang": "other", "langCode": "en" },
+  { "query": "Qui a déjà été contacté pour remplacer Madame Dubois et qu'a-t-il répondu ?", "expectedSourceId": "get_replacement_status", "lang": "other", "langCode": "fr" },
+  { "query": "Le remplacement pour le collaborateur malade est-il déjà confirmé ?", "expectedSourceId": "get_replacement_status", "lang": "other", "langCode": "fr" },
+  { "query": "Chi è già stato chiamato per sostituire Marco Rossi assente?", "expectedSourceId": "get_replacement_status", "lang": "other", "langCode": "it" },
+  { "query": "Il turno del collega malato è già coperto o qualcuno ha rifiutato?", "expectedSourceId": "get_replacement_status", "lang": "other", "langCode": "it" },
+  { "query": "schlage mir Ersatz für die Frühschicht von Herrn Keller am Montag vor", "expectedSourceId": "find_replacement", "lang": "de", "langCode": "de" },
+  { "query": "Frau Vogt meldet sich heute krank, plane die Abdeckung ihrer Dienste", "expectedSourceId": "cover_absence", "lang": "de", "langCode": "de" }
 ]
