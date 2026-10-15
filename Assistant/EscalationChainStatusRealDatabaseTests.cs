@@ -8,6 +8,7 @@
 /// question. Cleanup deletes ONLY rows whose absent client name carries this fixture prefix.
 /// </summary>
 
+using Klacks.Api.Application.Commands.Assistant;
 using Klacks.Api.Application.Handlers.Assistant;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Queries.Assistant;
@@ -93,6 +94,41 @@ public class EscalationChainStatusRealDatabaseTests
 
         holder.Single(c => c.Id == chainId).CanCancel.ShouldBeTrue();
         stranger.Single(c => c.Id == chainId).CanCancel.ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task CancelThroughTheHandler_OnOneTrackingContext_StillClosesTheWokenPlannersInboxQuestion()
+    {
+        var chainId = await AddChainAsync(Guid.NewGuid(), ShiftStartUtc, EscalationChainStatus.Running);
+
+        var notifier = Substitute.For<IEscalationNotifier>();
+        var visibility = Substitute.For<IEscalationChainVisibilityFilter>();
+        visibility.IsVisibleAsync(Arg.Any<EscalationChain>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        var userService = Substitute.For<IUserService>();
+        userService.IsAdmin().Returns(true);
+
+        await using (var context = NewContext())
+        {
+            var repository = new EscalationChainRepository(context);
+            var service = new EscalationChainService(
+                repository,
+                Substitute.For<IEscalationRosterService>(),
+                notifier,
+                Substitute.For<ISettingsReader>(),
+                Substitute.For<IAgentConditionLedgerService>(),
+                TimeProvider.System,
+                NullLogger<EscalationChainService>.Instance);
+            var handler = new CancelEscalationChainCommandHandler(service, repository, visibility, userService);
+
+            var result = await handler.Handle(
+                new CancelEscalationChainCommand(chainId, PlannerId, "Planner", "covered elsewhere"), CancellationToken.None);
+
+            result.Outcome.ShouldBe(EscalationCancelOutcome.Cancelled);
+        }
+
+        await notifier.Received(1).CloseOpenQuestionsAsync(
+            Arg.Is<IReadOnlyList<EscalationStage>>(stages => stages.Count == 1 && stages[0].UserId == PlannerId),
+            Arg.Any<CancellationToken>());
     }
 
     [Test]
