@@ -1,5 +1,4 @@
 using Shouldly;
-using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
@@ -54,6 +53,8 @@ public class GetShiftScheduleTests
 
     private async Task CleanupTestData()
     {
+        _context.ChangeTracker.Clear();
+
         var testShiftIds = await _context.Shift
             .Where(s => s.Name.StartsWith("INTEGRATION_TEST_"))
             .Select(s => s.Id)
@@ -61,6 +62,16 @@ public class GetShiftScheduleTests
 
         if (testShiftIds.Count != 0)
         {
+            await _context.ContainerTemplateItem
+                .IgnoreQueryFilters()
+                .Where(cti => (cti.ShiftId.HasValue && testShiftIds.Contains(cti.ShiftId.Value))
+                    || testShiftIds.Contains(cti.ContainerTemplate.ContainerId))
+                .ExecuteDeleteAsync();
+            await _context.ContainerTemplate
+                .IgnoreQueryFilters()
+                .Where(ct => testShiftIds.Contains(ct.ContainerId))
+                .ExecuteDeleteAsync();
+
             var shiftGroupItems = await _context.GroupItem
                 .Where(gi => gi.ShiftId.HasValue && testShiftIds.Contains(gi.ShiftId.Value))
                 .ToListAsync();
@@ -97,7 +108,8 @@ public class GetShiftScheduleTests
         bool isWeekdayAndHoliday = false,
         bool cuttingAfterMidnight = false,
         DateOnly? fromDate = null,
-        DateOnly? untilDate = null)
+        DateOnly? untilDate = null,
+        ShiftType shiftType = ShiftType.IsTask)
     {
         var shift = new Shift
         {
@@ -105,7 +117,7 @@ public class GetShiftScheduleTests
             Name = $"INTEGRATION_TEST_{name}",
             Abbreviation = name[..Math.Min(3, name.Length)].ToUpper(),
             Status = ShiftStatus.OriginalShift,
-            ShiftType = ShiftType.IsTask,
+            ShiftType = shiftType,
             FromDate = fromDate ?? DateOnly.FromDateTime(DateTime.Now.AddYears(-1)),
             UntilDate = untilDate,
             StartShift = new TimeOnly(8, 0),
@@ -399,183 +411,257 @@ public class GetShiftScheduleTests
 
     #endregion
 
-    #region IsWeekdayAndHoliday Tests
+    #region Holiday Option Tests (owner rule 2026-10-17)
 
-    // The IsWeekdayAndHoliday branch of get_shift_schedule classifies "weekday" via the
-    // CALENDAR_WEEKEND_DAYS setting of the shared dev database (e.g. Friday/Saturday for
-    // Gulf-region setups), not via a fixed Saturday/Sunday weekend. These tests therefore
-    // read the configured weekend days and derive their expectations from them.
+    // Owner rule, example Mon-Wed ticked:
+    // none  -> Mon-Wed, not when that day is a public holiday
+    // FT    -> Mon-Wed plus every public holiday, whatever the weekday
+    // +FT   -> exactly the ticked days, also when one is a public holiday; holidays on unticked days do not count
 
     [Test]
-    public async Task GetShiftSchedule_Should_Return_IsWeekdayAndHoliday_Shift_On_Weekdays()
+    public async Task GetShiftSchedule_NoHolidayOption_Skips_Holiday_On_Ticked_Day()
     {
         // Arrange
-        var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHoliday", isWeekdayAndHoliday: true);
-
-        var weekendDows = await GetConfiguredWeekendIsoDowsAsync();
-        var expectedWeekdayDows = Enumerable.Range(1, 7).Where(d => !weekendDows.Contains(d)).ToArray();
-
-        var monday = GetNextWeekday(DayOfWeek.Monday);
-        var startDate = monday;
-        var endDate = monday.AddDays(6);
+        var week = HolidayRuleWeek.Next();
+        var shift = await CreateTestShift("HolidayRuleNone", isMonday: true, isTuesday: true, isWednesday: true);
 
         // Act
-        var result = await _service.GetShiftScheduleQuery(startDate, endDate).ToListAsync();
+        var dates = await GetScheduledDatesAsync(shift.Id, week);
 
         // Assert
-        var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Count.ShouldBe(expectedWeekdayDows.Length);
-        shiftResults.Select(r => r.DayOfWeek).OrderBy(d => d).ToArray().ShouldBeEquivalentTo(expectedWeekdayDows);
+        dates.ShouldBe(new[] { week.Tuesday, week.Wednesday });
     }
 
     [Test]
-    public async Task GetShiftSchedule_Should_Return_IsWeekdayAndHoliday_Shift_On_Holidays()
+    public async Task GetShiftSchedule_IsHoliday_Adds_Every_Holiday_To_Ticked_Days()
     {
         // Arrange
-        var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHolidayOnHoliday", isWeekdayAndHoliday: true);
+        var week = HolidayRuleWeek.Next();
+        var shift = await CreateTestShift("HolidayRuleFt", isMonday: true, isTuesday: true, isWednesday: true, isHoliday: true);
 
-        var weekendDows = await GetConfiguredWeekendIsoDowsAsync();
-        var holidayOnWeekend = GetNextDateWithIsoDow(weekendDows.Min());
-        var startDate = holidayOnWeekend;
-        var endDate = holidayOnWeekend;
+        // Act
+        var dates = await GetScheduledDatesAsync(shift.Id, week);
+
+        // Assert
+        dates.ShouldBe(new[] { week.Monday, week.Tuesday, week.Wednesday, week.Friday });
+    }
+
+    [Test]
+    public async Task GetShiftSchedule_IsHoliday_Without_Ticked_Days_Runs_On_Holidays_Only()
+    {
+        // Arrange
+        var week = HolidayRuleWeek.Next();
+        var shift = await CreateTestShift("HolidayRuleFtOnly", isHoliday: true);
+
+        // Act
+        var dates = await GetScheduledDatesAsync(shift.Id, week);
+
+        // Assert
+        dates.ShouldBe(new[] { week.Monday, week.Friday });
+    }
+
+    [Test]
+    public async Task GetShiftSchedule_IsWeekdayAndHoliday_Keeps_Holiday_On_Ticked_Day_Only()
+    {
+        // Arrange
+        var week = HolidayRuleWeek.Next();
+        var shift = await CreateTestShift("HolidayRulePlusFt", isMonday: true, isTuesday: true, isWednesday: true, isWeekdayAndHoliday: true);
+
+        // Act
+        var dates = await GetScheduledDatesAsync(shift.Id, week);
+
+        // Assert
+        dates.ShouldBe(new[] { week.Monday, week.Tuesday, week.Wednesday });
+    }
+
+    [Test]
+    public async Task GetShiftSchedule_IsWeekdayAndHoliday_Without_Ticked_Days_Never_Runs()
+    {
+        // Arrange
+        var week = HolidayRuleWeek.Next();
+        var shift = await CreateTestShift("HolidayRulePlusFtNoTicks", isWeekdayAndHoliday: true);
+
+        // Act
+        var dates = await GetScheduledDatesAsync(shift.Id, week);
+
+        // Assert
+        dates.ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task GetShiftSchedule_AllDaysTicked_IsWeekdayAndHoliday_And_IsHoliday_Run_Every_Day_Once()
+    {
+        // Arrange
+        var week = HolidayRuleWeek.Next();
+        var nurseShift = await CreateAllDaysShift("HolidayRuleNursePlusFt", isHoliday: false, isWeekdayAndHoliday: true);
+        var holidayShift = await CreateAllDaysShift("HolidayRuleNurseFt", isHoliday: true, isWeekdayAndHoliday: false);
+        var weekendHoliday = week.Monday.AddDays(5);
 
         // Act
         var result = await _service.GetShiftScheduleQuery(
-            startDate, endDate,
-            new List<DateOnly> { holidayOnWeekend }).ToListAsync();
+            week.Monday, week.Sunday,
+            new List<DateOnly> { week.Monday, weekendHoliday }).ToListAsync();
 
         // Assert
-        var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Count.ShouldBe(1);
-        shiftResults.Single().Date.ShouldBe(holidayOnWeekend);
+        var everyDay = Enumerable.Range(0, 7).Select(offset => week.Monday.AddDays(offset)).ToArray();
+        foreach (var shiftId in new[] { nurseShift.Id, holidayShift.Id })
+        {
+            result.Where(r => r.ShiftId == shiftId).Select(r => r.Date).OrderBy(d => d).ToArray().ShouldBe(everyDay);
+        }
     }
 
     [Test]
-    public async Task GetShiftSchedule_Should_Not_Return_IsWeekdayAndHoliday_Shift_On_Weekend_Without_Holiday()
+    public async Task GetShiftSchedule_IsHoliday_Respects_UntilDate_On_Holiday()
     {
         // Arrange
-        var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHolidayNoWeekend", isWeekdayAndHoliday: true);
-
-        var weekendDows = await GetConfiguredWeekendIsoDowsAsync();
-
-        var monday = GetNextWeekday(DayOfWeek.Monday);
-        var startDate = monday;
-        var endDate = monday.AddDays(6);
+        var week = HolidayRuleWeek.Next();
+        var shift = await CreateTestShift(
+            "HolidayRuleFtExpired",
+            isMonday: true,
+            isHoliday: true,
+            fromDate: week.Monday.AddDays(-30),
+            untilDate: week.Monday.AddDays(-1));
 
         // Act
-        var result = await _service.GetShiftScheduleQuery(startDate, endDate).ToListAsync();
+        var dates = await GetScheduledDatesAsync(shift.Id, week);
 
         // Assert
-        var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Where(r => weekendDows.Contains(r.DayOfWeek))
-            .ShouldBeEmpty("shift must not appear on configured weekend days without a holiday");
+        dates.ShouldBeEmpty();
     }
 
     [Test]
-    public async Task GetShiftSchedule_Should_Return_IsWeekdayAndHoliday_Both_Weekday_And_Holiday()
+    public async Task GetShiftSchedule_ContainerWithIsWeekdayAndHoliday_Uses_HolidayTemplate_Only_On_Ticked_Days()
     {
         // Arrange
-        var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHolidayBoth", isWeekdayAndHoliday: true);
+        var week = HolidayRuleWeek.Next();
+        var container = await CreateTestShift(
+            "HolidayRuleContainerPlusFt",
+            isMonday: true, isTuesday: true, isWednesday: true,
+            isWeekdayAndHoliday: true,
+            shiftType: ShiftType.IsContainer);
+        var weekdayTask = await CreateAllDaysShift("HolidayRuleContainerPlusFtWeekdayTask", isHoliday: false, isWeekdayAndHoliday: true);
+        var holidayTask = await CreateAllDaysShift("HolidayRuleContainerPlusFtHolidayTask", isHoliday: false, isWeekdayAndHoliday: true);
 
-        var weekendDows = await GetConfiguredWeekendIsoDowsAsync();
-        var expectedWeekdayDows = Enumerable.Range(1, 7).Where(d => !weekendDows.Contains(d)).ToArray();
-
-        var monday = GetNextWeekday(DayOfWeek.Monday);
-        var startDate = monday;
-        var endDate = monday.AddDays(6);
-        var holidayOnWeekend = monday.AddDays(weekendDows.Min() - 1);
+        foreach (var weekday in TickedStorageWeekdays)
+        {
+            await CreateContainerTemplateAsync(container.Id, weekday, isHoliday: false, isWeekdayAndHoliday: false, weekdayTask.Id);
+            await CreateContainerTemplateAsync(container.Id, weekday, isHoliday: true, isWeekdayAndHoliday: true, holidayTask.Id);
+        }
 
         // Act
-        var result = await _service.GetShiftScheduleQuery(
-            startDate, endDate,
-            new List<DateOnly> { holidayOnWeekend }).ToListAsync();
+        var result = await GetHolidayRuleWeekScheduleAsync(week);
 
         // Assert
-        var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Count.ShouldBe(expectedWeekdayDows.Length + 1);
-        shiftResults.Where(r => expectedWeekdayDows.Contains(r.DayOfWeek)).Count().ShouldBe(expectedWeekdayDows.Length);
-        shiftResults.Where(r => r.Date == holidayOnWeekend).Count().ShouldBe(1);
+        InTemplateDates(result, weekdayTask.Id).ShouldBe(new[] { week.Tuesday, week.Wednesday });
+        InTemplateDates(result, holidayTask.Id).ShouldBe(new[] { week.Monday });
     }
 
     [Test]
-    public async Task GetShiftSchedule_IsWeekdayAndHoliday_Should_Not_Duplicate_On_Weekday_Holiday()
+    public async Task GetShiftSchedule_ContainerWithIsHoliday_Uses_HolidayTemplate_On_Every_Holiday()
     {
         // Arrange
-        var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHolidayNoDup", isWeekdayAndHoliday: true);
+        var week = HolidayRuleWeek.Next();
+        var container = await CreateTestShift(
+            "HolidayRuleContainerFt",
+            isMonday: true, isTuesday: true, isWednesday: true,
+            isHoliday: true,
+            shiftType: ShiftType.IsContainer);
+        var weekdayTask = await CreateAllDaysShift("HolidayRuleContainerFtWeekdayTask", isHoliday: false, isWeekdayAndHoliday: true);
+        var holidayTask = await CreateAllDaysShift("HolidayRuleContainerFtHolidayTask", isHoliday: false, isWeekdayAndHoliday: true);
 
-        var monday = GetNextWeekday(DayOfWeek.Monday);
-        var startDate = monday;
-        var endDate = monday;
-
-        // Act
-        var result = await _service.GetShiftScheduleQuery(
-            startDate, endDate,
-            new List<DateOnly> { monday }).ToListAsync();
-
-        // Assert
-        var shiftResults = result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).ToList();
-        shiftResults.Count.ShouldBe(1);
-    }
-
-    #endregion
-
-    #region Combined IsHoliday and IsWeekdayAndHoliday Tests
-
-    [Test]
-    public async Task GetShiftSchedule_IsHoliday_And_IsWeekdayAndHoliday_Should_Both_Appear_On_Holiday()
-    {
-        // Arrange
-        var holidayOnlyShift = await CreateTestShift("HolidayOnlyTest", isHoliday: true);
-        var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHolidayTest", isWeekdayAndHoliday: true);
-
-        var saturday = GetNextWeekday(DayOfWeek.Saturday);
-        var startDate = saturday;
-        var endDate = saturday;
+        foreach (var weekday in TickedStorageWeekdays)
+        {
+            await CreateContainerTemplateAsync(container.Id, weekday, isHoliday: false, isWeekdayAndHoliday: false, weekdayTask.Id);
+            await CreateContainerTemplateAsync(container.Id, weekday, isHoliday: true, isWeekdayAndHoliday: false, holidayTask.Id);
+        }
 
         // Act
-        var result = await _service.GetShiftScheduleQuery(
-            startDate, endDate,
-            new List<DateOnly> { saturday }).ToListAsync();
+        var result = await GetHolidayRuleWeekScheduleAsync(week);
 
         // Assert
-        result.Where(r => r.ShiftId == holidayOnlyShift.Id).Count().ShouldBe(1);
-        result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).Count().ShouldBe(1);
+        InTemplateDates(result, weekdayTask.Id).ShouldBe(new[] { week.Tuesday, week.Wednesday });
+        InTemplateDates(result, holidayTask.Id).ShouldBe(new[] { week.Monday, week.Friday });
     }
 
     [Test]
-    public async Task GetShiftSchedule_Only_IsWeekdayAndHoliday_Should_Appear_On_Regular_Weekday()
+    public async Task GetShiftSchedule_Container_Ignores_SoftDeleted_TemplateItem()
     {
         // Arrange
-        var holidayOnlyShift = await CreateTestShift("HolidayOnlyNoWeekday", isHoliday: true);
-        var weekdayAndHolidayShift = await CreateTestShift("WeekdayAndHolidayWeekday", isWeekdayAndHoliday: true);
+        var week = HolidayRuleWeek.Next();
+        var container = await CreateTestShift(
+            "HolidayRuleContainerDeletedItem",
+            isMonday: true, isTuesday: true, isWednesday: true,
+            shiftType: ShiftType.IsContainer);
+        var task = await CreateAllDaysShift("HolidayRuleContainerDeletedItemTask", isHoliday: false, isWeekdayAndHoliday: true);
+        var item = await CreateContainerTemplateAsync(container.Id, TickedStorageWeekdays[1], isHoliday: false, isWeekdayAndHoliday: false, task.Id);
 
-        var tuesday = GetNextWeekday(DayOfWeek.Tuesday);
-        var startDate = tuesday;
-        var endDate = tuesday;
+        _context.ContainerTemplateItem.Remove(item);
+        await _context.SaveChangesAsync();
 
         // Act
-        var result = await _service.GetShiftScheduleQuery(startDate, endDate).ToListAsync();
+        var result = await GetHolidayRuleWeekScheduleAsync(week);
 
         // Assert
-        result.Where(r => r.ShiftId == holidayOnlyShift.Id).ShouldBeEmpty();
-        result.Where(r => r.ShiftId == weekdayAndHolidayShift.Id).Count().ShouldBe(1);
+        InTemplateDates(result, task.Id).ShouldBeEmpty();
     }
 
-    [Test]
-    public async Task GetShiftSchedule_Only_IsHoliday_Should_Not_Appear_On_Regular_Weekday()
+    private static readonly int[] TickedStorageWeekdays = [1, 2, 3];
+
+    private sealed record HolidayRuleWeek(DateOnly Monday)
     {
-        // Arrange
-        var holidayOnlyShift = await CreateTestShift("HolidayOnlyStrictWeekday", isHoliday: true);
+        public DateOnly Tuesday => Monday.AddDays(1);
+        public DateOnly Wednesday => Monday.AddDays(2);
+        public DateOnly Friday => Monday.AddDays(4);
+        public DateOnly Sunday => Monday.AddDays(6);
+        public List<DateOnly> Holidays => [Monday, Friday];
 
-        var wednesday = GetNextWeekday(DayOfWeek.Wednesday);
-        var startDate = wednesday;
-        var endDate = wednesday;
+        public static HolidayRuleWeek Next() => new(GetNextWeekday(DayOfWeek.Monday));
+    }
 
-        // Act
-        var result = await _service.GetShiftScheduleQuery(startDate, endDate).ToListAsync();
+    private Task<List<ShiftDayAssignment>> GetHolidayRuleWeekScheduleAsync(HolidayRuleWeek week) =>
+        _service.GetShiftScheduleQuery(week.Monday, week.Sunday, week.Holidays).ToListAsync();
 
-        // Assert
-        result.Where(r => r.ShiftId == holidayOnlyShift.Id).ShouldBeEmpty();
+    private async Task<DateOnly[]> GetScheduledDatesAsync(Guid shiftId, HolidayRuleWeek week)
+    {
+        var result = await GetHolidayRuleWeekScheduleAsync(week);
+        return result.Where(r => r.ShiftId == shiftId).Select(r => r.Date).OrderBy(d => d).ToArray();
+    }
+
+    private static DateOnly[] InTemplateDates(IEnumerable<ShiftDayAssignment> result, Guid shiftId) =>
+        result.Where(r => r.ShiftId == shiftId && r.IsInTemplateContainer).Select(r => r.Date).OrderBy(d => d).ToArray();
+
+    private Task<Shift> CreateAllDaysShift(string name, bool isHoliday, bool isWeekdayAndHoliday) =>
+        CreateTestShift(
+            name,
+            isMonday: true, isTuesday: true, isWednesday: true, isThursday: true,
+            isFriday: true, isSaturday: true, isSunday: true,
+            isHoliday: isHoliday,
+            isWeekdayAndHoliday: isWeekdayAndHoliday);
+
+    private async Task<ContainerTemplateItem> CreateContainerTemplateAsync(
+        Guid containerId, int storageWeekday, bool isHoliday, bool isWeekdayAndHoliday, Guid taskShiftId)
+    {
+        var template = new ContainerTemplate
+        {
+            Id = Guid.NewGuid(),
+            ContainerId = containerId,
+            Weekday = storageWeekday,
+            IsHoliday = isHoliday,
+            IsWeekdayAndHoliday = isWeekdayAndHoliday,
+            FromTime = new TimeOnly(8, 0),
+            UntilTime = new TimeOnly(16, 0)
+        };
+        var item = new ContainerTemplateItem
+        {
+            Id = Guid.NewGuid(),
+            ContainerTemplateId = template.Id,
+            ShiftId = taskShiftId
+        };
+
+        await _context.ContainerTemplate.AddAsync(template);
+        await _context.ContainerTemplateItem.AddAsync(item);
+        await _context.SaveChangesAsync();
+        return item;
     }
 
     #endregion
@@ -690,34 +776,6 @@ public class GetShiftScheduleTests
             daysUntilTarget = 7;
         return today.AddDays(daysUntilTarget);
     }
-
-    // Mirrors the weekend_dows CTE of get_shift_schedule: no CALENDAR_WEEKEND_DAYS row
-    // means Saturday/Sunday, otherwise the CSV of DayOfWeek names is mapped to ISO
-    // weekday numbers (Monday = 1 .. Sunday = 7) and unknown names are dropped.
-    private async Task<HashSet<int>> GetConfiguredWeekendIsoDowsAsync()
-    {
-        var settingValue = await _context.Settings
-            .AsNoTracking()
-            .Where(s => s.Type == SettingKeys.WeekendDays)
-            .Select(s => s.Value)
-            .FirstOrDefaultAsync();
-
-        if (settingValue == null)
-        {
-            return [6, 7];
-        }
-
-        return settingValue
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(name => Enum.TryParse<DayOfWeek>(name, ignoreCase: true, out var day) ? (int?)ToIsoDow(day) : null)
-            .Where(dow => dow.HasValue)
-            .Select(dow => dow!.Value)
-            .ToHashSet();
-    }
-
-    private static int ToIsoDow(DayOfWeek day) => day == DayOfWeek.Sunday ? 7 : (int)day;
-
-    private static DateOnly GetNextDateWithIsoDow(int isoDow) => GetNextWeekday((DayOfWeek)(isoDow % 7));
 
     private async Task<Group> CreateTestGroup(string name, Guid? parentId = null)
     {
