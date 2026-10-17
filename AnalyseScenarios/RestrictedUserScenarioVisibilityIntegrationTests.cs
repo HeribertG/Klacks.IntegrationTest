@@ -101,7 +101,7 @@ public class RestrictedUserScenarioVisibilityIntegrationTests
         hidden.Message.ShouldBe($"No scenario found for analyseToken '{_hiddenScenario.Token}'.");
         visible.Success.ShouldBeTrue();
         await _dispatcher.Received(1).ExecuteAsync(
-            GenericHandlerType, GenericHandlerConfig, Arg.Any<Dictionary<string, object>>(), Arg.Any<CancellationToken>());
+            GenericHandlerType, GenericHandlerConfig, Arg.Any<Dictionary<string, object>>(), Arg.Any<ExplainDepthProfile?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -141,7 +141,7 @@ public class RestrictedUserScenarioVisibilityIntegrationTests
         _dispatcher = Substitute.For<IGenericSkillDispatcher>();
         _dispatcher.CanHandle(GenericHandlerType).Returns(true);
         _dispatcher.ExecuteAsync(
-                GenericHandlerType, GenericHandlerConfig, Arg.Any<Dictionary<string, object>>(), Arg.Any<CancellationToken>())
+                GenericHandlerType, GenericHandlerConfig, Arg.Any<Dictionary<string, object>>(), Arg.Any<ExplainDepthProfile?>(), Arg.Any<CancellationToken>())
             .Returns(SkillResult.SuccessResult(null, "ran"));
         var gate = Substitute.For<IAutonomyGate>();
         gate.CheckAsync(

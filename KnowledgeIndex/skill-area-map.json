@@ -324,6 +324,7 @@
  "set_company_rule_parameters": "wizard",
  "set_default_llm_model": "klacksy",
  "set_erp_import_schedule": "settings",
+ "set_explain_depth": "klacksy",
  "set_export_format_override": "settings",
  "set_group_location": "group",
  "set_planning_profile_parameters": "schedule",
