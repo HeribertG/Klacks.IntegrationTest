@@ -183,4 +183,28 @@ public class AgentMemoryRepositoryUserKeyTests
         (await IsDeletedAsync(second)).ShouldBeTrue();
         (await ReadAsync(_userId)).ShouldBeNull();
     }
+
+    [Test]
+    public async Task SoftDeleteByUserAndKey_KeepsRowsNewerThanTheKeptOne_SoTwoParallelWritesLeaveTheNewest()
+    {
+        var now = DateTime.UtcNow;
+        var first = await InsertAsync(_userId, "advanced", now.AddSeconds(-1));
+        var second = await InsertAsync(_userId, "advanced", now);
+
+        await using (var ctx = NewContext())
+        {
+            await new AgentMemoryRepository(ctx, NullLogger<AgentMemoryRepository>.Instance)
+                .SoftDeleteByUserAndKeyAsync(_userId, TestKey, second);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            await new AgentMemoryRepository(ctx, NullLogger<AgentMemoryRepository>.Instance)
+                .SoftDeleteByUserAndKeyAsync(_userId, TestKey, first);
+        }
+
+        (await IsDeletedAsync(first)).ShouldBeTrue();
+        (await IsDeletedAsync(second)).ShouldBeFalse();
+        (await ReadAsync(_userId))!.Id.ShouldBe(second);
+    }
 }
