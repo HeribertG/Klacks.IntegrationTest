@@ -17,6 +17,7 @@ using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces.Schedules;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Services.Shifts;
+using Klacks.Api.Domain.Services.ShiftSchedule;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Infrastructure.Services;
@@ -179,7 +180,7 @@ public class AnalyseScenarioShiftReadFilterTests
             SortOrder = string.Empty,
         };
 
-        var filtered = await _shiftRepository.FilterShifts(filter, DateOnly.FromDateTime(DateTime.UtcNow))
+        var filtered = await _shiftRepository.FilterShifts(filter, DateOnly.FromDateTime(DateTime.UtcNow), null)
             .Where(s => s.Name.StartsWith(TestPrefix))
             .ToListAsync();
 
@@ -213,6 +214,7 @@ public class AnalyseScenarioShiftReadFilterTests
 
         var handler = new GetShiftsByIdsQueryHandler(
             _shiftRepository,
+            UnrestrictedShiftGroupFilter(),
             _scheduleMapper,
             Substitute.For<ILogger<GetShiftsByIdsQueryHandler>>());
 
@@ -243,6 +245,7 @@ public class AnalyseScenarioShiftReadFilterTests
 
         var handler = new GetQueryHandler(
             _shiftRepository,
+            UnrestrictedShiftGroupFilter(),
             _scheduleMapper,
             Substitute.For<ILogger<GetQueryHandler>>());
 
@@ -259,6 +262,7 @@ public class AnalyseScenarioShiftReadFilterTests
 
         var handler = new GetQueryHandler(
             _shiftRepository,
+            UnrestrictedShiftGroupFilter(),
             _scheduleMapper,
             Substitute.For<ILogger<GetQueryHandler>>());
 
@@ -268,5 +272,12 @@ public class AnalyseScenarioShiftReadFilterTests
 
         result.ShouldNotBeNull();
         result.Id.ShouldBe(realShift.Id);
+    }
+
+    private static IShiftGroupFilterService UnrestrictedShiftGroupFilter()
+    {
+        var filter = Substitute.For<IShiftGroupFilterService>();
+        filter.ResolveShiftListGroupIdsAsync(Arg.Any<Guid?>()).Returns(Task.FromResult<List<Guid>?>(null));
+        return filter;
     }
 }

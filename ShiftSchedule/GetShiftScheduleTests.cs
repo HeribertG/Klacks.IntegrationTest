@@ -1151,7 +1151,7 @@ public class GetShiftScheduleTests
     }
 
     [Test]
-    public async Task GetShiftSchedule_WithEmptyVisibleGroups_Should_Return_All_Shifts()
+    public async Task GetShiftSchedule_WithNullVisibleGroups_Should_Return_All_Shifts()
     {
         // Arrange
         var group = await CreateTestGroup("AdminTestGroup");
@@ -1168,7 +1168,7 @@ public class GetShiftScheduleTests
             startDate,
             endDate,
             null,
-            new List<Guid>()).ToListAsync();
+            null).ToListAsync();
 
         // Assert
         result.Where(r => r.ShiftId == shiftWithGroup.Id).Count().ShouldBe(1, "Admin should see shift with group");
@@ -1202,6 +1202,107 @@ public class GetShiftScheduleTests
         // Assert
         result.Where(r => r.ShiftId == shiftInTarget.Id).Count().ShouldBe(1, "Shift in target group should be returned");
         result.Where(r => r.ShiftId == shiftInOther.Id).ShouldBeEmpty("Shift in other group should not be returned");
+    }
+
+    #endregion
+
+    #region Group Visibility Boundary Tests (empty list = nothing visible, null = unrestricted)
+
+    [Test]
+    public async Task GetShiftSchedule_RestrictedWithoutVisibleGroup_Returns_No_Grouped_Shift()
+    {
+        var group = await CreateTestGroup("BoundaryHidden");
+        var groupedShift = await CreateTestShift("BoundaryGrouped", isMonday: true);
+        await AssignShiftToGroup(groupedShift.Id, group.Id);
+        var ungroupedShift = await CreateTestShift("BoundaryUngrouped", isMonday: true);
+        var monday = GetNextWeekday(DayOfWeek.Monday);
+
+        var result = await _service.GetShiftScheduleQuery(monday, monday, null, new List<Guid>()).ToListAsync();
+
+        result.Where(r => r.ShiftId == groupedShift.Id).ShouldBeEmpty("A non-admin without a visible group must not see grouped shifts");
+        result.Where(r => r.ShiftId == ungroupedShift.Id).ShouldBeEmpty("Ungrouped shifts stay behind the show-ungrouped toggle");
+    }
+
+    [Test]
+    public async Task GetShiftSchedule_RestrictedWithoutVisibleGroup_ShowUngrouped_Returns_Only_Ungrouped_Shift()
+    {
+        var group = await CreateTestGroup("BoundaryHidden2");
+        var groupedShift = await CreateTestShift("BoundaryGrouped2", isMonday: true);
+        await AssignShiftToGroup(groupedShift.Id, group.Id);
+        var ungroupedShift = await CreateTestShift("BoundaryUngrouped2", isMonday: true);
+        var monday = GetNextWeekday(DayOfWeek.Monday);
+
+        var result = await _service.GetShiftScheduleQuery(
+            monday, monday, null, new List<Guid>(), showUngroupedShifts: true).ToListAsync();
+
+        result.Where(r => r.ShiftId == groupedShift.Id).ShouldBeEmpty();
+        result.Where(r => r.ShiftId == ungroupedShift.Id).Count().ShouldBe(1);
+    }
+
+    [Test]
+    public async Task GetShiftSchedule_RestrictedToVisibleGroup_Returns_Only_That_Groups_Shift()
+    {
+        var visible = await CreateTestGroup("BoundaryVisible");
+        var hidden = await CreateTestGroup("BoundaryHidden3");
+        var visibleShift = await CreateTestShift("BoundaryVisibleShift", isMonday: true);
+        await AssignShiftToGroup(visibleShift.Id, visible.Id);
+        var hiddenShift = await CreateTestShift("BoundaryHiddenShift", isMonday: true);
+        await AssignShiftToGroup(hiddenShift.Id, hidden.Id);
+        var monday = GetNextWeekday(DayOfWeek.Monday);
+
+        var result = await _service.GetShiftScheduleQuery(monday, monday, null, new List<Guid> { visible.Id }).ToListAsync();
+
+        result.Where(r => r.ShiftId == visibleShift.Id).Count().ShouldBe(1);
+        result.Where(r => r.ShiftId == hiddenShift.Id).ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task GetShiftSchedulePartial_RestrictedWithoutVisibleGroup_Drops_Grouped_Shift()
+    {
+        var group = await CreateTestGroup("BoundaryPartialHidden");
+        var groupedShift = await CreateTestShift("BoundaryPartialGrouped", isMonday: true);
+        await AssignShiftToGroup(groupedShift.Id, group.Id);
+        var ungroupedShift = await CreateTestShift("BoundaryPartialUngrouped", isMonday: true);
+        var monday = GetNextWeekday(DayOfWeek.Monday);
+        var pairs = new List<(Guid ShiftId, DateOnly Date)> { (groupedShift.Id, monday), (ungroupedShift.Id, monday) };
+
+        var result = await _service.GetShiftSchedulePartialAsync(pairs, null, new List<Guid>());
+
+        result.Where(r => r.ShiftId == groupedShift.Id).ShouldBeEmpty();
+        result.Where(r => r.ShiftId == ungroupedShift.Id).Count().ShouldBe(1);
+    }
+
+    [Test]
+    public async Task GetShiftSchedulePartial_RestrictedToParentGroup_Keeps_Child_Group_Shift()
+    {
+        var parent = await CreateTestGroup("BoundaryPartialParent");
+        var child = await CreateTestGroup("BoundaryPartialChild", parent.Id);
+        var hidden = await CreateTestGroup("BoundaryPartialOther");
+        var childShift = await CreateTestShift("BoundaryPartialChildShift", isMonday: true);
+        await AssignShiftToGroup(childShift.Id, child.Id);
+        var hiddenShift = await CreateTestShift("BoundaryPartialHiddenShift", isMonday: true);
+        await AssignShiftToGroup(hiddenShift.Id, hidden.Id);
+        var monday = GetNextWeekday(DayOfWeek.Monday);
+        var pairs = new List<(Guid ShiftId, DateOnly Date)> { (childShift.Id, monday), (hiddenShift.Id, monday) };
+
+        var result = await _service.GetShiftSchedulePartialAsync(pairs, null, new List<Guid> { parent.Id });
+
+        result.Where(r => r.ShiftId == childShift.Id).Count().ShouldBe(1);
+        result.Where(r => r.ShiftId == hiddenShift.Id).ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task GetShiftSchedulePartial_Unrestricted_Keeps_Grouped_Shift()
+    {
+        var group = await CreateTestGroup("BoundaryPartialAdmin");
+        var groupedShift = await CreateTestShift("BoundaryPartialAdminGrouped", isMonday: true);
+        await AssignShiftToGroup(groupedShift.Id, group.Id);
+        var monday = GetNextWeekday(DayOfWeek.Monday);
+        var pairs = new List<(Guid ShiftId, DateOnly Date)> { (groupedShift.Id, monday) };
+
+        var result = await _service.GetShiftSchedulePartialAsync(pairs);
+
+        result.Where(r => r.ShiftId == groupedShift.Id).Count().ShouldBe(1);
     }
 
     #endregion
