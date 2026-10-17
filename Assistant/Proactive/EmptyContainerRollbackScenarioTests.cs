@@ -175,6 +175,7 @@ public class EmptyContainerRollbackScenarioTests
             new ScheduleMapper(),
             lockRepository,
             userService,
+            Substitute.For<Klacks.Api.Application.Interfaces.IContainerVisibilityGuard>(),
             NullLogger<PostContainerTemplatesCommandHandler>.Instance);
 
     private static DeleteContainerTemplatesCommandHandler NewDeleteHandler(
@@ -186,6 +187,7 @@ public class EmptyContainerRollbackScenarioTests
             new ScheduleMapper(),
             lockRepository,
             userService,
+            Substitute.For<Klacks.Api.Application.Interfaces.IContainerVisibilityGuard>(),
             NullLogger<DeleteContainerTemplatesCommandHandler>.Instance);
 
     private static DataBaseContext NewContext()

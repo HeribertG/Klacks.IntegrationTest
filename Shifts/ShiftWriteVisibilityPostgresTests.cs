@@ -185,9 +185,13 @@ public class ShiftWriteVisibilityPostgresTests
     {
         var hiddenNew = NewShift("NEW_HIDDEN", _hiddenRootId);
         var visibleNew = NewShift("NEW_VISIBLE", _visibleChildId);
+        hiddenNew.Status = ShiftStatus.SealedOrder;
+        visibleNew.Status = ShiftStatus.SealedOrder;
+        var sealing = Substitute.For<IOrderSealingService>();
+        sealing.CollectMissingRequirements(Arg.Any<Shift>()).Returns(Array.Empty<string>());
         var handler = new ShiftPostHandler(
             _shiftRepository, _scheduleMapper, _unitOfWork, Substitute.For<IDefaultShiftMacroResolver>(),
-            Substitute.For<IOrderSealingService>(), _shiftGuard, Substitute.For<ILogger<ShiftPostHandler>>());
+            sealing, _shiftGuard, Substitute.For<IClientReferenceGuard>(), Substitute.For<ILogger<ShiftPostHandler>>());
 
         using (ExecutionPrincipal.Begin(Guid.Parse(_supervisor.Id)))
         {
@@ -242,6 +246,39 @@ public class ShiftWriteVisibilityPostgresTests
 
         error.Message.ShouldBe(string.Format(ShiftVisibilityMessages.ShiftNotFound, _hiddenShift.Id));
         (await ReloadAsync(_hiddenShift.Id)).Name.ShouldBe(_hiddenShift.Name);
+    }
+
+    [Test]
+    public async Task CutsBatch_Supervisor_UpdateOfHiddenSealedOrder_IsAnsweredLikeMissing_NotWithTheStatusRefusal()
+    {
+        var stored = await _context.Shift.FirstAsync(s => s.Id == _hiddenShift.Id);
+        stored.Status = ShiftStatus.SealedOrder;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        var hiddenUpdate = await ResourceWithAsync(_hiddenShift.Id, Renamed, _hiddenRootId);
+        hiddenUpdate.Status = ShiftStatus.SplitShift;
+        var missingUpdate = await ResourceWithAsync(_hiddenShift.Id, Renamed, _hiddenRootId);
+        missingUpdate.Status = ShiftStatus.SplitShift;
+        missingUpdate.Id = Guid.NewGuid();
+
+        Exception? hiddenError;
+        Exception? missingError;
+        using (ExecutionPrincipal.Begin(Guid.Parse(_supervisor.Id)))
+        {
+            hiddenError = await CaptureAsync(() => _cutFacade.ProcessBatchCutsAsync(
+                [new CutOperation { Type = "UPDATE", ParentId = string.Empty, Data = hiddenUpdate }]));
+            _context.ChangeTracker.Clear();
+            missingError = await CaptureAsync(() => _cutFacade.ProcessBatchCutsAsync(
+                [new CutOperation { Type = "UPDATE", ParentId = string.Empty, Data = missingUpdate }]));
+        }
+
+        hiddenError.ShouldBeOfType<KeyNotFoundException>();
+        missingError.ShouldBeOfType<KeyNotFoundException>();
+        hiddenError.Message.Replace(_hiddenShift.Id.ToString(), IdPlaceholder)
+            .ShouldBe(missingError.Message.Replace(missingUpdate.Id.ToString(), IdPlaceholder));
+        var reloaded = await ReloadAsync(_hiddenShift.Id);
+        reloaded.Status.ShouldBe(ShiftStatus.SealedOrder);
+        reloaded.Name.ShouldBe(_hiddenShift.Name);
     }
 
     [Test]
@@ -325,7 +362,7 @@ public class ShiftWriteVisibilityPostgresTests
     {
         var handler = new ShiftPutHandler(
             _shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, _shiftGuard,
-            Substitute.For<ILogger<ShiftPutHandler>>());
+            Substitute.For<IClientReferenceGuard>(), Substitute.For<ILogger<ShiftPutHandler>>());
         try
         {
             using (ExecutionPrincipal.Begin(Guid.Parse(caller.Id)))

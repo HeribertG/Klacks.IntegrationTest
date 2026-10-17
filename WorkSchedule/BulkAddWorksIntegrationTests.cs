@@ -173,6 +173,7 @@ public class BulkAddWorksIntegrationTests
             NonBlockingConflictChecker(),
             BuildDefaultExpensesApplier(),
             Substitute.For<IClientPlanningPeriodGuard>(),
+            AllShiftsVisible(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
 
         await SetupTestData();
@@ -707,6 +708,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
             NonBlockingConflictChecker(),
             BuildDefaultExpensesApplier(),
             Substitute.For<IClientPlanningPeriodGuard>(),
+            AllShiftsVisible(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
     }
 
@@ -764,6 +766,14 @@ OUTPUT 1, Round(TotalBonus, 2)",
         var guard = Substitute.For<IClientVisibilityGuard>();
         guard.IsVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
         guard.AreAllVisibleAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns(true);
+        return guard;
+    }
+
+    private static IShiftVisibilityGuard AllShiftsVisible()
+    {
+        var guard = Substitute.For<IShiftVisibilityGuard>();
+        guard.FindFirstHiddenAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns((Guid?)null);
         return guard;
     }
 

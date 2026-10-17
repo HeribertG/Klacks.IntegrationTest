@@ -173,10 +173,10 @@ public class ShiftManipulationIntegrationTests
         var defaultShiftMacroResolver = Substitute.For<IDefaultShiftMacroResolver>();
         var orderSealingService = Substitute.For<IOrderSealingService>();
         orderSealingService.CollectMissingRequirements(Arg.Any<Shift>()).Returns(Array.Empty<string>());
-        _postHandler = new PostCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, defaultShiftMacroResolver, orderSealingService, AllShiftsVisible(), postHandlerLogger);
+        _postHandler = new PostCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, defaultShiftMacroResolver, orderSealingService, AllShiftsVisible(), Substitute.For<IClientReferenceGuard>(), postHandlerLogger);
 
         var putHandlerLogger = Substitute.For<ILogger<PutCommandHandler>>();
-        _putHandler = new PutCommandHandler(_shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, AllShiftsVisible(), putHandlerLogger);
+        _putHandler = new PutCommandHandler(_shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, AllShiftsVisible(), Substitute.For<IClientReferenceGuard>(), putHandlerLogger);
         _familyDeletion = new SealedOrderFamilyDeletion(
             _shiftRepository, _unitOfWork, Substitute.For<ILogger<SealedOrderFamilyDeletion>>());
         _deleteHandler = DeleteHandlerFor(role: null);
@@ -1738,6 +1738,7 @@ public class ShiftManipulationIntegrationTests
         await SeedQualificationAndExpenseAsync(originalShiftId);
 
         var update = await CutListResourceAsync(sealedOrderId, originalShiftId);
+        update.Status = ShiftStatus.SplitShift;
         update.StartShift = new TimeOnly(9, 0);
 
         var results = await _batchCutsHandler.Handle(new PostBatchCutsCommand(
@@ -1828,6 +1829,7 @@ public class ShiftManipulationIntegrationTests
         var sealedOrderId = created.OriginalId!.Value;
 
         var update = await CutListResourceAsync(sealedOrderId, originalShiftId);
+        update.Status = ShiftStatus.SplitShift;
         update.StartShift = new TimeOnly(9, 0);
         var seeded = await SeedUnmappedFieldsAsync(originalShiftId, sealedOrderId);
 
