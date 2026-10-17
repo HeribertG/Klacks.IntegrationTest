@@ -175,6 +175,35 @@ public class AnalyseScenarioInputFidelityCloneTests
         clonedRequirements.ShouldBe(1, "shift_required_qualification must be cloned with the remapped clone shift id (C1)");
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task Clone_Copies_The_LevelBindingOverride_Of_A_RequiredQualification(bool levelBindingOverride)
+    {
+        var shift = await CreateShiftAsync("QBIND");
+        var qual = await CreateQualificationAsync("QBIND");
+        _context.Set<ShiftRequiredQualification>().Add(new ShiftRequiredQualification
+        {
+            Id = Guid.NewGuid(), ShiftId = shift.Id, QualificationId = qual.Id,
+            IsMandatory = true, MinLevel = QualificationLevel.Proficient, LevelBindingOverride = levelBindingOverride
+        });
+        await _context.SaveChangesAsync();
+
+        var token = Guid.NewGuid();
+        await _service.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
+        await _context.SaveChangesAsync();
+
+        var cloneShiftId = await _context.Shift.IgnoreQueryFilters()
+            .Where(s => s.AnalyseToken == token && s.ScenarioSourceShiftId == shift.Id)
+            .Select(s => s.Id)
+            .FirstAsync();
+
+        var clonedOverride = await _context.Set<ShiftRequiredQualification>().IgnoreQueryFilters()
+            .Where(srq => srq.ShiftId == cloneShiftId && srq.QualificationId == qual.Id && !srq.IsDeleted)
+            .Select(srq => srq.LevelBindingOverride)
+            .SingleAsync();
+        clonedOverride.ShouldBe(levelBindingOverride, "a scenario must keep the shift's own level binding, otherwise its wizard vetoes differently");
+    }
+
     [Test]
     public async Task Clone_Preserves_LockLevel_On_Cloned_Work()
     {

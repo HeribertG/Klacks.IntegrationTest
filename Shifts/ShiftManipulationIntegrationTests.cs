@@ -2114,7 +2114,7 @@ public class ShiftManipulationIntegrationTests
             _requirementRepository, _unitOfWork);
 
         await handler.Handle(
-            new Klacks.Api.Application.Commands.Qualifications.SetShiftRequiredQualificationCommand(root, added, true, QualificationLevel.Basic),
+            new Klacks.Api.Application.Commands.Qualifications.SetShiftRequiredQualificationCommand(root, added, true, QualificationLevel.Basic, null),
             CancellationToken.None);
 
         (await OwnRowsAsync(root)).Select(q => q.QualificationId).ShouldBe(
@@ -2135,7 +2135,7 @@ public class ShiftManipulationIntegrationTests
             _requirementRepository, _unitOfWork);
 
         await handler.Handle(
-            new Klacks.Api.Application.Commands.Qualifications.SetShiftRequiredQualificationCommand(root, orderQualification, true, QualificationLevel.Expert),
+            new Klacks.Api.Application.Commands.Qualifications.SetShiftRequiredQualificationCommand(root, orderQualification, true, QualificationLevel.Expert, null),
             CancellationToken.None);
 
         var rows = await OwnRowsAsync(root);

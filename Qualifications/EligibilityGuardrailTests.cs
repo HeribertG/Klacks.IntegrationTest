@@ -5,10 +5,15 @@
 /// against the real database. Three load-bearing properties: (1) the OPT-IN no-op — a shift with no
 /// required qualifications produces no qualification conflict and remains placeable (this is why the
 /// change is safe for the 2000+ existing flows); (2) a missing mandatory qualification blocks; (3) a
-/// held, in-window, sufficient-level qualification does not block. Only the policy resolver is stubbed.
+/// held, in-window, sufficient-level qualification does not block; (4) a qualification held below the minimum level
+/// blocks the direct write (WorkWriteGuardService) only when the level is binding (qualification default or requirement
+/// override), otherwise it is a Warning carrying held and required level. Only the policy resolver is stubbed.
 /// </summary>
 
+using Klacks.Api.Application.Constants;
 using Klacks.Api.Application.DTOs.Notifications;
+using Klacks.Api.Application.Exceptions;
+using Klacks.Api.Application.Services.Schedules;
 using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Domain.Common;
@@ -23,6 +28,7 @@ using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.Schedules;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -48,7 +54,8 @@ public class EligibilityGuardrailTests
     {
         _connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
             ?? "Host=localhost;Port=5434;Database=klacks;Username=postgres;Password=admin";
-        await using var context = NewContext();
+        await using var context = NewContext(ignorePendingModelChanges: true);
+        await context.Database.MigrateAsync();
         await CleanupAsync(context);
     }
 
@@ -104,12 +111,17 @@ public class EligibilityGuardrailTests
         await _context.DisposeAsync();
     }
 
-    private DataBaseContext NewContext()
+    private DataBaseContext NewContext(bool ignorePendingModelChanges = false)
     {
-        var options = new DbContextOptionsBuilder<DataBaseContext>()
+        var builder = new DbContextOptionsBuilder<DataBaseContext>()
             .UseNpgsql(_connectionString)
-            .UseSnakeCaseNamingConvention()
-            .Options;
+            .UseSnakeCaseNamingConvention();
+        if (ignorePendingModelChanges)
+        {
+            builder.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+        }
+
+        var options = builder.Options;
         return new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
     }
 
@@ -148,19 +160,20 @@ public class EligibilityGuardrailTests
         return s;
     }
 
-    private async Task<Qualification> CreateQualificationAsync()
+    private async Task<Qualification> CreateQualificationAsync(bool isLevelBinding = false)
     {
-        var q = new Qualification { Id = Guid.NewGuid(), Name = new MultiLanguage { De = TestPrefix + "FIRSTAID" } };
+        var q = new Qualification { Id = Guid.NewGuid(), Name = new MultiLanguage { De = TestPrefix + "FIRSTAID" }, IsLevelBinding = isLevelBinding };
         await _context.Set<Qualification>().AddAsync(q);
         await _context.SaveChangesAsync();
         return q;
     }
 
-    private async Task RequireAsync(Guid shiftId, Guid qualId, QualificationLevel min, bool mandatory = true)
+    private async Task RequireAsync(Guid shiftId, Guid qualId, QualificationLevel min, bool mandatory = true, bool? levelBindingOverride = null)
     {
         await _context.Set<ShiftRequiredQualification>().AddAsync(new ShiftRequiredQualification
         {
-            Id = Guid.NewGuid(), ShiftId = shiftId, QualificationId = qualId, IsMandatory = mandatory, MinLevel = min
+            Id = Guid.NewGuid(), ShiftId = shiftId, QualificationId = qualId, IsMandatory = mandatory, MinLevel = min,
+            LevelBindingOverride = levelBindingOverride
         });
         await _context.SaveChangesAsync();
     }
@@ -279,6 +292,116 @@ public class EligibilityGuardrailTests
         result.NewConflicts.ShouldContain(c =>
             c.Comment == QualificationValidationKeys.Expired && c.Type == ScheduleValidationType.Warning);
         result.HasBlocking.ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task BelowLevel_NonBindingByDefault_WarnsWithHeldAndRequiredLevel()
+    {
+        var client = await CreateClientAsync();
+        var shift = await CreateShiftAsync();
+        var qual = await CreateQualificationAsync();
+        await RequireAsync(shift.Id, qual.Id, QualificationLevel.Proficient);
+        await HoldAsync(client.Id, qual.Id, QualificationLevel.Basic);
+
+        var result = await CheckAsync(client.Id, shift.Id);
+
+        var conflict = result.NewConflicts.Single(c => c.Comment == QualificationValidationKeys.InsufficientLevel);
+        conflict.Type.ShouldBe(ScheduleValidationType.Warning);
+        conflict.CommentParams[QualificationValidationParamKeys.MinLevel].ShouldBe(nameof(QualificationLevel.Proficient));
+        conflict.CommentParams[QualificationValidationParamKeys.HeldLevel].ShouldBe(nameof(QualificationLevel.Basic));
+        conflict.CommentParams[QualificationValidationParamKeys.LevelDelta].ShouldBe("1");
+        result.HasBlocking.ShouldBeFalse();
+        await Should.NotThrowAsync(() => GuardWriteAsync(client.Id, shift.Id));
+    }
+
+    [Test]
+    public async Task BelowLevel_BindingQualification_BlocksTheWrite()
+    {
+        var client = await CreateClientAsync();
+        var shift = await CreateShiftAsync();
+        var qual = await CreateQualificationAsync(isLevelBinding: true);
+        await RequireAsync(shift.Id, qual.Id, QualificationLevel.Proficient);
+        await HoldAsync(client.Id, qual.Id, QualificationLevel.Basic);
+
+        var result = await CheckAsync(client.Id, shift.Id);
+
+        result.NewConflicts.ShouldContain(c =>
+            c.Comment == QualificationValidationKeys.InsufficientLevel && c.Type == ScheduleValidationType.Error);
+        result.HasHardBlocking.ShouldBeTrue();
+        var refused = await Should.ThrowAsync<WorkWriteConflictException>(() => GuardWriteAsync(client.Id, shift.Id));
+        refused.ErrorCode.ShouldBe(WorkWriteConflictCodes.BlockedByConflicts);
+    }
+
+    [Test]
+    public async Task BelowLevel_HintOverrideOnABindingQualification_OnlyWarns()
+    {
+        var client = await CreateClientAsync();
+        var shift = await CreateShiftAsync();
+        var qual = await CreateQualificationAsync(isLevelBinding: true);
+        await RequireAsync(shift.Id, qual.Id, QualificationLevel.Proficient, levelBindingOverride: false);
+        await HoldAsync(client.Id, qual.Id, QualificationLevel.Basic);
+
+        var result = await CheckAsync(client.Id, shift.Id);
+
+        result.NewConflicts.ShouldContain(c =>
+            c.Comment == QualificationValidationKeys.InsufficientLevel && c.Type == ScheduleValidationType.Warning);
+        result.HasBlocking.ShouldBeFalse();
+        await Should.NotThrowAsync(() => GuardWriteAsync(client.Id, shift.Id));
+    }
+
+    [Test]
+    public async Task BelowLevel_BindingOverrideOnANonBindingQualification_BlocksTheWrite()
+    {
+        var client = await CreateClientAsync();
+        var shift = await CreateShiftAsync();
+        var qual = await CreateQualificationAsync();
+        await RequireAsync(shift.Id, qual.Id, QualificationLevel.Proficient, levelBindingOverride: true);
+        await HoldAsync(client.Id, qual.Id, QualificationLevel.Basic);
+
+        var result = await CheckAsync(client.Id, shift.Id);
+
+        result.HasHardBlocking.ShouldBeTrue();
+        await Should.ThrowAsync<WorkWriteConflictException>(() => GuardWriteAsync(client.Id, shift.Id));
+    }
+
+    [Test]
+    public async Task Migration_Defaults_QualificationIsNotBinding_RequirementInherits()
+    {
+        var shift = await CreateShiftAsync();
+        var qualificationId = Guid.NewGuid();
+        var requirementId = Guid.NewGuid();
+        await _context.Database.ExecuteSqlRawAsync(
+            "INSERT INTO qualification (id, name, is_deleted, is_time_limited) " +
+            "VALUES ({0}, jsonb_build_object('de', {1}::text), false, false)",
+            qualificationId, TestPrefix + "RAW");
+        await _context.Database.ExecuteSqlRawAsync(
+            "INSERT INTO shift_required_qualification (id, shift_id, qualification_id, is_mandatory, min_level, is_deleted) " +
+            "VALUES ({0}, {1}, {2}, true, 3, false)",
+            requirementId, shift.Id, qualificationId);
+
+        await using var reader = NewContext();
+        var qualification = await reader.Set<Qualification>().AsNoTracking().SingleAsync(q => q.Id == qualificationId);
+        var requirement = await reader.Set<ShiftRequiredQualification>().AsNoTracking().SingleAsync(r => r.Id == requirementId);
+
+        qualification.IsLevelBinding.ShouldBeFalse();
+        requirement.LevelBindingOverride.ShouldBeNull();
+    }
+
+    private async Task GuardWriteAsync(Guid clientId, Guid shiftId)
+    {
+        var guard = new WorkWriteGuardService(
+            Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftRepository>(),
+            Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>(),
+            _checker);
+        var work = new Klacks.Api.Domain.Models.Schedules.Work
+        {
+            ClientId = clientId,
+            ShiftId = shiftId,
+            CurrentDate = WorkDate,
+            StartTime = new TimeOnly(8, 0),
+            EndTime = new TimeOnly(16, 0),
+        };
+        await guard.EnsureNoHardBlockingConflictAsync(work, CancellationToken.None);
     }
 
     /// <summary>
