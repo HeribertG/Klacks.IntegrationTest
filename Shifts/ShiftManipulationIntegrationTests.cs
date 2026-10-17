@@ -165,6 +165,7 @@ public class ShiftManipulationIntegrationTests
             shiftValidator,
             _scheduleMapper,
             _unitOfWork,
+            AllShiftsVisible(),
             facadeLogger);
 
         // Create handlers
@@ -172,10 +173,10 @@ public class ShiftManipulationIntegrationTests
         var defaultShiftMacroResolver = Substitute.For<IDefaultShiftMacroResolver>();
         var orderSealingService = Substitute.For<IOrderSealingService>();
         orderSealingService.CollectMissingRequirements(Arg.Any<Shift>()).Returns(Array.Empty<string>());
-        _postHandler = new PostCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, defaultShiftMacroResolver, orderSealingService, postHandlerLogger);
+        _postHandler = new PostCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, defaultShiftMacroResolver, orderSealingService, AllShiftsVisible(), postHandlerLogger);
 
         var putHandlerLogger = Substitute.For<ILogger<PutCommandHandler>>();
-        _putHandler = new PutCommandHandler(_shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, putHandlerLogger);
+        _putHandler = new PutCommandHandler(_shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, AllShiftsVisible(), putHandlerLogger);
         _familyDeletion = new SealedOrderFamilyDeletion(
             _shiftRepository, _unitOfWork, Substitute.For<ILogger<SealedOrderFamilyDeletion>>());
         _deleteHandler = DeleteHandlerFor(role: null);
@@ -1040,7 +1041,7 @@ public class ShiftManipulationIntegrationTests
 
     #region Test 8: CutShiftSkill (Klacksy) - one 24h order cut into 3 linked parts
 
-    private CutShiftSkill CreateCutSkill() => new(_shiftRepository, _shiftCutFacade);
+    private CutShiftSkill CreateCutSkill() => new(_shiftRepository, _shiftCutFacade, AllShiftsVisible());
 
     private static SkillExecutionContext TestSkillContext() => new()
     {
@@ -1246,7 +1247,7 @@ public class ShiftManipulationIntegrationTests
         noClientMacroResolver.ResolveDefaultMacroIdAsync(Arg.Any<CancellationToken>())
             .Returns(allShiftMacroId);
         var skill = new CreateShiftSkill(
-            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), AllClientsVisible(), mediator, _unitOfWork, noClientMacroResolver);
+            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), AllClientsVisible(), mediator, _unitOfWork, noClientMacroResolver, AllGroupsVisible());
 
         // (a) no client -> refused (an order must be billed to a customer)
         var noClient = await skill.ExecuteAsync(TestSkillContext(), new Dictionary<string, object>
@@ -1297,6 +1298,24 @@ public class ShiftManipulationIntegrationTests
         ok.Message.ShouldContain("cut_shift");
     }
 
+    private static IShiftVisibilityGuard AllShiftsVisible()
+    {
+        var guard = Substitute.For<IShiftVisibilityGuard>();
+        guard.IsVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
+        guard.IsVisibleAsync(Arg.Any<Shift>(), Arg.Any<CancellationToken>()).Returns(true);
+        guard.FindFirstHiddenAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns((Guid?)null);
+        return guard;
+    }
+
+    private static IGroupVisibilityGuard AllGroupsVisible()
+    {
+        var guard = Substitute.For<IGroupVisibilityGuard>();
+        guard.IsUnrestrictedAsync(Arg.Any<CancellationToken>()).Returns(true);
+        guard.IsGroupVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
+        guard.AreAllGroupsVisibleAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>()).Returns(true);
+        return guard;
+    }
+
     private static IClientVisibilityGuard AllClientsVisible()
     {
         var guard = Substitute.For<IClientVisibilityGuard>();
@@ -1318,7 +1337,7 @@ public class ShiftManipulationIntegrationTests
         defaultMacroResolver.ResolveDefaultMacroIdAsync(Arg.Any<CancellationToken>())
             .Returns(allShiftMacroId);
         return new CreateShiftSkill(
-            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), AllClientsVisible(), mediator, _unitOfWork, defaultMacroResolver);
+            _shiftRepository, Substitute.For<IGroupRepository>(), CreateClientRepository(), AllClientsVisible(), mediator, _unitOfWork, defaultMacroResolver, AllGroupsVisible());
     }
 
     [Test]
@@ -2111,7 +2130,7 @@ public class ShiftManipulationIntegrationTests
         var (order, root, _, _) = await CreateCutOrderWithMandatoryQualificationAsync("QMat_Set");
         var added = await AddHeldQualificationAsync();
         var handler = new Klacks.Api.Application.Handlers.Qualifications.SetShiftRequiredQualificationCommandHandler(
-            _requirementRepository, _unitOfWork);
+            _requirementRepository, _unitOfWork, AllShiftsVisible());
 
         await handler.Handle(
             new Klacks.Api.Application.Commands.Qualifications.SetShiftRequiredQualificationCommand(root, added, true, QualificationLevel.Basic, null),
@@ -2132,7 +2151,7 @@ public class ShiftManipulationIntegrationTests
         var (order, root, _, _) = await CreateCutOrderWithMandatoryQualificationAsync("QMat_SetSame");
         var orderQualification = await OrderQualificationAsync(order);
         var handler = new Klacks.Api.Application.Handlers.Qualifications.SetShiftRequiredQualificationCommandHandler(
-            _requirementRepository, _unitOfWork);
+            _requirementRepository, _unitOfWork, AllShiftsVisible());
 
         await handler.Handle(
             new Klacks.Api.Application.Commands.Qualifications.SetShiftRequiredQualificationCommand(root, orderQualification, true, QualificationLevel.Expert, null),
@@ -2190,7 +2209,7 @@ public class ShiftManipulationIntegrationTests
                 [orderQualification], "a CREATEd piece takes the rows that applied to its parent");
         }
 
-        var shown = await new Klacks.Api.Application.Handlers.Qualifications.GetShiftRequiredQualificationsQueryHandler(_requirementRepository)
+        var shown = await new Klacks.Api.Application.Handlers.Qualifications.GetShiftRequiredQualificationsQueryHandler(_requirementRepository, AllShiftsVisible())
             .Handle(new Klacks.Api.Application.Queries.Qualifications.GetShiftRequiredQualificationsQuery(piece2), CancellationToken.None);
         shown.Select(q => q.QualificationId).ShouldBe([orderQualification], "the piece shows its requirement in the UI");
 
@@ -2504,7 +2523,7 @@ public class ShiftManipulationIntegrationTests
 
         accessor.HttpContext.Returns(httpContext);
         return new DeleteCommandHandler(
-            _shiftRepository, _scheduleMapper, _unitOfWork, _familyDeletion, accessor, Substitute.For<ILogger<DeleteCommandHandler>>());
+            _shiftRepository, _scheduleMapper, _unitOfWork, _familyDeletion, accessor, AllShiftsVisible(), Substitute.For<ILogger<DeleteCommandHandler>>());
     }
 
     private async Task AddWorkAsync(Guid shiftId, Guid? analyseToken = null, bool deleted = false)
@@ -2658,7 +2677,7 @@ public class ShiftManipulationIntegrationTests
         var mediator = Substitute.For<IMediator>();
         mediator.Send(Arg.Any<DeleteCommand<ShiftResource>>(), Arg.Any<CancellationToken>())
             .Returns(call => DeleteHandlerFor(Roles.Authorised).Handle(call.Arg<DeleteCommand<ShiftResource>>(), CancellationToken.None));
-        var skill = new DeleteShiftSkill(_shiftRepository, mediator, _familyDeletion);
+        var skill = new DeleteShiftSkill(_shiftRepository, mediator, _familyDeletion, AllShiftsVisible());
         SkillExecutionContext Ctx(params string[] permissions) => new()
         {
             UserId = Guid.NewGuid(),
