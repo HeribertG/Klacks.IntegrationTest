@@ -30,9 +30,14 @@ namespace Klacks.IntegrationTest.WorkSchedule;
 /// hidden group and a shift of the hidden group read exactly like missing ones (also on a sealed day, nothing of the
 /// seal shows), and the real POST refuses them as "not found" too; a work on a hidden shift that occupies the cell is
 /// reported without its shift name; the group-period refusal carries the same code as the real POST; the skill resolves
-/// a visible shift by name through the Npgsql query and answers a hidden employee with the unknown-name text; more hidden
-/// same-named shifts than the name search returns, all ordered before the visible one, do not push the visible one out
-/// (the visibility filter runs in the query before its limit).
+/// a visible shift by name through the Npgsql query and answers a hidden employee exactly like an unknown one, without
+/// any trace of the hidden person; more hidden same-named shifts than the name search returns, all ordered before the
+/// visible one, do not push the visible one out (the visibility filter runs in the query before its limit).
+/// The hidden/unknown name comparison does not pin WHICH answer comes back: the name search falls back to the fuzzy
+/// ranking, which shares the fixture prefix and the first name "Test" with every other client, so the answer depends on
+/// the visible clients in the shared database (a fresh CI database resolves the VISIBLE fixture client, a database with
+/// leftover "Test" clients answers with an ambiguity list). What must hold in every database: the hidden name and an
+/// unknown name get the same verdict and the same text, and the hidden client's id and number never appear.
 /// </summary>
 [TestFixture]
 [Category("RealDatabase")]
@@ -42,6 +47,8 @@ public class WorkBookingDiagnosisVisibilityNpgsqlTests
     private const string VisibleShiftSuffix = "VisibleShift";
     private const string HiddenShiftSuffix = "HiddenShift";
     private const string TwinShiftSuffix = "TwinShift";
+    private const string UnknownClientSuffix = "NOBODY";
+    private const string QueriedNamePlaceholder = "<name>";
     private const int HiddenTwinCount = 21;
     private static readonly TimeOnly ShiftStart = new(8, 0);
     private static readonly TimeOnly ShiftEnd = new(16, 0);
@@ -160,15 +167,22 @@ public class WorkBookingDiagnosisVisibilityNpgsqlTests
     [Test]
     public async Task Skill_ResolvesAVisibleShiftByName_AndAnswersAHiddenEmployeeLikeAnUnknownOne()
     {
+        var hiddenNumber = await _context.Client.AsNoTracking()
+            .Where(c => c.Id == _scenario.HiddenClient.Id)
+            .Select(c => c.IdNumber)
+            .SingleAsync();
+
         var visible = await RunSkillAsync(_scenario.VisibleClient.Name, Prefix + VisibleShiftSuffix);
         var hidden = await RunSkillAsync(_scenario.HiddenClient.Name, Prefix + VisibleShiftSuffix);
-        var unknown = await RunSkillAsync(Prefix + "NOBODY", Prefix + VisibleShiftSuffix);
+        var unknown = await RunSkillAsync(Prefix + UnknownClientSuffix, Prefix + VisibleShiftSuffix);
         var hiddenShift = await RunSkillAsync(_scenario.VisibleClient.Name, Prefix + HiddenShiftSuffix);
 
         visible.Success.ShouldBeTrue(visible.Message);
-        hidden.Success.ShouldBeFalse();
-        hidden.Message.Replace(_scenario.HiddenClient.Name, "<name>")
-            .ShouldBe(unknown.Message.Replace(Prefix + "NOBODY", "<name>"));
+        hidden.Success.ShouldBe(unknown.Success, $"hidden: {hidden.Message} | unknown: {unknown.Message}");
+        var hiddenAnswer = WithoutQueriedName(hidden, _scenario.HiddenClient.Name);
+        hiddenAnswer.ShouldBe(WithoutQueriedName(unknown, Prefix + UnknownClientSuffix));
+        hiddenAnswer.ShouldNotContain(_scenario.HiddenClient.Id.ToString());
+        hiddenAnswer.ShouldNotContain($"(#{hiddenNumber})");
         hiddenShift.Success.ShouldBeFalse();
         hiddenShift.Message.ShouldBe(ShiftResolver.NameNotFoundMessage(Prefix + HiddenShiftSuffix));
     }
@@ -246,6 +260,9 @@ public class WorkBookingDiagnosisVisibilityNpgsqlTests
             ["date"] = _date.ToString("yyyy-MM-dd"),
         });
     }
+
+    private static string WithoutQueriedName(SkillResult result, string queriedLastName) =>
+        $"{result.Message} {JsonSerializer.Serialize(result.Data)}".Replace(queriedLastName, QueriedNamePlaceholder);
 
     private Shift NewShift(string suffix) => new()
     {
