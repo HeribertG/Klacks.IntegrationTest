@@ -113,6 +113,7 @@
  "delete_work": "schedule",
  "delete_workchange": "schedule",
  "detect_conflicts": "schedule",
+ "diagnose_work_booking": "schedule",
  "disable_feature_plugin": "settings",
  "dismiss_skill_relation": "klacksy",
  "email_schedule_to_client": "schedule",

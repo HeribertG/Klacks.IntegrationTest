@@ -170,7 +170,7 @@ public class BulkAddWorksIntegrationTests
             _expansionService,
             Substitute.For<IOvertimeCascadeService>(),
             Substitute.For<IDayLockService>(),
-            NonBlockingConflictChecker(),
+            NonBlockingWriteGuard(),
             BuildDefaultExpensesApplier(),
             Substitute.For<IClientPlanningPeriodGuard>(),
             AllShiftsVisible(),
@@ -705,7 +705,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
             Substitute.For<IContainerWorkExpansionService>(),
             Substitute.For<IOvertimeCascadeService>(),
             Substitute.For<IDayLockService>(),
-            NonBlockingConflictChecker(),
+            NonBlockingWriteGuard(),
             BuildDefaultExpensesApplier(),
             Substitute.For<IClientPlanningPeriodGuard>(),
             AllShiftsVisible(),
@@ -776,6 +776,12 @@ OUTPUT 1, Round(TotalBonus, 2)",
             .Returns((Guid?)null);
         return guard;
     }
+
+    private static IWorkWriteGuard NonBlockingWriteGuard()
+        => new Klacks.Api.Application.Services.Schedules.WorkWriteGuardService(
+            Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftRepository>(),
+            Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>(),
+            NonBlockingConflictChecker());
 
     private static IPreCommitConflictChecker NonBlockingConflictChecker()
     {
