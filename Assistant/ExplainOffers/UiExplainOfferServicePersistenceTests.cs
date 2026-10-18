@@ -6,7 +6,9 @@
 /// in agent_trigger_preferences and is read back by the next state query, two reactions of one user never collide on
 /// the unique dedup index, the "later" and "shown" counts are computed by the database, and one account's answers never
 /// change another account's state; mixed sequences of shown and later mute at the second later or the third shown, and a
-/// muted topic stores no further rows except the one answer to the offer whose "shown" muted it. Only the explanation level is stubbed (beginner).
+/// muted topic stores no further rows except the one answer to the offer whose "shown" muted it. The passive topic
+/// (work-booking-refusal) stores at most one click row per user and company-local day against the real unique dedup index
+/// and never mutes. Only the explanation level and the company clock are stubbed (beginner, a fixed day).
 /// SHARED-DATABASE SAFETY: every fixture user id carries the prefix INTEGRATION_TEST_, and cleanup deletes only rows
 /// whose user_id carries that prefix, in both tables.
 /// </summary>
@@ -39,6 +41,10 @@ public class UiExplainOfferServicePersistenceTests
     private const string UserB = TestPrefix + "UIOFFER_B";
     private const string Topic = UiExplainOfferTopics.ShiftHolidayOptionsKey;
     private const string Kind = UiExplainOfferTopics.TriggerKindPrefix + UiExplainOfferTopics.ShiftHolidayOptionsKey;
+    private const string PassiveTopic = UiExplainOfferTopics.WorkBookingRefusalKey;
+    private const string PassiveKind = UiExplainOfferTopics.TriggerKindPrefix + UiExplainOfferTopics.WorkBookingRefusalKey;
+
+    private static readonly DateOnly FirstDay = new(2026, 10, 19);
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp() => await CleanupAsync();
@@ -201,7 +207,55 @@ public class UiExplainOfferServicePersistenceTests
         rows.Count(row => row.Reaction == ProactiveReaction.Dismissed).ShouldBe(0);
     }
 
-    private static UiExplainOfferService NewService(DataBaseContext context)
+    [Test]
+    public async Task PassiveClicks_StoreOneRowPerCompanyDay_AndNeverMute()
+    {
+        await using (var context = NewContext())
+        {
+            var sut = NewService(context, FirstDay);
+            for (var click = 0; click < 3; click++)
+            {
+                (await sut.RecordReactionAsync(UserA, PassiveTopic, UiExplainOfferOutcomes.Accepted)).ShouldBeTrue();
+            }
+        }
+
+        await using (var context = NewContext())
+        {
+            (await NewService(context, FirstDay.AddDays(1)).RecordReactionAsync(UserA, PassiveTopic, UiExplainOfferOutcomes.Accepted))
+                .ShouldBeTrue();
+        }
+
+        await using (var context = NewContext())
+        {
+            var rows = await context.AgentTriggerDispatches.AsNoTracking()
+                .Where(row => row.UserId == UserA)
+                .ToListAsync();
+            rows.Count.ShouldBe(2);
+            rows.ShouldAllBe(row => row.TriggerKind == PassiveKind && row.Reaction == ProactiveReaction.Helpful && row.ContentKey == null);
+            (await context.AgentTriggerPreferences.AsNoTracking().CountAsync(row => row.UserId == UserA)).ShouldBe(0);
+            (await new ProactiveTriggerDispatchRepository(context, TimeProvider.System).ListForUserAsync(UserA, unreadOnly: false, take: 50))
+                .ShouldBeEmpty();
+        }
+    }
+
+    [Test]
+    public async Task PassiveTopic_IsNeverOfferedByState_AndOtherOutcomesStoreNothing()
+    {
+        await using var context = NewContext();
+        var sut = NewService(context);
+
+        (await sut.GetStateAsync(UserA, PassiveTopic)).ShouldBe(UiExplainOfferState.Off);
+        foreach (var outcome in UiExplainOfferOutcomes.All.Where(outcome => outcome != UiExplainOfferOutcomes.Accepted))
+        {
+            (await sut.RecordReactionAsync(UserA, PassiveTopic, outcome)).ShouldBeTrue();
+        }
+
+        (await context.AgentTriggerDispatches.AsNoTracking().CountAsync(row => row.UserId == UserA)).ShouldBe(0);
+    }
+
+    private static UiExplainOfferService NewService(DataBaseContext context) => NewService(context, FirstDay);
+
+    private static UiExplainOfferService NewService(DataBaseContext context, DateOnly companyToday)
     {
         var governance = Substitute.For<IProactiveGovernanceResolver>();
         governance.IsKillSwitchActiveAsync(Arg.Any<CancellationToken>()).Returns(false);
@@ -215,7 +269,15 @@ public class UiExplainOfferServicePersistenceTests
             new ExplainOffersSwitch(Substitute.For<ISettingsReader>(), governance),
             depth,
             TimeProvider.System,
+            CompanyClockOn(companyToday),
             NullLogger<UiExplainOfferService>.Instance);
+    }
+
+    private static ICompanyClock CompanyClockOn(DateOnly companyToday)
+    {
+        var clock = Substitute.For<ICompanyClock>();
+        clock.GetTodayDateAsync(Arg.Any<CancellationToken>()).Returns(companyToday);
+        return clock;
     }
 
     private static DataBaseContext NewContext()
