@@ -1,7 +1,21 @@
 // Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
 
+/// <summary>
+/// End-to-end tests of the ledger-based ERP order import against the real PostgreSQL database: the real
+/// parser, runner, importer, order processor, repositories and erp_import_file ledger (conditional claim,
+/// heartbeat and finish updates on Postgres), with only the object storage replaced by
+/// InMemoryObjectStorageService. Files are dropped into the inbox under the ERP's own name, renamed to a
+/// unique key by the registration and never moved afterwards. Each test checks the imported clients and
+/// shifts plus the ledger row (status, counters, exception linking). Also covered: an order the database
+/// refuses (rolled-back entities must not poison the shared context for later orders and files of the run)
+/// and the migration of the pre-ledger processing/processed/error sub-folders (incl. an upload's existing row).
+/// Cleanup deletes ONLY rows this fixture created: everything carries the INTEGRATION_TEST_ERP_ prefix
+/// (drop points by source system, ledger rows by drop point, shifts and clients by source system).
+/// </summary>
 using System.Globalization;
 using System.Text;
+using Klacks.Api.Application.Commands.Imports;
+using Klacks.Api.Application.Handlers.Imports;
 using Klacks.Api.Application.Mappers;
 using Klacks.Api.Application.Services.Imports;
 using Klacks.Api.Domain.Constants;
@@ -13,6 +27,7 @@ using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Clients;
 using Klacks.Api.Domain.Services.Common;
+using Klacks.Api.Domain.Services.Imports;
 using Klacks.Api.Domain.Services.Shifts;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Imports;
@@ -40,10 +55,8 @@ public class ErpOrderImportFlowIntegrationTests
 {
     private const string TestDataPrefix = "INTEGRATION_TEST_ERP_";
     private const string DropPointSourceSystemId = "INTEGRATION_TEST_ERP_SOURCE";
-    private const string ProcessedSegment = "processed";
-    private const string ErrorSegment = "error";
-    private const string ProcessingSegment = "processing";
-    private const string ForeignClaimPayload = "claimed by another instance";
+    private const string ForeignInstanceId = "INTEGRATION_TEST_ERP_HOST:foreign";
+    private const string InboxFileName = "orders.xml";
 
     private const string FixtureFileName = "sample-erp-order-import.xml";
     private const string FixtureSourceSystemIdAttribute = "sourceSystemId=\"erp-example\"";
@@ -56,6 +69,7 @@ public class ErpOrderImportFlowIntegrationTests
     private const string ChangedEndTimeElement = "<EndTime>16:00</EndTime>";
     private const string SecondOrderWeekdaysElement = "<Weekdays saturday=\"true\" sunday=\"true\" />";
     private const string MalformedXmlReasonFragment = "Malformed XML";
+    private const int OverlongCompanyPadding = 120;
 
     private const string ValidCronExpression = "0 * * * *";
     private const string CronTimeZoneId = "Europe/Zurich";
@@ -71,6 +85,7 @@ public class ErpOrderImportFlowIntegrationTests
     private DataBaseContext _context = null!;
     private InMemoryObjectStorageService _objectStorage = null!;
     private string _storagePrefix = null!;
+    private Guid _dropPointId;
     private string _fixtureSourceSystemId = null!;
     private string _firstCompany = null!;
     private string _secondCompany = null!;
@@ -138,9 +153,10 @@ public class ErpOrderImportFlowIntegrationTests
         var bucketPrefix = $"{TestDataPrefix}{Guid.NewGuid():N}";
         _storagePrefix = $"{bucketPrefix}/";
 
+        _dropPointId = Guid.NewGuid();
         _context.ErpDropPoints.Add(new ErpDropPoint
         {
-            Id = Guid.NewGuid(),
+            Id = _dropPointId,
             Name = $"{TestDataPrefix}DROP_POINT",
             SourceSystemId = DropPointSourceSystemId,
             BucketPrefix = bucketPrefix,
@@ -157,7 +173,7 @@ public class ErpOrderImportFlowIntegrationTests
     }
 
     [Test]
-    public async Task RunAsync_SampleFixtureInDropPoint_ImportsCustomersAndOrdersAndArchivesFile()
+    public async Task RunAsync_SampleFixtureInDropPoint_ImportsCustomersAndOrdersAndCompletesTheLedgerRow()
     {
         var fileName = UniqueFileName();
         await UploadAsync(fileName, ReadFixtureXml());
@@ -231,8 +247,18 @@ public class ErpOrderImportFlowIntegrationTests
         secondOrder.Quantity.ShouldBe(1);
         secondOrder.SumEmployees.ShouldBe(1);
 
-        _objectStorage.Contains(ProcessedKey(fileName)).ShouldBeTrue("the handled file must be archived under processed/");
-        _objectStorage.Contains(PendingKey(fileName)).ShouldBeFalse("the original key must be gone after the move");
+        var row = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        row.Status.ShouldBe(ErpImportFileStatus.Completed);
+        row.Channel.ShouldBe(ErpImportChannel.InboxFolder);
+        row.FileName.ShouldBe(fileName);
+        row.Attempt.ShouldBe(1);
+        row.ClaimedBy.ShouldNotBeNull();
+        row.FinishedAt.ShouldNotBeNull();
+        row.FailureReason.ShouldBeNull();
+        AssertCounts(row, total: 2, created: 2);
+        row.StorageKey.ShouldNotBe(PendingKey(fileName), "the ERP-named file is registered under a unique key");
+        _objectStorage.Contains(row.StorageKey).ShouldBeTrue("the raw file stays in the inbox for audit and retry");
+        (await _objectStorage.ListAsync(_storagePrefix)).ShouldBe(new[] { row.StorageKey }, "nothing is moved into sub-folders any more");
     }
 
     [Test]
@@ -265,6 +291,15 @@ public class ErpOrderImportFlowIntegrationTests
         firstDraft.SumEmployees.ShouldBe(2, "the re-import must overwrite drifted draft data with the payload");
 
         shifts.Single(s => s.ExternalOrderReference == SecondOrderReference).Id.ShouldBe(secondDraftId);
+
+        var rows = await LoadLedgerRowsAsync();
+        rows.Count.ShouldBe(2);
+        var firstRow = rows.MinBy(r => r.ReceivedAt)!;
+        var secondRow = rows.Single(r => r.Id != firstRow.Id);
+        AssertCounts(firstRow, total: 2, created: 2);
+        AssertCounts(secondRow, total: 2, updated: 1, unchanged: 1);
+        secondRow.Status.ShouldBe(ErpImportFileStatus.Completed);
+        secondRow.DuplicateOfFileId.ShouldBe(firstRow.Id, "an identical re-delivery is linked as duplicate but still imported");
     }
 
     [Test]
@@ -309,6 +344,11 @@ public class ErpOrderImportFlowIntegrationTests
         replacementDraft.SupersedesOrderId.ShouldBe(sealedOrderId);
         replacementDraft.EndShift.ShouldBe(new TimeOnly(16, 0));
         replacementDraft.UntilDate.ShouldBe(new DateOnly(2026, 12, 31));
+
+        var rows = (await LoadLedgerRowsAsync()).OrderBy(r => r.ReceivedAt).ToList();
+        rows.Count.ShouldBe(3);
+        AssertCounts(rows[1], total: 2, unchanged: 2);
+        AssertCounts(rows[2], total: 2, unchanged: 1, superseded: 1);
     }
 
     [Test]
@@ -326,22 +366,162 @@ public class ErpOrderImportFlowIntegrationTests
         var clients = await LoadImportedClientsAsync();
         clients.ShouldHaveSingleItem().Company.ShouldBe(_firstCompany, "the rejected order must not create its customer");
 
-        _objectStorage.Contains(ErrorKey(fileName)).ShouldBeTrue("a file with a rejected order must be quarantined under error/");
-        _objectStorage.Contains(ProcessedKey(fileName)).ShouldBeFalse();
-        _objectStorage.Contains(PendingKey(fileName)).ShouldBeFalse();
+        var row = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        row.Status.ShouldBe(ErpImportFileStatus.CompletedWithWarnings, "a partly rejected file is processed with warnings");
+        row.FailureReason.ShouldBeNull();
+        AssertCounts(row, total: 2, created: 1, rejected: 1);
+        _objectStorage.Contains(row.StorageKey).ShouldBeTrue();
 
         var recordedExceptions = await _context.Set<ErpImportException>()
             .AsNoTracking()
             .Where(e => e.SourceSystemId == DropPointSourceSystemId)
             .ToListAsync();
         var recorded = recordedExceptions.ShouldHaveSingleItem();
-        recorded.FileKey.ShouldBe(PendingKey(fileName));
+        recorded.FileKey.ShouldBe(row.StorageKey);
+        recorded.ImportFileId.ShouldBe(row.Id);
         recorded.ExternalOrderReference.ShouldBe(SecondOrderReference);
         recorded.Reason.ShouldContain("weekday");
     }
 
     [Test]
-    public async Task RunAsync_TruncatedXml_MovesFileToErrorAndRecordsImportException()
+    public async Task RunAsync_OrderViolatingADatabaseConstraint_IsRejectedAndTheRestOfTheRunImportsNormally()
+    {
+        var overlongCompany = _firstCompany + new string('X', OverlongCompanyPadding);
+        var failingFile = await GivenLedgerRowAsync(
+            ErpImportFileStatus.Received,
+            ReadFixtureXml().Replace(_firstCompany, overlongCompany),
+            configure: f => f.ReceivedAt = DateTime.UtcNow.AddMinutes(-10));
+        var laterFile = await GivenLedgerRowAsync(
+            ErpImportFileStatus.Received,
+            ReadFixtureXml(),
+            configure: f => f.ReceivedAt = DateTime.UtcNow.AddMinutes(-5));
+
+        await RunImportAsync();
+
+        var rows = await LoadLedgerRowsAsync();
+        var failingRow = rows.Single(r => r.Id == failingFile.Id);
+        failingRow.Status.ShouldBe(
+            ErpImportFileStatus.CompletedWithWarnings,
+            "an order the database refuses is rejected; it must not abort the file");
+        failingRow.FailureReason.ShouldBeNull();
+        AssertCounts(failingRow, total: 2, created: 1, rejected: 1);
+
+        var laterRow = rows.Single(r => r.Id == laterFile.Id);
+        laterRow.Status.ShouldBe(
+            ErpImportFileStatus.Completed,
+            "the rolled-back order must not poison the shared context for the next file of the run");
+        AssertCounts(laterRow, total: 2, created: 1, unchanged: 1);
+
+        var recordedExceptions = await _context.Set<ErpImportException>()
+            .AsNoTracking()
+            .Where(e => e.SourceSystemId == DropPointSourceSystemId)
+            .ToListAsync();
+        var recorded = recordedExceptions.ShouldHaveSingleItem();
+        recorded.ImportFileId.ShouldBe(failingRow.Id);
+        recorded.ExternalOrderReference.ShouldBe(FirstOrderReference);
+        recorded.Reason.ShouldNotBeNullOrWhiteSpace();
+        recorded.ResolvedAt.ShouldBeNull();
+
+        var shifts = await LoadImportedShiftsAsync();
+        shifts.Count.ShouldBe(2, "both orders exist after the run: the second order from the first file, the first order from the later file");
+        shifts.Select(s => s.ExternalOrderReference).ShouldBe(new[] { FirstOrderReference, SecondOrderReference }, ignoreOrder: true);
+
+        var clients = await LoadImportedClientsAsync();
+        clients.ShouldNotContain(c => c.Company == overlongCompany, "the refused customer must not be persisted by a later commit");
+        clients.Select(c => c.Company).ShouldBe(new[] { _firstCompany, _secondCompany }, ignoreOrder: true);
+    }
+
+    [Test]
+    public async Task RunAsync_LegacySubFolders_AreMigratedIntoTheLedgerAndBackIntoTheInboxOnce()
+    {
+        const string uploadId = "0123456789abcdef0123456789abcdef";
+        var processedKey = $"{_storagePrefix}{ErpImportLegacyFolders.Processed}/{uploadId}-done.xml";
+        var errorKey = $"{_storagePrefix}{ErpImportLegacyFolders.Error}/{InboxFileName}";
+        var processingKey = $"{_storagePrefix}{ErpImportLegacyFolders.Processing}/fedcba9876543210fedcba9876543210-stuck.xml";
+        await UploadToKeyAsync(processedKey, ReadFixtureXml());
+        await UploadToKeyAsync(errorKey, ReadFixtureXml()[..100]);
+        await UploadToKeyAsync(processingKey, ReadFixtureXml().Replace(OriginalEndTimeElement, ChangedEndTimeElement));
+
+        var olderError = new ErpImportException
+        {
+            Id = Guid.NewGuid(),
+            SourceSystemId = DropPointSourceSystemId,
+            FileKey = PendingKey(InboxFileName),
+            Reason = "older reason"
+        };
+        _context.Set<ErpImportException>().Add(olderError);
+        await _context.SaveChangesAsync();
+        var latestError = new ErpImportException
+        {
+            Id = Guid.NewGuid(),
+            SourceSystemId = DropPointSourceSystemId,
+            FileKey = PendingKey(InboxFileName),
+            Reason = "Malformed XML: unexpected end of file"
+        };
+        _context.Set<ErpImportException>().Add(latestError);
+        await _context.SaveChangesAsync();
+
+        await RunImportAsync();
+
+        var rows = await LoadLedgerRowsAsync();
+        rows.Count.ShouldBe(3);
+
+        var completed = rows.Single(r => r.FileName == "done.xml");
+        completed.Status.ShouldBe(ErpImportFileStatus.Completed);
+        completed.StorageKey.ShouldBe($"{_storagePrefix}{uploadId}-done.xml", "an upload goes back to its original inbox key");
+        completed.TotalOrders.ShouldBeNull("the counts of a pre-ledger import are unknown");
+        completed.Channel.ShouldBe(ErpImportChannel.InboxFolder);
+        completed.FinishedAt.ShouldNotBeNull();
+
+        var failed = rows.Single(r => r.FileName == InboxFileName);
+        failed.Status.ShouldBe(ErpImportFileStatus.Failed);
+        failed.FailureReason.ShouldBe(latestError.Reason);
+        ErpImportStorageKeys.HasUploadIdPrefix(failed.StorageKey[_storagePrefix.Length..]).ShouldBeTrue("an ERP-named file gets a unique inbox key");
+
+        var interrupted = rows.Single(r => r.FileName == "stuck.xml");
+        interrupted.Status.ShouldBe(ErpImportFileStatus.Interrupted);
+        interrupted.FailureReason.ShouldBe(ErpImportFileFailureReasons.LegacyImportInterrupted);
+
+        var inboxKeys = await _objectStorage.ListAsync(_storagePrefix);
+        inboxKeys.ShouldBe(rows.Select(r => r.StorageKey), ignoreOrder: true, "every legacy object now lives at its row's inbox key");
+
+        var linked = await _context.Set<ErpImportException>()
+            .AsNoTracking()
+            .Where(e => e.SourceSystemId == DropPointSourceSystemId)
+            .ToListAsync();
+        linked.ShouldAllBe(e => e.ImportFileId == failed.Id);
+
+        (await LoadImportedShiftsAsync()).ShouldBeEmpty("migrated files are history, they are not imported again");
+
+        await RunImportAsync();
+
+        var afterRerun = await LoadLedgerRowsAsync();
+        afterRerun.Select(r => (r.Id, r.Status, r.StorageKey)).ShouldBe(rows.Select(r => (r.Id, r.Status, r.StorageKey)), ignoreOrder: true,
+            "a second run finds no legacy folder content and changes nothing");
+    }
+
+    [Test]
+    public async Task RunAsync_LegacyFileOfARowRegisteredBeforeTheOldImportMovedIt_UpdatesThatRow()
+    {
+        var row = await GivenLedgerRowAsync(ErpImportFileStatus.Received, ReadFixtureXml());
+        var storedName = row.StorageKey[_storagePrefix.Length..];
+        var legacyKey = $"{_storagePrefix}{ErpImportLegacyFolders.Processed}/{storedName}";
+        (await _objectStorage.TryMoveAsync(row.StorageKey, legacyKey)).ShouldBeTrue();
+
+        await RunImportAsync();
+
+        var stored = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem("the upload's row is updated, no second row is inserted");
+        stored.Id.ShouldBe(row.Id);
+        stored.Status.ShouldBe(ErpImportFileStatus.Completed);
+        stored.StorageKey.ShouldBe(row.StorageKey);
+        stored.Attempt.ShouldBe(0, "the old import processed it; the ledger never claimed it");
+        _objectStorage.Contains(row.StorageKey).ShouldBeTrue();
+        _objectStorage.Contains(legacyKey).ShouldBeFalse();
+        (await LoadImportedShiftsAsync()).ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task RunAsync_TruncatedXml_FailsTheFileAndRecordsAnUnreferencedImportException()
     {
         var fileName = UniqueFileName();
         var fixtureXml = ReadFixtureXml();
@@ -349,9 +529,10 @@ public class ErpOrderImportFlowIntegrationTests
 
         await RunImportAsync();
 
-        _objectStorage.Contains(ErrorKey(fileName)).ShouldBeTrue("an unparsable file must be quarantined under error/");
-        _objectStorage.Contains(PendingKey(fileName)).ShouldBeFalse();
-        _objectStorage.Contains(ProcessedKey(fileName)).ShouldBeFalse();
+        var row = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        row.Status.ShouldBe(ErpImportFileStatus.Failed);
+        row.FailureReason.ShouldNotBeNull().ShouldContain(MalformedXmlReasonFragment);
+        row.TotalOrders.ShouldBeNull();
 
         (await LoadImportedShiftsAsync()).ShouldBeEmpty("an unparsable file must not create any order");
         (await LoadImportedClientsAsync()).ShouldBeEmpty("an unparsable file must not create any customer");
@@ -361,50 +542,238 @@ public class ErpOrderImportFlowIntegrationTests
             .Where(e => e.SourceSystemId == DropPointSourceSystemId)
             .ToListAsync();
         var recorded = recordedExceptions.ShouldHaveSingleItem();
-        recorded.FileKey.ShouldBe(PendingKey(fileName));
+        recorded.FileKey.ShouldBe(row.StorageKey);
+        recorded.ImportFileId.ShouldBe(row.Id);
         recorded.ExternalOrderReference.ShouldBeNull();
         recorded.Reason.ShouldContain(MalformedXmlReasonFragment);
         recorded.ResolvedAt.ShouldBeNull();
     }
 
     [Test]
-    public async Task RunAsync_HandledFile_LeavesNothingBehindInTheProcessingSegment()
+    public async Task RunAsync_SameFileNameRedeliveredAfterTheImport_IsImportedAgain()
     {
-        var fileName = UniqueFileName();
-        await UploadAsync(fileName, ReadFixtureXml());
-
+        await UploadAsync(InboxFileName, ReadFixtureXml());
         await RunImportAsync();
 
-        _objectStorage.Contains(ProcessedKey(fileName)).ShouldBeTrue("the handled file must end up under processed/");
-        _objectStorage.Contains(ProcessingKey(fileName)).ShouldBeFalse(
-            "the claim must be resolved by the move, otherwise every import leaves an orphan behind that no later run ever picks up");
-        _objectStorage.Contains(PendingKey(fileName)).ShouldBeFalse();
+        await UploadAsync(InboxFileName, ReadFixtureXml().Replace(OriginalEndTimeElement, ChangedEndTimeElement));
+        await RunImportAsync();
+
+        var rows = (await LoadLedgerRowsAsync()).OrderBy(r => r.ReceivedAt).ToList();
+        rows.Count.ShouldBe(2, "an ERP re-using its file name every night must not be ignored");
+        rows.ShouldAllBe(r => r.FileName == InboxFileName && r.Status == ErpImportFileStatus.Completed);
+        rows[0].StorageKey.ShouldNotBe(rows[1].StorageKey);
+        AssertCounts(rows[1], total: 2, updated: 1, unchanged: 1);
+
+        (await LoadImportedShiftsAsync()).Single(s => s.ExternalOrderReference == FirstOrderReference)
+            .EndShift.ShouldBe(new TimeOnly(16, 0), "the second delivery's change must reach the draft");
+        _objectStorage.Contains(PendingKey(InboxFileName)).ShouldBeFalse();
     }
 
     [Test]
-    public async Task RunAsync_FileClaimedByAnotherInstance_ImportsNothingAndLeavesTheFileUntouched()
+    public async Task RunAsync_FileImportingOnAnotherInstance_IsLeftAlone()
     {
-        var fileName = UniqueFileName();
-        await UploadAsync(fileName, ReadFixtureXml());
-        await OccupyProcessingSlotAsync(fileName);
+        var row = await GivenLedgerRowAsync(ErpImportFileStatus.Importing, ReadFixtureXml(), configure: f =>
+        {
+            f.Attempt = 1;
+            f.ClaimedBy = ForeignInstanceId;
+            f.StartedAt = DateTime.UtcNow.AddMinutes(-1);
+            f.HeartbeatAt = DateTime.UtcNow;
+        });
 
         await RunImportAsync();
 
-        _objectStorage.Contains(PendingKey(fileName)).ShouldBeTrue(
-            "a file this run could not claim must stay untouched at its original key, so the run that owns it keeps working on it");
-        (await ReadStoredTextAsync(ProcessingKey(fileName))).ShouldBe(ForeignClaimPayload,
-            "the losing run must not overwrite what the owning run put into the processing slot");
-        _objectStorage.Contains(ProcessedKey(fileName)).ShouldBeFalse();
-        _objectStorage.Contains(ErrorKey(fileName)).ShouldBeFalse();
+        var stored = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        stored.Status.ShouldBe(ErpImportFileStatus.Importing);
+        stored.ClaimedBy.ShouldBe(ForeignInstanceId);
+        stored.Attempt.ShouldBe(row.Attempt);
+        (await LoadImportedShiftsAsync()).ShouldBeEmpty("a file another instance is importing must not be imported twice");
+        (await LoadImportedClientsAsync()).ShouldBeEmpty();
+    }
 
-        (await LoadImportedShiftsAsync()).ShouldBeEmpty("a file claimed elsewhere must not be imported a second time");
-        (await LoadImportedClientsAsync()).ShouldBeEmpty("a file claimed elsewhere must not create its customers a second time");
+    [Test]
+    public async Task RunAsync_ImportWhoseHeartbeatStopped_IsReapedToInterruptedAndNotImported()
+    {
+        await GivenLedgerRowAsync(ErpImportFileStatus.Importing, ReadFixtureXml(), configure: f =>
+        {
+            f.Attempt = 1;
+            f.ClaimedBy = ForeignInstanceId;
+            f.StartedAt = DateTime.UtcNow.AddMinutes(-30);
+            f.HeartbeatAt = DateTime.UtcNow - ErpImportFileTiming.StaleAfter - TimeSpan.FromMinutes(1);
+        });
 
-        var recordedExceptions = await _context.Set<ErpImportException>()
+        await RunImportAsync();
+
+        var stored = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        stored.Status.ShouldBe(ErpImportFileStatus.Interrupted);
+        stored.FailureReason.ShouldBe(ErpImportFileFailureReasons.StaleHeartbeat);
+        (await LoadImportedShiftsAsync()).ShouldBeEmpty("an interrupted file waits for an explicit retry");
+    }
+
+    [Test]
+    public async Task RunAsync_StoredFileChangedAfterReceipt_FailsWithoutImporting()
+    {
+        var row = await GivenLedgerRowAsync(ErpImportFileStatus.Received, ReadFixtureXml());
+        await using (var changed = new MemoryStream(Encoding.UTF8.GetBytes(ReadFixtureXml().Replace(OriginalEndTimeElement, ChangedEndTimeElement))))
+        {
+            await _objectStorage.UploadAsync(row.StorageKey, changed);
+        }
+
+        await RunImportAsync();
+
+        var stored = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        stored.Status.ShouldBe(ErpImportFileStatus.Failed);
+        stored.FailureReason.ShouldBe(ErpImportFileFailureReasons.FileChangedAfterReceipt);
+        stored.Attempt.ShouldBe(1);
+        (await LoadImportedShiftsAsync()).ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task RetryAndDelete_OfAFailedFile_WorkAgainstTheRealLedger()
+    {
+        var fixtureXml = ReadFixtureXml();
+        await UploadAsync(UniqueFileName(), fixtureXml[..(fixtureXml.Length / 2)]);
+        await RunImportAsync();
+        var failed = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        failed.Status.ShouldBe(ErpImportFileStatus.Failed);
+
+        var mediator = Substitute.For<Klacks.Api.Infrastructure.Mediator.IMediator>();
+        using (var retryContext = CreateContext())
+        {
+            var retry = new RetryErpOrderFileCommandHandler(
+                new ErpImportFileRepository(retryContext),
+                new ErpImportExceptionRepository(retryContext, Substitute.For<ILogger<ErpImportException>>()),
+                _objectStorage,
+                new UnitOfWork(retryContext, Substitute.For<ILogger<UnitOfWork>>()),
+                mediator,
+                TimeProvider.System);
+
+            var result = await retry.Handle(new RetryErpOrderFileCommand(failed.Id), CancellationToken.None);
+
+            result.Status.ShouldBe(ErpImportFileStatus.Received);
+        }
+
+        var reset = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        reset.Status.ShouldBe(ErpImportFileStatus.Received);
+        reset.FailureReason.ShouldBeNull();
+        (await LoadExceptionsAsync()).ShouldAllBe(e => e.ResolvedAt != null, "a retry resolves the file's open exceptions");
+        await mediator.Received(1).Send(Arg.Any<TriggerErpImportRunCommand>(), Arg.Any<CancellationToken>());
+
+        await RunImportAsync();
+        var failedAgain = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        failedAgain.Status.ShouldBe(ErpImportFileStatus.Failed);
+        failedAgain.Attempt.ShouldBe(2);
+
+        using (var deleteContext = CreateContext())
+        {
+            var delete = new DeleteErpOrderFileCommandHandler(
+                new ErpImportFileRepository(deleteContext),
+                new ErpImportExceptionRepository(deleteContext, Substitute.For<ILogger<ErpImportException>>()),
+                _objectStorage,
+                new UnitOfWork(deleteContext, Substitute.For<ILogger<UnitOfWork>>()),
+                TimeProvider.System,
+                Substitute.For<ILogger<DeleteErpOrderFileCommandHandler>>());
+
+            await delete.Handle(new DeleteErpOrderFileCommand(failed.Id), CancellationToken.None);
+        }
+
+        (await LoadLedgerRowsAsync()).ShouldBeEmpty("a deleted row is hidden by the soft-delete filter");
+        _objectStorage.Contains(failed.StorageKey).ShouldBeFalse();
+        (await LoadExceptionsAsync()).ShouldAllBe(e => e.ResolvedAt != null);
+
+        await RunImportAsync();
+        (await LoadLedgerRowsAsync()).ShouldBeEmpty("nothing of the deleted file is registered again");
+    }
+
+    [Test]
+    public async Task RunAsync_DeliveriesInTheInbox_AreImportedOldestFirstWhateverTheirNames()
+    {
+        await UploadAsync("a-newer-delivery.xml", ReadFixtureXml().Replace(OriginalEndTimeElement, ChangedEndTimeElement));
+        await UploadAsync("b-older-delivery.xml", ReadFixtureXml());
+        _objectStorage.SetLastModified(PendingKey("a-newer-delivery.xml"), DateTime.UtcNow.AddMinutes(-1));
+        _objectStorage.SetLastModified(PendingKey("b-older-delivery.xml"), DateTime.UtcNow.AddMinutes(-30));
+
+        await RunImportAsync();
+
+        var rows = (await LoadLedgerRowsAsync()).OrderBy(r => r.StartedAt).ToList();
+        rows.Select(r => r.FileName).ShouldBe(new[] { "b-older-delivery.xml", "a-newer-delivery.xml" }, "older deliveries are imported first");
+        rows[0].ReceivedAt.ShouldBeLessThan(rows[1].ReceivedAt, "ReceivedAt is the object's last write time, not the registration time");
+        (await LoadImportedShiftsAsync()).Single(s => s.ExternalOrderReference == FirstOrderReference)
+            .EndShift.ShouldBe(new TimeOnly(16, 0), "the newer delivery must win even though its name sorts first");
+    }
+
+    [Test]
+    public async Task RunAsync_StoredFileWhoseLedgerRowWasLost_IsRegisteredFailedAndNotImportedUntilRetried()
+    {
+        await UploadAsync(UniqueFileName(), ReadFixtureXml());
+        await RunImportAsync();
+        var imported = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        imported.Status.ShouldBe(ErpImportFileStatus.Completed);
+        await DeleteLedgerRowsOfThisTestAsync();
+
+        await RunImportAsync();
+
+        var orphan = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        orphan.StorageKey.ShouldBe(imported.StorageKey);
+        orphan.Status.ShouldBe(ErpImportFileStatus.Failed);
+        orphan.FailureReason.ShouldBe(ErpImportFileFailureReasons.LedgerEntryMissing);
+        orphan.Sha256.ShouldBe(imported.Sha256);
+        orphan.Attempt.ShouldBe(0, "a stored file without its record is never claimed automatically");
+        orphan.StartedAt.ShouldBeNull();
+
+        using (var retryContext = CreateContext())
+        {
+            var retry = new RetryErpOrderFileCommandHandler(
+                new ErpImportFileRepository(retryContext),
+                new ErpImportExceptionRepository(retryContext, Substitute.For<ILogger<ErpImportException>>()),
+                _objectStorage,
+                new UnitOfWork(retryContext, Substitute.For<ILogger<UnitOfWork>>()),
+                Substitute.For<Klacks.Api.Infrastructure.Mediator.IMediator>(),
+                TimeProvider.System);
+
+            (await retry.Handle(new RetryErpOrderFileCommand(orphan.Id), CancellationToken.None)).Status.ShouldBe(ErpImportFileStatus.Received);
+        }
+
+        await RunImportAsync();
+
+        var retried = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        retried.Status.ShouldBe(ErpImportFileStatus.Completed, "after an explicit retry the file is imported");
+        retried.Attempt.ShouldBe(1);
+    }
+
+    [Test]
+    public async Task RunAsync_LeftoverObjectOfADeletedFile_IsRemovedInsteadOfRegistered()
+    {
+        var fixtureXml = ReadFixtureXml();
+        await UploadAsync(UniqueFileName(), fixtureXml[..(fixtureXml.Length / 2)]);
+        await RunImportAsync();
+        var failed = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
+        using (var deleteContext = CreateContext())
+        {
+            (await new ErpImportFileRepository(deleteContext).TrySoftDeleteAsync(failed.Id, DateTime.UtcNow)).ShouldBeTrue();
+        }
+
+        _objectStorage.Contains(failed.StorageKey).ShouldBeTrue("the object deletion is simulated as failed");
+
+        await RunImportAsync();
+
+        (await LoadLedgerRowsAsync()).ShouldBeEmpty("a deleted file is never registered again");
+        _objectStorage.Contains(failed.StorageKey).ShouldBeFalse("the inbox registration removes the leftover");
+    }
+
+    private async Task DeleteLedgerRowsOfThisTestAsync()
+    {
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM erp_import_exception WHERE source_system_id = {0} AND source_system_id LIKE 'INTEGRATION_TEST_%'", DropPointSourceSystemId);
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM erp_import_file WHERE drop_point_id = {0} AND source_system_id LIKE 'INTEGRATION_TEST_%'", _dropPointId);
+    }
+
+    private async Task<List<ErpImportException>> LoadExceptionsAsync()
+    {
+        return await _context.Set<ErpImportException>()
             .AsNoTracking()
             .Where(e => e.SourceSystemId == DropPointSourceSystemId)
             .ToListAsync();
-        recordedExceptions.ShouldBeEmpty("losing a claim is normal concurrency, not an import failure worth reporting");
     }
 
     private DataBaseContext CreateContext()
@@ -518,20 +887,42 @@ public class ErpOrderImportFlowIntegrationTests
         var dropPointRepository = new ErpDropPointRepository(context, Substitute.For<ILogger<ErpDropPoint>>());
         var defaultDropPointProvider = new ErpDefaultDropPointProvider(dropPointRepository, unitOfWork);
 
+        var fileRepository = new ErpImportFileRepository(context);
+        var exceptionRepository = new ErpImportExceptionRepository(context, Substitute.For<ILogger<ErpImportException>>());
+        var registrar = new ErpImportFileRegistrar(
+            fileRepository, unitOfWork, TimeProvider.System, Substitute.For<ILogger<ErpImportFileRegistrar>>());
+        var inboxRegistration = new ErpImportInboxRegistrationService(
+            _objectStorage, fileRepository, registrar, unitOfWork, Substitute.For<ILogger<ErpImportInboxRegistrationService>>());
+        var orderProcessor = new ImportedOrderProcessor(
+            new ErpCustomerResolver(clientRepository), shiftRepository, supersessionService, unitOfWork);
+        var importer = new ErpImportFileImporter(
+            fileRepository,
+            _objectStorage,
+            new XmlOrderImportParser(),
+            orderProcessor,
+            exceptionRepository,
+            triggerService,
+            unitOfWork,
+            new ErpImportInstanceIdentity(),
+            TimeProvider.System,
+            Substitute.For<ILogger<ErpImportFileImporter>>());
+
+        var legacyFolderMigrator = new ErpImportLegacyFolderMigrator(
+            _objectStorage, fileRepository, exceptionRepository, unitOfWork, TimeProvider.System,
+            Substitute.For<ILogger<ErpImportLegacyFolderMigrator>>());
+
         return new ErpOrderImportRunner(
             dropPointRepository,
             defaultDropPointProvider,
-            _objectStorage,
-            new XmlOrderImportParser(),
-            new ErpCustomerResolver(clientRepository),
-            shiftRepository,
-            supersessionService,
-            new ErpImportExceptionRepository(context, Substitute.For<ILogger<ErpImportException>>()),
-            triggerService,
+            legacyFolderMigrator,
+            fileRepository,
+            inboxRegistration,
+            importer,
             settingsRepository,
             companyClock,
             unitOfWork,
             new Klacks.Api.Application.Services.Imports.ErpImportRunState(),
+            TimeProvider.System,
             Substitute.For<ILogger<ErpOrderImportRunner>>(),
             new ErpCronTimeZoneDriftNotifier());
     }
@@ -555,19 +946,10 @@ public class ErpOrderImportFlowIntegrationTests
         return $"{_storagePrefix}{fileName}";
     }
 
-    private string ProcessedKey(string fileName)
+    private async Task UploadToKeyAsync(string key, string xml)
     {
-        return $"{_storagePrefix}{ProcessedSegment}/{fileName}";
-    }
-
-    private string ErrorKey(string fileName)
-    {
-        return $"{_storagePrefix}{ErrorSegment}/{fileName}";
-    }
-
-    private string ProcessingKey(string fileName)
-    {
-        return $"{_storagePrefix}{ProcessingSegment}/{fileName}";
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        await _objectStorage.UploadAsync(key, stream);
     }
 
     private async Task UploadAsync(string fileName, string xml)
@@ -576,17 +958,60 @@ public class ErpOrderImportFlowIntegrationTests
         await _objectStorage.UploadAsync(PendingKey(fileName), stream);
     }
 
-    private async Task OccupyProcessingSlotAsync(string fileName)
+    private async Task<ErpImportFile> GivenLedgerRowAsync(ErpImportFileStatus status, string xml, Action<ErpImportFile>? configure = null)
     {
-        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(ForeignClaimPayload));
-        await _objectStorage.UploadAsync(ProcessingKey(fileName), stream);
+        var key = ErpImportStorageKeys.BuildUploadKey(_storagePrefix, InboxFileName);
+        StoredObjectInfo stored;
+        await using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml)))
+        {
+            stored = await _objectStorage.UploadAsync(key, stream);
+        }
+
+        var row = new ErpImportFile
+        {
+            Id = Guid.NewGuid(),
+            DropPointId = _dropPointId,
+            SourceSystemId = DropPointSourceSystemId,
+            StorageKey = key,
+            FileName = InboxFileName,
+            SizeBytes = stored.SizeBytes,
+            Sha256 = stored.Sha256,
+            Channel = ErpImportChannel.InboxFolder,
+            Status = status,
+            ReceivedAt = DateTime.UtcNow.AddMinutes(-5),
+        };
+        configure?.Invoke(row);
+
+        using var context = CreateContext();
+        context.ErpImportFiles.Add(row);
+        await context.SaveChangesAsync();
+        return row;
     }
 
-    private async Task<string> ReadStoredTextAsync(string key)
+    private async Task<List<ErpImportFile>> LoadLedgerRowsAsync()
     {
-        await using var stream = await _objectStorage.DownloadAsync(key);
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        return await reader.ReadToEndAsync();
+        return await _context.ErpImportFiles
+            .AsNoTracking()
+            .Where(f => f.DropPointId == _dropPointId)
+            .ToListAsync();
+    }
+
+    private static void AssertCounts(
+        ErpImportFile row,
+        int total,
+        int created = 0,
+        int updated = 0,
+        int unchanged = 0,
+        int superseded = 0,
+        int rejected = 0)
+    {
+        row.TotalOrders.ShouldBe(total);
+        row.ProcessedOrders.ShouldBe(total);
+        row.NewCount.ShouldBe(created);
+        row.UpdatedCount.ShouldBe(updated);
+        row.UnchangedCount.ShouldBe(unchanged);
+        row.SupersededCount.ShouldBe(superseded);
+        row.RejectedCount.ShouldBe(rejected);
     }
 
     private async Task<List<Client>> LoadImportedClientsAsync()
@@ -612,6 +1037,7 @@ public class ErpOrderImportFlowIntegrationTests
     {
         var sql = $@"
             DELETE FROM erp_import_exception WHERE source_system_id LIKE '{TestDataPrefix}%';
+            DELETE FROM erp_import_file WHERE drop_point_id IN (SELECT id FROM erp_drop_points WHERE source_system_id LIKE '{TestDataPrefix}%');
             DELETE FROM erp_drop_points WHERE source_system_id LIKE '{TestDataPrefix}%';
             DELETE FROM shift WHERE source_system_id LIKE '{TestDataPrefix}%';
             DELETE FROM communication WHERE client_id IN (SELECT id FROM client WHERE source_system_id LIKE '{TestDataPrefix}%');

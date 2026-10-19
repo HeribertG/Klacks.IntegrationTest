@@ -3,10 +3,12 @@
 /// <summary>
 /// In-memory replacement for the object storage so the ERP order import flow can be
 /// integration-tested without external infrastructure. Object payloads are held in a
-/// dictionary keyed by their full storage key.
+/// dictionary keyed by their full storage key. Size and SHA-256 go through ErpImportFileHasher, the same
+/// hashing code path as the file-system implementation.
 /// </summary>
 using Klacks.Api.Domain.Interfaces.Imports;
 using Klacks.Api.Domain.Models.Imports;
+using Klacks.Api.Domain.Services.Imports;
 
 namespace Klacks.IntegrationTest.Imports;
 
@@ -46,23 +48,7 @@ public class InMemoryObjectStorageService : IObjectStorageService
         return Task.FromResult<Stream>(new MemoryStream(content, writable: false));
     }
 
-    public Task MoveAsync(string sourceKey, string destinationKey, CancellationToken cancellationToken = default)
-    {
-        if (!_objects.Remove(sourceKey, out var content))
-        {
-            throw new FileNotFoundException($"Object key not found: {sourceKey}");
-        }
-
-        _objects[destinationKey] = content;
-        if (_lastModifiedUtc.Remove(sourceKey, out var lastModified))
-        {
-            _lastModifiedUtc[destinationKey] = lastModified;
-        }
-
-        return Task.CompletedTask;
-    }
-
-    public Task<bool> TryClaimAsync(string sourceKey, string destinationKey, CancellationToken cancellationToken = default)
+    public Task<bool> TryMoveAsync(string sourceKey, string destinationKey, CancellationToken cancellationToken = default)
     {
         if (_objects.ContainsKey(destinationKey) || !_objects.Remove(sourceKey, out var content))
         {
@@ -78,21 +64,35 @@ public class InMemoryObjectStorageService : IObjectStorageService
         return Task.FromResult(true);
     }
 
-    public async Task UploadAsync(string key, Stream content, CancellationToken cancellationToken = default)
+    public async Task<StoredObjectInfo> UploadAsync(string key, Stream content, CancellationToken cancellationToken = default)
     {
         using var buffer = new MemoryStream();
-        await content.CopyToAsync(buffer, cancellationToken);
+        var info = await ErpImportFileHasher.CopyAndHashAsync(content, buffer, cancellationToken);
         _objects[key] = buffer.ToArray();
         _lastModifiedUtc[key] = DateTime.UtcNow;
+        return info with { LastModifiedUtc = _lastModifiedUtc[key] };
+    }
+
+    public Task<StoredObjectInfo?> GetObjectInfoAsync(string key, CancellationToken cancellationToken = default)
+    {
+        if (!_objects.TryGetValue(key, out var content))
+        {
+            return Task.FromResult<StoredObjectInfo?>(null);
+        }
+
+        using var stream = new MemoryStream(content, writable: false);
+        return Task.FromResult<StoredObjectInfo?>(
+            new StoredObjectInfo(content.LongLength, ErpImportFileHasher.ComputeSha256Hex(stream), _lastModifiedUtc[key]));
+    }
+
+    public void SetLastModified(string key, DateTime lastModifiedUtc)
+    {
+        _lastModifiedUtc[key] = DateTime.SpecifyKind(lastModifiedUtc, DateTimeKind.Utc);
     }
 
     public Task DeleteAsync(string key, CancellationToken cancellationToken = default)
     {
-        if (!_objects.Remove(key))
-        {
-            throw new FileNotFoundException($"Object key not found: {key}");
-        }
-
+        _objects.Remove(key);
         _lastModifiedUtc.Remove(key);
         return Task.CompletedTask;
     }

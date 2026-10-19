@@ -14,7 +14,8 @@
   - One <Order> element per order; a file may contain any number of orders.
   - An incomplete or invalid order is rejected and reported; it does not
     block the other orders in the batch. A file with at least one rejected
-    order is archived under error/ with the rejection reason.
+    order is listed as processed with warnings; each rejected order is
+    reported with its reason.
   - Every order needs at least one weekday set to true.
   - ExternalOrderReference must be unique within one file.
 -->
