@@ -15,6 +15,7 @@
 using System.Globalization;
 using System.Text;
 using Klacks.Api.Application.Commands.Imports;
+using Klacks.Api.Application.Common;
 using Klacks.Api.Application.Handlers.Imports;
 using Klacks.Api.Application.Mappers;
 using Klacks.Api.Application.Services.Imports;
@@ -231,6 +232,11 @@ public class ErpOrderImportFlowIntegrationTests
         firstOrder.Quantity.ShouldBe(1);
         firstOrder.SumEmployees.ShouldBe(2);
 
+        var defaultMacroId = await new DefaultShiftMacroResolver(
+            CreateSettingsRepository(_context), Substitute.For<ILogger<DefaultShiftMacroResolver>>()).ResolveDefaultMacroIdAsync();
+        defaultMacroId.ShouldNotBeNull("the seeded AllShift macros give every installation a default Shift macro");
+        firstOrder.MacroId.ShouldBe(defaultMacroId, "a newly imported draft gets the default Shift macro");
+
         var secondOrder = shifts.Single(s => s.ExternalOrderReference == SecondOrderReference);
         secondOrder.Status.ShouldBe(ShiftStatus.OriginalOrder);
         secondOrder.ClientId.ShouldBe(secondCustomer.Id);
@@ -246,6 +252,7 @@ public class ErpOrderImportFlowIntegrationTests
         secondOrder.IsSunday.ShouldBeTrue();
         secondOrder.Quantity.ShouldBe(1);
         secondOrder.SumEmployees.ShouldBe(1);
+        secondOrder.MacroId.ShouldBe(defaultMacroId);
 
         var row = (await LoadLedgerRowsAsync()).ShouldHaveSingleItem();
         row.Status.ShouldBe(ErpImportFileStatus.Completed);
@@ -273,8 +280,9 @@ public class ErpOrderImportFlowIntegrationTests
         var secondDraftId = draftsAfterFirstRun.Single(s => s.ExternalOrderReference == SecondOrderReference).Id;
 
         const int driftedSumEmployees = 99;
+        var plannerMacroId = SeededMacroIds.AllShiftAdditive;
         await _context.Database.ExecuteSqlAsync(
-            $"UPDATE shift SET sum_employees = {driftedSumEmployees} WHERE id = {firstDraftId}");
+            $"UPDATE shift SET sum_employees = {driftedSumEmployees}, macro_id = {plannerMacroId} WHERE id = {firstDraftId}");
 
         await UploadAsync(UniqueFileName(), ReadFixtureXml());
         await RunImportAsync();
@@ -289,6 +297,7 @@ public class ErpOrderImportFlowIntegrationTests
         firstDraft.Id.ShouldBe(firstDraftId, "the existing draft must be updated in place");
         firstDraft.Status.ShouldBe(ShiftStatus.OriginalOrder);
         firstDraft.SumEmployees.ShouldBe(2, "the re-import must overwrite drifted draft data with the payload");
+        firstDraft.MacroId.ShouldBe(plannerMacroId, "a re-delivery overwrites order data but never the macro the planner chose");
 
         shifts.Single(s => s.ExternalOrderReference == SecondOrderReference).Id.ShouldBe(secondDraftId);
 
@@ -861,12 +870,9 @@ public class ErpOrderImportFlowIntegrationTests
             Substitute.For<Klacks.Api.Domain.Interfaces.Macros.IWorkMacroService>(),
             Substitute.For<Klacks.Api.Domain.Interfaces.Associations.IClientContractDataProvider>());
 
-        var settingsRepository = new SettingsRepository(
-            context,
-            Substitute.For<ICalendarRuleFilterService>(),
-            Substitute.For<ICalendarRuleSortingService>(),
-            Substitute.For<ICalendarRulePaginationService>(),
-            Substitute.For<Klacks.Api.Domain.Interfaces.Macros.IMacroManagementService>());
+        var settingsRepository = CreateSettingsRepository(context);
+        var defaultShiftMacroResolver = new DefaultShiftMacroResolver(
+            settingsRepository, Substitute.For<ILogger<DefaultShiftMacroResolver>>());
 
         var triggerService = Substitute.For<IAgentTriggerService>();
 
@@ -882,6 +888,7 @@ public class ErpOrderImportFlowIntegrationTests
             new ShiftGroupScopeReadRepository(context),
             unitOfWork,
             companyClock,
+            defaultShiftMacroResolver,
             Substitute.For<ILogger<OrderSupersessionService>>());
 
         var dropPointRepository = new ErpDropPointRepository(context, Substitute.For<ILogger<ErpDropPoint>>());
@@ -894,7 +901,7 @@ public class ErpOrderImportFlowIntegrationTests
         var inboxRegistration = new ErpImportInboxRegistrationService(
             _objectStorage, fileRepository, registrar, unitOfWork, Substitute.For<ILogger<ErpImportInboxRegistrationService>>());
         var orderProcessor = new ImportedOrderProcessor(
-            new ErpCustomerResolver(clientRepository), shiftRepository, supersessionService, unitOfWork);
+            new ErpCustomerResolver(clientRepository), shiftRepository, supersessionService, unitOfWork, defaultShiftMacroResolver);
         var importer = new ErpImportFileImporter(
             fileRepository,
             _objectStorage,
@@ -1028,7 +1035,20 @@ public class ErpOrderImportFlowIntegrationTests
             .ToListAsync();
     }
 
-    private async Task<List<Shift>> LoadImportedShiftsAsync()
+    private static SettingsRepository CreateSettingsRepository(DataBaseContext context)
+    {
+        var macroManagementService = Substitute.For<Klacks.Api.Domain.Interfaces.Macros.IMacroManagementService>();
+        macroManagementService.GetMacroListAsync()
+            .Returns(_ => context.Macro.AsNoTracking().Where(m => !m.IsDeleted).ToListAsync());
+        return new SettingsRepository(
+            context,
+            Substitute.For<ICalendarRuleFilterService>(),
+            Substitute.For<ICalendarRuleSortingService>(),
+            Substitute.For<ICalendarRulePaginationService>(),
+            macroManagementService);
+    }
+
+        private async Task<List<Shift>> LoadImportedShiftsAsync()
     {
         return await _context.Shift
             .AsNoTracking()
