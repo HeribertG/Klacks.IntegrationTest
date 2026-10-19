@@ -911,11 +911,16 @@ public class ErpOrderImportFlowIntegrationTests
             _objectStorage, fileRepository, exceptionRepository, unitOfWork, TimeProvider.System,
             Substitute.For<ILogger<ErpImportLegacyFolderMigrator>>());
 
+        var retentionService = new ErpImportRetentionService(
+            fileRepository, exceptionRepository, _objectStorage, unitOfWork, TimeProvider.System,
+            Substitute.For<ILogger<ErpImportRetentionService>>());
+
         return new ErpOrderImportRunner(
             dropPointRepository,
             defaultDropPointProvider,
             legacyFolderMigrator,
             fileRepository,
+            retentionService,
             inboxRegistration,
             importer,
             settingsRepository,
