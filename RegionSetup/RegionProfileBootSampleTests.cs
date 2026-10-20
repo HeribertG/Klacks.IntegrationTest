@@ -1,3 +1,4 @@
+using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Interfaces.Settings;
 using Klacks.Api.Domain.Models.Authentification;
 using Klacks.Api.Infrastructure.Extensions;
