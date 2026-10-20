@@ -87,7 +87,7 @@ public class AddressValidationIntegrationTests
         result.Found.ShouldBeTrue();
         result.State.ShouldNotBeNullOrWhiteSpace();
 
-        var abbreviation = await _stateResolver.ResolveAsync(result.State);
+        var abbreviation = await _stateResolver.ResolveAsync("CH", result.State, result.County);
         Console.WriteLine($"  Resolved: {result.State} -> {abbreviation}");
 
         abbreviation.ShouldBe("BE");
@@ -104,7 +104,7 @@ public class AddressValidationIntegrationTests
         result.Found.ShouldBeTrue();
         result.State.ShouldNotBeNullOrWhiteSpace();
 
-        var abbreviation = await _stateResolver.ResolveAsync(result.State);
+        var abbreviation = await _stateResolver.ResolveAsync("CH", result.State, result.County);
         Console.WriteLine($"  Resolved: {result.State} -> {abbreviation}");
 
         abbreviation.ShouldBe("ZH");
@@ -121,7 +121,7 @@ public class AddressValidationIntegrationTests
         result.Found.ShouldBeTrue();
         result.State.ShouldNotBeNullOrWhiteSpace();
 
-        var abbreviation = await _stateResolver.ResolveAsync(result.State);
+        var abbreviation = await _stateResolver.ResolveAsync("CH", result.State, result.County);
         Console.WriteLine($"  Resolved: {result.State} -> {abbreviation}");
 
         abbreviation.ShouldBe("BE");
@@ -198,7 +198,7 @@ public class AddressValidationIntegrationTests
 
         result.Found.ShouldBeTrue();
 
-        var abbreviation = await _stateResolver.ResolveAsync(result.State);
+        var abbreviation = await _stateResolver.ResolveAsync("LI", result.State, result.County);
         Console.WriteLine($"  Resolved: {result.State} -> {abbreviation ?? "NULL (no state in DB, expected for Liechtenstein)"}");
     }
 
@@ -221,7 +221,7 @@ public class AddressValidationIntegrationTests
 
         result.Found.ShouldBeTrue();
 
-        var correctState = await _stateResolver.ResolveAsync(result.State);
+        var correctState = await _stateResolver.ResolveAsync("CH", result.State, result.County);
         correctState.ShouldBe("BE");
 
         var wrongState = "AG";
@@ -241,7 +241,7 @@ public class AddressValidationIntegrationTests
         result.Found.ShouldBeTrue();
         result.State.ShouldNotBeNullOrWhiteSpace();
 
-        var abbreviation = await _stateResolver.ResolveAsync(result.State);
+        var abbreviation = await _stateResolver.ResolveAsync("CH", result.State, result.County);
 
         Console.WriteLine($"Auto-fill test: Nominatim returned '{result.State}', resolved to '{abbreviation}'");
 
