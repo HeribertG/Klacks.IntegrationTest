@@ -8,6 +8,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using NSubstitute;
 using Npgsql;
 using NUnit.Framework;
 using Shouldly;
@@ -73,6 +75,7 @@ public class RegionProfileBootSampleTests
         new NpgsqlConnectionStringBuilder(DbConnectionString(dbName)).Database.ShouldStartWith("klacks_boot_");
 
         await RecreateDatabaseAsync(dbName);
+        var contentRoot = Directory.CreateTempSubdirectory("klacks-region-boot-").FullName;
         try
         {
             var repoRoot = Path.GetFullPath(Path.Combine(TestContext.CurrentContext.TestDirectory, "..", "..", "..", ".."));
@@ -91,6 +94,9 @@ public class RegionProfileBootSampleTests
 
             var services = new ServiceCollection();
             services.AddSingleton<IConfiguration>(configuration);
+            var environment = Substitute.For<IHostEnvironment>();
+            environment.ContentRootPath.Returns(contentRoot);
+            services.AddSingleton(environment);
             services.AddLogging();
             services.AddDataProtection();
             services.AddHttpContextAccessor();
@@ -130,6 +136,7 @@ public class RegionProfileBootSampleTests
         }
         finally
         {
+            Directory.Delete(contentRoot, recursive: true);
             await DropDatabaseAsync(dbName);
         }
     }
