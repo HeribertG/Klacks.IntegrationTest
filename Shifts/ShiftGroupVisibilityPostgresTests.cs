@@ -219,8 +219,8 @@ public class ShiftGroupVisibilityPostgresTests
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
 
-        var handler = new CutListQueryhandler(
-            _shiftRepository, _groupFilter, _scheduleMapper, Substitute.For<ILogger<CutListQueryhandler>>());
+        var handler = new CutListQueryHandler(
+            _shiftRepository, _groupFilter, _scheduleMapper, Substitute.For<ILogger<CutListQueryHandler>>());
 
         List<Guid> supervisorIds;
         using (ExecutionPrincipal.Begin(Guid.Parse(_supervisor.Id)))
