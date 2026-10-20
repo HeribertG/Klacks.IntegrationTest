@@ -13,6 +13,7 @@ using Klacks.Api.Application.Constants;
 using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.Services.Schedules;
 using Klacks.Api.Infrastructure.Persistence;
+using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -145,7 +146,7 @@ public class JobTerminalStateCachePersistenceTests
     {
         var scope = Substitute.For<IServiceScope>();
         var provider = Substitute.For<IServiceProvider>();
-        provider.GetService(typeof(DataBaseContext)).Returns(_ => NewContext());
+        provider.GetService(typeof(IJobTerminalStateStore)).Returns(_ => new JobTerminalStateStore(NewContext()));
         scope.ServiceProvider.Returns(provider);
         var scopeFactory = Substitute.For<IServiceScopeFactory>();
         scopeFactory.CreateScope().Returns(scope);
