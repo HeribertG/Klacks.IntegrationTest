@@ -109,6 +109,24 @@ public class GroupPlanningAgentRepositoryPostgresTests
     }
 
     [Test]
+    public async Task Employments_TranslateOnPostgres_AndMatchTheIdsWithTheirEmploymentWindow()
+    {
+        var ids = await _repository.GetAgentIdsAsync(_inner, PeriodFrom, PeriodUntil);
+        var employments = await _repository.GetAgentEmploymentsAsync(_inner, PeriodFrom, PeriodUntil);
+
+        employments.Select(employment => employment.ClientId).ShouldBe(ids, ignoreOrder: true);
+        var leaf = employments.Single(employment => employment.ClientId == _leafMember).Employment;
+        leaf.ValidFrom.ShouldBe(new DateOnly(2099, 1, 1));
+        leaf.ValidUntil.ShouldBeNull();
+    }
+
+    [Test]
+    public async Task Employments_OfAnEmptyLeaf_AreEmpty()
+    {
+        (await _repository.GetAgentEmploymentsAsync(_emptyLeaf, PeriodFrom, PeriodUntil)).ShouldBeEmpty();
+    }
+
+    [Test]
     public async Task EmptyLeaf_ResolvesNothing()
     {
         var ids = await _repository.GetAgentIdsAsync(_emptyLeaf, PeriodFrom, PeriodUntil);
