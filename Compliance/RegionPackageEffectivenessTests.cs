@@ -36,6 +36,7 @@ using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Scheduling;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Schedules;
+using Klacks.Api.Infrastructure.Extensions;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Associations;
 using Klacks.Api.Infrastructure.Repositories.Scheduling;
@@ -427,7 +428,7 @@ public class RegionPackageEffectivenessTests
     /// <summary>
     /// Materialises a shipped preset as the scheduling rule a contract can point at, carrying the values
     /// verbatim from the country package.
-    /// The production import path (RegionSetupService.ApplyEntityImportsAsync) is deliberately NOT used:
+    /// The production import path (RegionEntityImportService.ApplyEntityImportsAsync) is deliberately NOT used:
     /// it wraps its work in ExecuteInTransactionAsync and commits, so it cannot be enclosed in the test
     /// transaction that protects the shared dev database on port 5434 - and its rows would carry real
     /// package names, which must never be cleaned up by name (incident 2026-07-03). The import mechanics
@@ -528,8 +529,7 @@ public class RegionPackageEffectivenessTests
         services.AddSingleton(Substitute.For<IMacroScriptValidator>());
         services.AddSingleton(Substitute.For<IDomainEventDispatcher>());
 
-        services.AddSingleton<RegionSetupService>();
-        services.AddSingleton<IRegionEntityImportService>(sp => sp.GetRequiredService<RegionSetupService>());
+        services.AddRegionSetupServices();
 
         services.AddSingleton<ISettingsReader, TransactionalSettingsReader>();
         services.AddSingleton<ISettingsChangeVersion, SettingsChangeVersion>();

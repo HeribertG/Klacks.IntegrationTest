@@ -589,7 +589,7 @@ public sealed class CompliancePackageEffectivenessTests
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Verbatim seeding. The production import path (RegionSetupService.ApplyEntityImportsAsync) is
+    // Verbatim seeding. The production import path (RegionEntityImportService.ApplyEntityImportsAsync) is
     // deliberately NOT used, for the same reasons RegionPackageEffectivenessTests documents: it wraps its
     // work in ExecuteInTransactionAsync and commits, so it cannot be enclosed in the test transaction that
     // protects the shared dev database, and its rows would carry real package keys that must never be
@@ -660,7 +660,7 @@ public sealed class CompliancePackageEffectivenessTests
 
     private async Task SeedCompensatoryRestSettingsAsync(RegionSetupCompensatoryRest compensatoryRest)
     {
-        // AddBool/AddInt of RegionSetupService write exactly these two string forms.
+        // RegionSetupSettingAppender.AddBool/AddInt write exactly these two string forms.
         await UpsertSettingAsync(SettingKeys.ComplianceCompensatoryRestEnabled,
             compensatoryRest.Enabled!.Value ? "true" : "false");
         await UpsertSettingAsync(SettingKeys.ComplianceCompensatoryRestDeadlineDays,
@@ -891,7 +891,7 @@ public sealed class CompliancePackageEffectivenessTests
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Package access and small parsers, mirroring RegionSetupService's own parsing of these fields.
+    // Package access and small parsers, mirroring the region setup importers' own parsing of these fields.
     // ---------------------------------------------------------------------------------------------
 
     private static async Task<RegionSetupProfile> LoadPackageAsync(string countryCode)
