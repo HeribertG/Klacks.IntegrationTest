@@ -17,6 +17,7 @@ using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Services.Schedules;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
@@ -146,7 +147,7 @@ public class ScenarioWorkQueriesNpgsqlTests
         contractProvider
             .GetEffectiveContractDataForClientsRangeAsync(Arg.Any<List<Guid>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<int?>())
             .Returns(new Dictionary<DateOnly, Dictionary<Guid, EffectiveContractData>>());
-        var builder = new ScenarioSummaryBuilder(_context, scenarioRepository, new AnalyseScenarioService(_context), contractProvider);
+        var builder = new ScenarioSummaryBuilder(_context, scenarioRepository, AnalyseScenarioTestServiceFactory.Create(_context), contractProvider);
 
         var summary = await builder.BuildAsync(_token, CancellationToken.None);
 

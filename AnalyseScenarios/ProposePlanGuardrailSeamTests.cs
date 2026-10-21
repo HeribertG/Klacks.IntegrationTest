@@ -21,6 +21,7 @@ using Klacks.Api.Domain.Services.Schedules;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Services.Schedules;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -59,7 +60,7 @@ public class ProposePlanGuardrailSeamTests
     public void SetUp()
     {
         _context = NewContext();
-        _cloneService = new AnalyseScenarioService(_context);
+        _cloneService = AnalyseScenarioTestServiceFactory.Create(_context);
 
         var timeline = new TimelineCalculationService(
             Options.Create(new ScheduleTimeOptions()),

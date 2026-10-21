@@ -15,6 +15,7 @@ using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
@@ -62,7 +63,7 @@ public class AnalyseScenarioChainedAcceptTests
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
         _context = new DataBaseContext(options, mockHttpContextAccessor);
-        _service = new AnalyseScenarioService(_context);
+        _service = AnalyseScenarioTestServiceFactory.Create(_context);
     }
 
     [TearDown]

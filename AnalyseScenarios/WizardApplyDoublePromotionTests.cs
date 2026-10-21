@@ -63,7 +63,7 @@ public class WizardApplyDoublePromotionTests
     public void SetUp()
     {
         _context = NewContext();
-        _scenarioService = new AnalyseScenarioService(_context);
+        _scenarioService = AnalyseScenarioTestServiceFactory.Create(_context);
     }
 
     [TearDown]

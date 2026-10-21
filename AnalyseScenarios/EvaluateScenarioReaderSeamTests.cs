@@ -22,6 +22,7 @@ using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Services.ScheduleEntries;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -58,7 +59,7 @@ public class EvaluateScenarioReaderSeamTests
     public void SetUp()
     {
         _context = NewContext();
-        _cloneService = new AnalyseScenarioService(_context);
+        _cloneService = AnalyseScenarioTestServiceFactory.Create(_context);
     }
 
     [TearDown]

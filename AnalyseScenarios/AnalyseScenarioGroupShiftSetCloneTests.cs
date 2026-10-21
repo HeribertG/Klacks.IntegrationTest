@@ -14,6 +14,7 @@ using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
@@ -48,7 +49,7 @@ public class AnalyseScenarioGroupShiftSetCloneTests
     public void SetUp()
     {
         _context = NewContext();
-        _service = new AnalyseScenarioService(_context);
+        _service = AnalyseScenarioTestServiceFactory.Create(_context);
     }
 
     [TearDown]

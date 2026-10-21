@@ -25,6 +25,7 @@ using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Infrastructure.Services;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Services.Schedules;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -229,7 +230,7 @@ public class ReplacementRequestPostgresTests
         _context.ReplacementRequests.Add(Track(row));
         await _context.SaveChangesAsync();
 
-        await new AnalyseScenarioService(_context).PromoteScenarioWorksAsync(token, Day, Day, CancellationToken.None);
+        await AnalyseScenarioTestServiceFactory.Create(_context).PromoteScenarioWorksAsync(token, Day, Day, CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
 
@@ -277,7 +278,7 @@ public class ReplacementRequestPostgresTests
         await _context.SaveChangesAsync();
         _rowIds.AddRange(await _context.ReplacementRequests.Where(r => r.AnalyseToken == token).Select(r => r.Id).ToListAsync());
 
-        await new AnalyseScenarioService(_context).PromoteScenarioWorksAsync(token, Day, Day, CancellationToken.None);
+        await AnalyseScenarioTestServiceFactory.Create(_context).PromoteScenarioWorksAsync(token, Day, Day, CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
 

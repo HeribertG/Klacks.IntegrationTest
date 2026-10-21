@@ -66,7 +66,7 @@ public class AnalyseScenarioShiftDeleteGuardTests
 
         var mockHttpContextAccessor = Substitute.For<IHttpContextAccessor>();
         _context = new DataBaseContext(options, mockHttpContextAccessor);
-        _scenarioService = new AnalyseScenarioService(_context);
+        _scenarioService = AnalyseScenarioTestServiceFactory.Create(_context);
 
         var shiftValidator = new ShiftValidator();
         var dateRangeFilterService = new DateRangeFilterService();

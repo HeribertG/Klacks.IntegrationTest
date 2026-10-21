@@ -61,7 +61,7 @@ public class HarmonizerApplyRepointCloneTests
     public void SetUp()
     {
         _context = NewContext();
-        _service = new AnalyseScenarioService(_context);
+        _service = AnalyseScenarioTestServiceFactory.Create(_context);
     }
 
     [TearDown]

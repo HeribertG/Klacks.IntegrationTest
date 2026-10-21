@@ -27,6 +27,7 @@ using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Services.PeriodHours;
 using Klacks.Api.Infrastructure.Services.Schedules;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -208,7 +209,7 @@ public class AcceptScenarioPeriodHoursRefreshSeamTests
             .Returns(new Klacks.Api.Application.DTOs.Schedules.ScenarioComplianceReport([], []));
         return new AcceptAnalyseScenarioCommandHandler(
             new AnalyseScenarioRepository(_context, Substitute.For<ILogger<AnalyseScenario>>()),
-            new AnalyseScenarioService(_context),
+            AnalyseScenarioTestServiceFactory.Create(_context),
             new UnitOfWork(_context, Substitute.For<ILogger<UnitOfWork>>()),
             Substitute.For<IWorkSofteningRepository>(),
             compliance,
@@ -244,7 +245,7 @@ public class AcceptScenarioPeriodHoursRefreshSeamTests
         };
         await _context.Set<AnalyseScenario>().AddAsync(scenario);
         await _context.SaveChangesAsync();
-        var shiftIdMap = await new AnalyseScenarioService(_context).CloneScenarioDataAsync(
+        var shiftIdMap = await AnalyseScenarioTestServiceFactory.Create(_context).CloneScenarioDataAsync(
             null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
         await AddWorkAsync(client.Id, shiftIdMap[shift.Id], token);

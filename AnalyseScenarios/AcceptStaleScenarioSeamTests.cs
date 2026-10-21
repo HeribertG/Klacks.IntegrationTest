@@ -21,6 +21,7 @@ using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
+using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -61,7 +62,7 @@ public class AcceptStaleScenarioSeamTests
     public async Task SetUp()
     {
         _context = NewContext();
-        _scenarioService = new AnalyseScenarioService(_context);
+        _scenarioService = AnalyseScenarioTestServiceFactory.Create(_context);
 
         _group = new Group
         {

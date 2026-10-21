@@ -28,6 +28,7 @@ using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Repositories.Scheduling;
 using Klacks.Api.Infrastructure.Services.Groups;
+using Klacks.IntegrationTest.TestHelpers;
 using Klacks.ScheduleOptimizer.Constraints.Rules;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -261,7 +262,7 @@ public class PlanningConstraintPersistenceTests
         var real = await AddConstraintAsync(RuleApprovalStatus.Approved);
         var rejectedRule = await AddConstraintAsync(RuleApprovalStatus.Approved, analyseToken: rejectedToken);
         var acceptedRule = await AddConstraintAsync(RuleApprovalStatus.Approved, analyseToken: acceptedToken);
-        var service = new AnalyseScenarioService(_context);
+        var service = AnalyseScenarioTestServiceFactory.Create(_context);
 
         await service.SoftDeleteScenarioDataAsync(rejectedToken, CancellationToken.None);
         await service.PromoteScenarioWorksAsync(acceptedToken, From, Until, CancellationToken.None);
