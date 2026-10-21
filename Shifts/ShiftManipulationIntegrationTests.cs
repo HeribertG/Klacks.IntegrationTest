@@ -1986,7 +1986,7 @@ public class ShiftManipulationIntegrationTests
         await AddPreferenceAsync(order);
         var token = Guid.NewGuid();
 
-        var idMap = await new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context)
+        var idMap = await AnalyseScenarioTestServiceFactory.Create(_context)
             .CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, token, null, null, CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
@@ -2247,7 +2247,7 @@ public class ShiftManipulationIntegrationTests
         var (order, root, piece2, _) = await CreateCutOrderWithMandatoryQualificationAsync("QSplit_Chained");
         await RemoveOwnRowsAsync(piece2);
         await AddPreferenceAsync(order);
-        var scenarioService = new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context);
+        var scenarioService = AnalyseScenarioTestServiceFactory.Create(_context);
         var firstToken = Guid.NewGuid();
         var firstMap = await scenarioService.CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, firstToken, null, null, CancellationToken.None);
         await _context.SaveChangesAsync();
@@ -2285,7 +2285,7 @@ public class ShiftManipulationIntegrationTests
     public async Task Scenario_Clone_Of_A_Real_Piece_Points_At_The_Listed_Clone_That_Stands_In_For_Its_Parent()
     {
         var (_, root, piece2, piece3) = await CreateCutOrderWithMandatoryQualificationAsync("QSplit_StandIn");
-        var scenarioService = new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context);
+        var scenarioService = AnalyseScenarioTestServiceFactory.Create(_context);
         var firstMap = await scenarioService.CloneScenarioDataAsync(_groupAId, ScopePeriodFrom, ScopePeriodUntil, Guid.NewGuid(), null, null, CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
@@ -2633,7 +2633,7 @@ public class ShiftManipulationIntegrationTests
     {
         var family = await CreateLockedFamilyAsync("Lock_FamilyScenarioClone");
         var token = Guid.NewGuid();
-        await new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context).CloneScenarioDataAsync(
+        await AnalyseScenarioTestServiceFactory.Create(_context).CloneScenarioDataAsync(
             null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31), token, new[] { family.Plannable }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
@@ -2704,7 +2704,7 @@ public class ShiftManipulationIntegrationTests
         var family = await CreateLockedFamilyAsync("Lock_ScenarioBackdoor");
         var before = await StoredAsync(family.SealedOrder);
         var token = Guid.NewGuid();
-        var service = new Klacks.Api.Infrastructure.Services.AnalyseScenarios.AnalyseScenarioService(_context);
+        var service = AnalyseScenarioTestServiceFactory.Create(_context);
         var idMap = await service.CloneScenarioDataAsync(
             null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31), token, new[] { family.SealedOrder }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
