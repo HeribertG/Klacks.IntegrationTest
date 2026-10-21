@@ -145,8 +145,21 @@ public class ContainerAvailableTasksEngineParityPostgresTests
         tuesdayWeekdayAndHoliday.IsWeekdayAndHoliday = true;
         var tuesday = NewTask("Tuesday");
         tuesday.IsTuesday = true;
+        var everyWeekdayAndHoliday = NewTask("EveryWeekdayAndHoliday");
+        everyWeekdayAndHoliday.IsMonday = true;
+        everyWeekdayAndHoliday.IsTuesday = true;
+        everyWeekdayAndHoliday.IsWednesday = true;
+        everyWeekdayAndHoliday.IsThursday = true;
+        everyWeekdayAndHoliday.IsFriday = true;
+        everyWeekdayAndHoliday.IsSaturday = true;
+        everyWeekdayAndHoliday.IsSunday = true;
+        everyWeekdayAndHoliday.IsWeekdayAndHoliday = true;
 
-        var tasks = new[] { monday, mondayAndHoliday, pureHoliday, mondayWeekdayAndHoliday, tuesdayWeekdayAndHoliday, tuesday };
+        var tasks = new[]
+        {
+            monday, mondayAndHoliday, pureHoliday, mondayWeekdayAndHoliday, tuesdayWeekdayAndHoliday, tuesday,
+            everyWeekdayAndHoliday
+        };
         _taskIds = tasks.Select(t => t.Id).ToList();
 
         await _context.Shift.AddAsync(_container);
