@@ -97,6 +97,7 @@ public class RegionProfileBootSampleTests
             var environment = Substitute.For<IHostEnvironment>();
             environment.ContentRootPath.Returns(contentRoot);
             services.AddSingleton(environment);
+            services.AddSingleton(Substitute.For<IHostApplicationLifetime>());
             services.AddLogging();
             services.AddDataProtection();
             services.AddHttpContextAccessor();
