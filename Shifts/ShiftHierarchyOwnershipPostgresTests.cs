@@ -303,7 +303,7 @@ public class ShiftHierarchyOwnershipPostgresTests
     {
         var (plannableId, sealedOrderId) = await PostSealedOrderAsync("SKILL", _customerA);
 
-        var result = await new CutShiftSkill(_shiftRepository, _cutFacade, _allVisible).ExecuteAsync(
+        var result = await new CutShiftSkill(_shiftRepository, new ShiftReader(_context), _cutFacade, _allVisible).ExecuteAsync(
             SkillContext(),
             new Dictionary<string, object>
             {
@@ -324,7 +324,7 @@ public class ShiftHierarchyOwnershipPostgresTests
     public async Task CutShiftByDateSkill_CutsThePlannableShift_ThenAPiece_WithDerivedOrderAndCustomer()
     {
         var (plannableId, sealedOrderId) = await PostSealedOrderAsync("BYDATE", _customerA);
-        var skill = new CutShiftByDateSkill(_shiftRepository, _cutFacade, _allVisible);
+        var skill = new CutShiftByDateSkill(_shiftRepository, new ShiftReader(_context), _cutFacade, _allVisible);
 
         var first = await skill.ExecuteAsync(SkillContext(),
             new Dictionary<string, object> { ["shiftId"] = plannableId.ToString(), ["cutDate"] = "2026-07-01" },

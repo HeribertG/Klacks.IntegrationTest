@@ -3,7 +3,7 @@
 /// <summary>
 /// Az0 of the Klacksy-Autonomie test spec (docs/knowledge/klacksy-autonomie-testspezifikation-2026-08-28.md
 /// §4, "Meldelücke"): proves the REAL EmptyContainerDetector, wired against the REAL Postgres dev database
-/// through its real ShiftRepository/ContainerTemplateRepository/ShiftGroupScopeReadRepository/
+/// through its real ShiftReader/ContainerTemplateRepository/ShiftGroupScopeReadRepository/
 /// AgentConditionRepository, surfaces newly created empty containers - the one claim
 /// EmptyContainerDetectorTests.cs (Klacks.UnitTest, EF InMemory) cannot make, because that provider accepts
 /// LINQ shapes Npgsql has rejected before (see ShiftGroupScopeReadRepository's own doc comment) and because
@@ -27,7 +27,6 @@
 /// Cleanup deletes ONLY Shift rows named with this fixture's own prefix.
 /// </summary>
 
-using Klacks.Api.Application.Mappers;
 using Klacks.Api.Application.Services.Assistant.Conditions;
 using Klacks.Api.Application.Services.Assistant.Triggers;
 using Klacks.Api.Domain.Enums;
@@ -120,21 +119,12 @@ public class EmptyContainerDetectorLiveScanTests
 
     private static EmptyContainerDetector NewDetector(DataBaseContext context)
     {
-        var shiftLogger = NullLogger<Shift>.Instance;
         var containerTemplateLogger = NullLogger<ContainerTemplate>.Instance;
         var detectorLogger = NullLogger<EmptyContainerDetector>.Instance;
         var companyClock = Klacks.IntegrationTest.TestHelpers.TestCompanyClock.Utc();
 
         var collectionUpdateService = new EntityCollectionUpdateService(context);
-        var shiftRepository = new ShiftRepository(
-            context,
-            shiftLogger,
-            Substitute.For<IShiftQueryPipelineService>(),
-            Substitute.For<IShiftGroupManagementService>(),
-            collectionUpdateService,
-            Substitute.For<IShiftValidator>(),
-            new ScheduleMapper(),
-            companyClock);
+        var shiftReader = new ShiftReader(context);
 
         var containerTemplateService = new ContainerTemplateService(
             Substitute.For<IUnitOfWork>(), NullLogger<ContainerTemplateService>.Instance);
@@ -145,7 +135,7 @@ public class EmptyContainerDetectorLiveScanTests
         var agentConditionRepository = new AgentConditionRepository(context);
 
         return new EmptyContainerDetector(
-            shiftRepository, containerTemplateRepository, groupScopeReader, agentConditionRepository,
+            shiftReader, containerTemplateRepository, groupScopeReader, agentConditionRepository,
             companyClock, detectorLogger);
     }
 

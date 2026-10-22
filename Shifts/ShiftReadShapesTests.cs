@@ -49,6 +49,7 @@ public class ShiftReadShapesTests
 
     private DataBaseContext _context = null!;
     private ShiftRepository _shiftRepository = null!;
+    private ShiftReader _shiftReader = null!;
     private ContainerTemplateRepository _containerTemplateRepository = null!;
     private ICompanyClock _clock = null!;
     private string _token = null!;
@@ -108,6 +109,7 @@ public class ShiftReadShapesTests
             Substitute.For<IShiftValidator>(),
             new ScheduleMapper(),
             _clock);
+        _shiftReader = new ShiftReader(_context);
         _containerTemplateRepository = new ContainerTemplateRepository(
             _context,
             Substitute.For<ILogger<ContainerTemplate>>(),
@@ -128,7 +130,7 @@ public class ShiftReadShapesTests
     public async Task OpenOrderScan_ReportsTodayAndLater_SoonestFirstThenId_WithoutPastScenarioOrDeletedOrders()
     {
         var detector = new OpenOrderDetector(
-            _shiftRepository, new ShiftGroupScopeReadRepository(_context), _clock, NullLogger<OpenOrderDetector>.Instance);
+            _shiftReader, new ShiftGroupScopeReadRepository(_context), _clock, NullLogger<OpenOrderDetector>.Instance);
 
         var reported = (await detector.DetectAsync()).Cast<OpenOrderTriggerEvent>().Select(e => e.ShiftId).ToList();
         var fingerprints = await detector.GetActiveFingerprintsAsync();
@@ -150,7 +152,7 @@ public class ShiftReadShapesTests
         var agentConditions = Substitute.For<IAgentConditionRepository>();
         agentConditions.GetOpenByKindAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new List<AgentCondition>());
         var detector = new UncutFullDayShiftDetector(
-            _shiftRepository, new ShiftGroupScopeReadRepository(_context), agentConditions, _clock,
+            _shiftReader, new ShiftGroupScopeReadRepository(_context), agentConditions, _clock,
             NullLogger<UncutFullDayShiftDetector>.Instance);
 
         var fingerprints = await detector.GetActiveFingerprintsAsync();
@@ -169,7 +171,7 @@ public class ShiftReadShapesTests
         var agentConditions = Substitute.For<IAgentConditionRepository>();
         agentConditions.GetOpenByKindAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new List<AgentCondition>());
         var detector = new EmptyContainerDetector(
-            _shiftRepository, _containerTemplateRepository, new ShiftGroupScopeReadRepository(_context), agentConditions,
+            _shiftReader, _containerTemplateRepository, new ShiftGroupScopeReadRepository(_context), agentConditions,
             _clock, NullLogger<EmptyContainerDetector>.Instance);
 
         var fingerprints = await detector.GetActiveFingerprintsAsync();
@@ -214,7 +216,7 @@ public class ShiftReadShapesTests
     }
 
     [Test]
-    public async Task OrderLineage_AsTheCutSkillsComposeIt_FirstPlannableShiftInRepositoryOrder_AndSplitParts()
+    public async Task OrderLineage_FormerGetQueryComposition_FirstPlannableShiftInRepositoryOrder_AndSplitParts()
     {
         var firstPlan = await _shiftRepository.GetQuery()
             .FirstOrDefaultAsync(s => s.OriginalId == _order.Id && s.Status == ShiftStatus.OriginalShift);
@@ -233,12 +235,153 @@ public class ShiftReadShapesTests
         unlinkedIsSplit.ShouldBeFalse();
     }
 
+    [Test]
+    public async Task OrderLineage_RepositoryReads_EqualTheFormerComposition()
+    {
+        var firstPlan = await _shiftReader.FindFirstByOriginalIdAsync(_order.Id, ShiftStatus.OriginalShift);
+        var firstPart = await _shiftReader.FindFirstByOriginalIdAsync(_order.Id, ShiftStatus.SplitShift);
+        var legacyFirstPart = await _shiftRepository.GetQuery()
+            .FirstOrDefaultAsync(s => s.OriginalId == _order.Id && s.Status == ShiftStatus.SplitShift);
+
+        firstPlan!.Id.ShouldBe(_planEarly.Id);
+        _context.Entry(firstPlan).State.ShouldBe(EntityState.Detached);
+        firstPart!.Id.ShouldBe(legacyFirstPart!.Id);
+        firstPart.Id.ShouldBe(_partDay.Id);
+        (await _shiftReader.CountByOriginalIdAsync(_order.Id, ShiftStatus.SplitShift)).ShouldBe(2);
+        (await _shiftReader.CountByOriginalIdAsync(_order.Id, ShiftStatus.OriginalShift)).ShouldBe(2);
+        (await _shiftReader.AnyByOriginalIdAsync(_order.Id, ShiftStatus.SplitShift)).ShouldBeTrue();
+        (await _shiftReader.AnyByOriginalIdAsync(_unlinkedOrder.Id, ShiftStatus.SplitShift)).ShouldBeFalse();
+        (await _shiftRepository.HasOriginalShiftCopyAsync(_order.Id)).ShouldBeTrue();
+    }
+
+    [Test]
+    public async Task DetectorScans_EqualTheDetectorsFormerGetQueryComposition_OnTheSeededRows()
+    {
+        var openScan = new RealPlanShiftScan(ShiftStatus.OriginalOrder) { StartsOnOrAfter = Today };
+        var openCapped = await _shiftReader.ScanRealPlanAsync(
+            openScan with { OrderByFromDateThenId = true, MaxCount = OpenOrderDetector.MaxCandidatesToScan });
+        var legacyOpenCapped = await LegacyOpenOrders()
+            .OrderBy(s => s.FromDate).ThenBy(s => s.Id).Take(OpenOrderDetector.MaxCandidatesToScan).ToListAsync();
+        var seeded = SeededIds();
+        openCapped.Select(s => s.Id).Where(seeded.Contains).ShouldBe(legacyOpenCapped.Select(s => s.Id).Where(seeded.Contains));
+        await ShouldEqualAsSetAsync(openScan, LegacyOpenOrders());
+
+        var uncutScan = new RealPlanShiftScan(ShiftStatus.OriginalShift)
+        {
+            ShiftType = ShiftType.IsTask, FullDayOnly = true, NotEndedBefore = Today,
+        };
+        await ShouldEqualAsSetAsync(uncutScan, LegacyUncutFullDay());
+        var seededFullDay = new List<Guid> { _fullDayOpen.Id, _fullDayEnded.Id, _fullDayEndsToday.Id };
+        await ShouldEqualAsSetAsync(
+            uncutScan with { OnlyIds = seededFullDay },
+            LegacyUncutFullDay().Where(s => seededFullDay.Contains(s.Id)));
+
+        var templateIds = await _containerTemplateRepository.GetContainerIdsWithTemplateAsync();
+        var legacyTemplateIds = await _containerTemplateRepository.GetQuery()
+            .Where(t => !t.IsDeleted).Select(t => t.ContainerId).Distinct().ToListAsync();
+        templateIds.Where(seeded.Contains).ShouldBe(legacyTemplateIds.Where(seeded.Contains), ignoreOrder: true);
+        templateIds.ShouldContain(_containerWithTemplate.Id);
+        templateIds.ShouldNotContain(_containerDeletedTemplate.Id);
+
+        var containerScan = new RealPlanShiftScan(ShiftStatus.OriginalShift)
+        {
+            ShiftType = ShiftType.IsContainer, ExcludedIds = templateIds,
+        };
+        await ShouldEqualAsSetAsync(containerScan, LegacyEmptyContainers(templateIds));
+        var seededContainers = new List<Guid> { _containerEmpty.Id, _containerWithTemplate.Id };
+        var containerRows = await _shiftReader.ScanRealPlanAsync(containerScan with { OnlyIds = seededContainers });
+        containerRows.Select(s => s.Id).ShouldBe([_containerEmpty.Id]);
+    }
+
+    [Test]
+    public async Task OrderFamilyInGroup_EqualsTheFormerComposition_InRepositoryOrderWithNullsLast()
+    {
+        var fragment = "bIEL ORDER " + _token.ToUpperInvariant();
+
+        var rows = await _shiftReader.GetOrderFamilyShiftsInGroupAsync(_groupId, fragment);
+        var legacy = await _shiftRepository.GetQuery()
+            .Where(s => s.GroupItems.Any(gi => gi.GroupId == _groupId && !gi.IsDeleted))
+            .Where(s => s.Status == ShiftStatus.SealedOrder
+                        || s.Status == ShiftStatus.OriginalShift
+                        || s.Status == ShiftStatus.SplitShift)
+            .Where(s => EF.Functions.ILike(s.Name, $"%{fragment}%"))
+            .Select(s => s.Id)
+            .ToListAsync();
+
+        rows.Select(s => s.Id).ShouldBe(legacy);
+        rows.Select(s => s.Id).ShouldBe([_partDay.Id, _partNight.Id, _planEarly.Id, _planLate.Id, _order.Id]);
+        (await _shiftReader.GetOrderFamilyShiftsInGroupAsync(_groupId, null)).Count.ShouldBe(5);
+    }
+
+    [Test]
+    public async Task VisibleRealPlanWithClientByIds_EqualsTheFormerComposition()
+    {
+        var ids = new List<Guid> { _order.Id, _planLate.Id, _partNight.Id, _planEarly.Id, _partDay.Id, _openToday.Id, _openTokenCopy.Id };
+
+        foreach (var visibleGroupIds in new List<Guid>?[] { null, [], [_hiddenGroupId], [_groupId] })
+        {
+            var rows = await _shiftReader.GetVisibleRealPlanWithClientByIdsAsync(ids, visibleGroupIds);
+            var legacyQuery = _context.Shift
+                .Include(x => x.Client!)
+                .ThenInclude(x => x.Addresses!.Where(a => a != null))
+                .OrderBy(x => x.OriginalId)
+                .ThenBy(x => x.FromDate)
+                .ThenBy(x => x.StartShift)
+                .AsNoTracking()
+                .Where(s => ids.Contains(s.Id) && s.AnalyseToken == null && s.ScenarioSourceShiftId == null);
+            var legacy = await Klacks.Api.Domain.Services.Shifts.ShiftGroupVisibilityFilter.Apply(legacyQuery, visibleGroupIds)
+                .ToListAsync();
+
+            rows.Select(s => s.Id).ShouldBe(legacy.Select(s => s.Id));
+            rows.Select(s => s.Client?.Addresses.Count ?? 0).ShouldBe(legacy.Select(s => s.Client?.Addresses.Count ?? 0));
+        }
+    }
+
+    private async Task ShouldEqualAsSetAsync(RealPlanShiftScan scan, IQueryable<Shift> legacy)
+    {
+        var seeded = SeededIds();
+        var keys = (await _shiftReader.ScanRealPlanKeysAsync(scan)).Where(k => seeded.Contains(k.Id)).ToList();
+        var rows = (await _shiftReader.ScanRealPlanAsync(scan)).Where(s => seeded.Contains(s.Id)).ToList();
+        var legacyKeys = (await legacy.Select(s => new { s.Id, s.FromDate }).ToListAsync())
+            .Where(k => seeded.Contains(k.Id)).ToList();
+        keys.ShouldNotBeEmpty();
+
+        keys.Select(k => (k.Id, k.FromDate)).ShouldBe(legacyKeys.Select(k => (k.Id, k.FromDate)), ignoreOrder: true);
+        rows.Select(s => s.Id).ShouldBe(keys.Select(k => k.Id), ignoreOrder: true);
+    }
+
+    private IQueryable<Shift> LegacyOpenOrders() =>
+        _shiftRepository.GetQuery()
+            .Where(s => s.Status == ShiftStatus.OriginalOrder
+                && s.FromDate >= Today
+                && s.AnalyseToken == null
+                && s.ScenarioSourceShiftId == null
+                && !s.IsDeleted);
+
+    private IQueryable<Shift> LegacyUncutFullDay() =>
+        _shiftRepository.GetQuery()
+            .Where(s => s.Status == ShiftStatus.OriginalShift
+                && s.ShiftType == ShiftType.IsTask
+                && s.StartShift == s.EndShift
+                && s.AnalyseToken == null
+                && s.ScenarioSourceShiftId == null
+                && !s.IsDeleted
+                && (s.UntilDate == null || s.UntilDate >= Today));
+
+    private IQueryable<Shift> LegacyEmptyContainers(List<Guid> containerIdsWithTemplate) =>
+        _shiftRepository.GetQuery()
+            .Where(s => s.ShiftType == ShiftType.IsContainer)
+            .Where(s => s.Status == ShiftStatus.OriginalShift)
+            .Where(s => s.AnalyseToken == null && s.ScenarioSourceShiftId == null)
+            .Where(s => !s.IsDeleted)
+            .Where(s => !containerIdsWithTemplate.Contains(s.Id));
+
     private async Task<List<ShiftResource>> ByIdsAsync(List<Guid>? visibleGroupIds, params Guid[] ids)
     {
         var groupFilter = Substitute.For<IShiftGroupFilterService>();
         groupFilter.ResolveShiftListGroupIdsAsync(null).Returns(visibleGroupIds);
         var handler = new GetShiftsByIdsQueryHandler(
-            _shiftRepository, groupFilter, new ScheduleMapper(), NullLogger<GetShiftsByIdsQueryHandler>.Instance);
+            _shiftReader, groupFilter, new ScheduleMapper(), NullLogger<GetShiftsByIdsQueryHandler>.Instance);
 
         return await handler.Handle(new GetShiftsByIdsQuery(ids.ToList()), CancellationToken.None);
     }
@@ -248,7 +391,7 @@ public class ShiftReadShapesTests
         var groupSearch = Substitute.For<IGroupSearchRepository>();
         groupSearch.SearchAsync(Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new GroupSearchResult { Items = [new GroupSearchItem { Id = _groupId, Name = Prefix + "Group" }], TotalCount = 1 });
-        var skill = new FindSplitShiftCandidatesSkill(_shiftRepository, groupSearch);
+        var skill = new FindSplitShiftCandidatesSkill(_shiftReader, groupSearch);
 
         var result = await skill.ExecuteAsync(
             new SkillExecutionContext { UserId = Guid.NewGuid(), TenantId = Guid.NewGuid(), UserName = "planner", UserPermissions = [] },

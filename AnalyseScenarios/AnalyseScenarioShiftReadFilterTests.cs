@@ -213,7 +213,7 @@ public class AnalyseScenarioShiftReadFilterTests
         var cloneId = idMap[realShift.Id];
 
         var handler = new GetShiftsByIdsQueryHandler(
-            _shiftRepository,
+            new ShiftReader(_context),
             UnrestrictedShiftGroupFilter(),
             _scheduleMapper,
             Substitute.For<ILogger<GetShiftsByIdsQueryHandler>>());

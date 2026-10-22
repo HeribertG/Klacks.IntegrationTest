@@ -158,7 +158,7 @@ public class ClientAvailabilityReportIntegrationTests
         await AddAvailabilityAsync(clientId, date, 12, isAvailable: false);
 
         var service = CreateScheduleService();
-        var entries = await service.GetClientAvailabilityQuery(date, date, new List<Guid> { clientId }).ToListAsync();
+        var entries = await service.GetClientAvailabilityAsync(date, date, new List<Guid> { clientId });
 
         Console.WriteLine("=== SP RANGE MERGE TEST ===");
         foreach (var entry in entries)
@@ -184,7 +184,7 @@ public class ClientAvailabilityReportIntegrationTests
         }
 
         var service = CreateScheduleService();
-        var entries = await service.GetClientAvailabilityQuery(date, date, new List<Guid> { clientId }).ToListAsync();
+        var entries = await service.GetClientAvailabilityAsync(date, date, new List<Guid> { clientId });
 
         Console.WriteLine("=== SP RANGE GAP TEST ===");
         foreach (var entry in entries)
@@ -209,7 +209,7 @@ public class ClientAvailabilityReportIntegrationTests
         await SoftDeleteAvailabilityAsync(hour9Id);
 
         var service = CreateScheduleService();
-        var entries = await service.GetClientAvailabilityQuery(date, date, new List<Guid> { clientId }).ToListAsync();
+        var entries = await service.GetClientAvailabilityAsync(date, date, new List<Guid> { clientId });
 
         Console.WriteLine("=== SP SOFT-DELETE TEST ===");
         foreach (var entry in entries)
@@ -236,8 +236,7 @@ public class ClientAvailabilityReportIntegrationTests
 
         var service = CreateScheduleService();
         var entries = await service
-            .GetClientAvailabilityQuery(date, date.AddDays(2), new List<Guid> { requestedClientId })
-            .ToListAsync();
+            .GetClientAvailabilityAsync(date, date.AddDays(2), new List<Guid> { requestedClientId });
 
         Console.WriteLine("=== SP SCOPE FILTER TEST ===");
         foreach (var entry in entries)
@@ -266,8 +265,7 @@ public class ClientAvailabilityReportIntegrationTests
 
         var service = CreateScheduleService();
         var entries = await service
-            .GetClientAvailabilityQuery(date, date, new List<Guid> { firstClientId, secondClientId })
-            .ToListAsync();
+            .GetClientAvailabilityAsync(date, date, new List<Guid> { firstClientId, secondClientId });
 
         Console.WriteLine("=== SP MULTI-CLIENT TEST ===");
         foreach (var entry in entries)

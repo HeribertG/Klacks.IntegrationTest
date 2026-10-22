@@ -137,7 +137,7 @@ public class ShiftGroupVisibilityPostgresTests
     public async Task ByIds_Supervisor_DropsHiddenShift()
     {
         var handler = new GetShiftsByIdsQueryHandler(
-            _shiftRepository, _groupFilter, _scheduleMapper, Substitute.For<ILogger<GetShiftsByIdsQueryHandler>>());
+            new ShiftReader(_context), _groupFilter, _scheduleMapper, Substitute.For<ILogger<GetShiftsByIdsQueryHandler>>());
         var requested = new List<Guid> { _visibleChildShift.Id, _hiddenShift.Id, _groupLessShift.Id };
 
         List<ShiftResource> result;
@@ -153,7 +153,7 @@ public class ShiftGroupVisibilityPostgresTests
     public async Task ByIds_UserWithoutVisibleGroup_ReturnsOnlyGroupLess()
     {
         var handler = new GetShiftsByIdsQueryHandler(
-            _shiftRepository, _groupFilter, _scheduleMapper, Substitute.For<ILogger<GetShiftsByIdsQueryHandler>>());
+            new ShiftReader(_context), _groupFilter, _scheduleMapper, Substitute.For<ILogger<GetShiftsByIdsQueryHandler>>());
         var requested = new List<Guid> { _visibleChildShift.Id, _hiddenShift.Id, _groupLessShift.Id };
 
         List<ShiftResource> result;

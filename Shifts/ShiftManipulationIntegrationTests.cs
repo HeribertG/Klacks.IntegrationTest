@@ -1041,7 +1041,7 @@ public class ShiftManipulationIntegrationTests
 
     #region Test 8: CutShiftSkill (Klacksy) - one 24h order cut into 3 linked parts
 
-    private CutShiftSkill CreateCutSkill() => new(_shiftRepository, _shiftCutFacade, AllShiftsVisible());
+    private CutShiftSkill CreateCutSkill() => new(_shiftRepository, new ShiftReader(_context), _shiftCutFacade, AllShiftsVisible());
 
     private static SkillExecutionContext TestSkillContext() => new()
     {
@@ -1176,7 +1176,7 @@ public class ShiftManipulationIntegrationTests
         (await CreateCutSkill().ExecuteAsync(TestSkillContext(), cutParams, CancellationToken.None)).Success.ShouldBeTrue();
 
         // Act - the disambiguation skill (exercises group resolution + GroupItems.Any + ILike + GetQuery).
-        var skill = new FindSplitShiftCandidatesSkill(_shiftRepository, new GroupSearchRepository(_context));
+        var skill = new FindSplitShiftCandidatesSkill(new ShiftReader(_context), new GroupSearchRepository(_context));
         var result = await skill.ExecuteAsync(
             TestSkillContext(),
             new Dictionary<string, object> { ["groupName"] = $"{TestShiftPrefix}Biel/Bienne" },
