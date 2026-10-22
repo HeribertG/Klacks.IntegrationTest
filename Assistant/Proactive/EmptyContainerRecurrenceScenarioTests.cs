@@ -122,7 +122,7 @@ public class EmptyContainerRecurrenceScenarioTests
         }
 
         // Three days later, the same real-world container is empty again. UpsertDetectedAsync is what
-        // AgentTriggerBackgroundService.RunDetectorAsync calls per detected finding - driven directly here
+        // AgentTriggerDetectorRunner.RunAsync calls per detected finding - driven directly here
         // rather than through the real EmptyContainerDetector, matching how Az1/Az2/Az3 hand-build their
         // AgentCondition rows for the same isolation reasons.
         (AgentCondition SecondCondition, bool IsNew) upsertResult;

@@ -5,11 +5,11 @@
 /// (1) ProactiveTriggerDispatchRepository.ListDedupKeysAsync, the read behind the rising-count dedup, whose
 /// StartsWith prefix match must translate to SQL and must keep to one user, one kind and live rows; (2) the
 /// MarkPerOrderOpenOrderMessagesRead migration SQL, which must stamp only unread rows of the former per-order shape
-/// (kind open_order, content key i18n:assistant.proactive.openOrder), leave the summary and every other row alone,
-/// and change nothing when it runs a second time.
+/// (kind open_order, content key i18n:assistant.proactive.openOrder) as read and out of the reminder loop - keeping an
+/// existing read stamp - leave the summary and every other row alone, and change nothing when it runs a second time.
 /// SHARED-DATABASE SAFETY: assertions look only at rows of the synthetic fixture user, and cleanup deletes only rows
-/// whose user_id carries the prefix INTEGRATION_TEST_. The migration SQL is executed as written, so on the shared test
-/// database it also marks other per-order open-order rows read - which is exactly what it does on deploy.
+/// whose user_id carries the prefix INTEGRATION_TEST_. The migration SQL is executed with one extra condition appended
+/// to its WHERE clause (user_id LIKE 'INTEGRATION_TEST_%'), so the shared database's other rows are never touched.
 /// </summary>
 
 using Klacks.Api.Domain.Constants;
@@ -36,6 +36,8 @@ public class OpenOrderSummaryDispatchTests
     private const string PerOrderContentKey = "i18n:assistant.proactive.openOrder";
     private const string SummaryContentKey = "i18n:assistant.proactive.openOrdersSummary";
     private const string OtherKind = TestPrefix + "other_kind";
+    private const char StatementTerminator = ';';
+    private const string FixtureRowsOnly = " AND user_id LIKE {0};";
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp() => await CleanupAsync();
@@ -79,12 +81,17 @@ public class OpenOrderSummaryDispatchTests
         var perOrderUnread = Row(UserId, AgentTriggerKinds.OpenOrder, $"{Guid.NewGuid()}:2026-10-25", PerOrderContentKey);
         var perOrderRead = Row(UserId, AgentTriggerKinds.OpenOrder, $"{Guid.NewGuid()}:2026-10-26", PerOrderContentKey);
         perOrderRead.ReadAtUtc = earlierRead;
+        var perOrderReadButReminding = Row(UserId, AgentTriggerKinds.OpenOrder, $"{Guid.NewGuid()}:2026-10-27", PerOrderContentKey);
+        perOrderReadButReminding.ReadAtUtc = earlierRead;
+        perOrderReadButReminding.NextReminderAtUtc = earlierRead.AddDays(30);
+        perOrderUnread.NextReminderAtUtc = earlierRead.AddDays(30);
         var summaryUnread = Row(UserId, AgentTriggerKinds.OpenOrder, "2026-10-22#5", SummaryContentKey);
+        summaryUnread.NextReminderAtUtc = earlierRead.AddDays(30);
         var otherKindUnread = Row(UserId, OtherKind, $"{Guid.NewGuid()}:2026-10-25", PerOrderContentKey);
 
         await using (var context = NewContext())
         {
-            context.AgentTriggerDispatches.AddRange(perOrderUnread, perOrderRead, summaryUnread, otherKindUnread);
+            context.AgentTriggerDispatches.AddRange(perOrderUnread, perOrderRead, perOrderReadButReminding, summaryUnread, otherKindUnread);
             await context.SaveChangesAsync();
         }
 
@@ -93,26 +100,31 @@ public class OpenOrderSummaryDispatchTests
         await RunMigrationSqlAsync();
         var afterSecondRun = await ReadStampsAsync();
 
-        afterFirstRun[perOrderUnread.Id].ShouldNotBeNull();
-        afterFirstRun[perOrderRead.Id]!.Value.ToUniversalTime().ShouldBe(earlierRead);
-        afterFirstRun[summaryUnread.Id].ShouldBeNull();
-        afterFirstRun[otherKindUnread.Id].ShouldBeNull();
-        afterSecondRun.ShouldBe(afterFirstRun);
+        afterFirstRun[perOrderUnread.Id].ReadAtUtc.ShouldNotBeNull();
+        afterFirstRun[perOrderUnread.Id].NextReminderAtUtc.ShouldBeNull();
+        afterFirstRun[perOrderRead.Id].ReadAtUtc!.Value.ToUniversalTime().ShouldBe(earlierRead);
+        afterFirstRun[perOrderReadButReminding.Id].ReadAtUtc!.Value.ToUniversalTime().ShouldBe(earlierRead);
+        afterFirstRun[perOrderReadButReminding.Id].NextReminderAtUtc.ShouldBeNull();
+        afterFirstRun[summaryUnread.Id].ReadAtUtc.ShouldBeNull();
+        afterFirstRun[summaryUnread.Id].NextReminderAtUtc.ShouldNotBeNull();
+        afterFirstRun[otherKindUnread.Id].ReadAtUtc.ShouldBeNull();
+        afterSecondRun.ShouldBe(afterFirstRun, ignoreOrder: true);
     }
 
     private static async Task RunMigrationSqlAsync()
     {
         var sql = new MarkPerOrderOpenOrderMessagesRead().UpOperations.OfType<SqlOperation>().Single().Sql;
+        var scopedSql = sql.TrimEnd().TrimEnd(StatementTerminator) + FixtureRowsOnly;
         await using var context = NewContext();
-        await context.Database.ExecuteSqlRawAsync(sql);
+        await context.Database.ExecuteSqlRawAsync(scopedSql, TestPrefix + "%");
     }
 
-    private static async Task<Dictionary<Guid, DateTime?>> ReadStampsAsync()
+    private static async Task<Dictionary<Guid, (DateTime? ReadAtUtc, DateTime? NextReminderAtUtc)>> ReadStampsAsync()
     {
         await using var context = NewContext();
         return await context.AgentTriggerDispatches.AsNoTracking()
             .Where(row => row.UserId == UserId)
-            .ToDictionaryAsync(row => row.Id, row => row.ReadAtUtc);
+            .ToDictionaryAsync(row => row.Id, row => (row.ReadAtUtc, row.NextReminderAtUtc));
     }
 
     private static ProactiveTriggerDispatchRow Row(
