@@ -4,9 +4,10 @@
 /// Pins against PostgreSQL (IT database klacks) which exception surfaces when a write committed through
 /// IUnitOfWork.CompleteAsync is rejected: the Domain DatabaseUpdateException (with IsDuplicate / IsForeignKeyViolation
 /// read from the SQLSTATE), never EF Core's DbUpdateException. The set_client_qualification,
-/// set_shift_required_qualification and set_shift_preferences skills run end to end over their real command handlers,
-/// so an unknown employee, shift or qualification escapes them as that Domain exception; the digest watermark seed
-/// (unique settings type) fails the same way. Nothing is stored by the failing writes; the one seeded settings row
+/// set_shift_required_qualification and set_shift_preferences skills run end to end over their real command handlers
+/// and answer an unknown employee, shift or qualification (the Domain foreign-key violation) with their friendly error
+/// message instead of letting the exception escape; the digest watermark seed (unique settings type) surfaces the
+/// duplicate as the Domain exception. Nothing is stored by the failing writes; the one seeded settings row
 /// carries the INTEGRATION_TEST_UOW_ prefix and the cleanup deletes exactly those rows.
 /// </summary>
 
@@ -38,6 +39,11 @@ namespace Klacks.IntegrationTest.Infrastructure;
 public class UnitOfWorkFailureTranslationTests
 {
     private const string Prefix = "INTEGRATION_TEST_UOW_";
+    private const string ClientQualificationError =
+        "Could not set the qualification — the employee or qualification id may not exist.";
+    private const string RequiredQualificationError =
+        "Could not set the required qualification — the shift or qualification id may not exist.";
+    private const string PreferenceError = "Could not set the preference — the employee or shift id may not exist.";
 
     private DataBaseContext _context = null!;
     private UnitOfWork _unitOfWork = null!;
@@ -58,7 +64,7 @@ public class UnitOfWorkFailureTranslationTests
     }
 
     [Test]
-    public async Task SetClientQualificationSkill_UnknownEmployeeAndQualification_EscapesAsDomainForeignKeyViolation()
+    public async Task SetClientQualificationSkill_UnknownEmployeeAndQualification_ReturnsTheFriendlyError()
     {
         var visibility = Substitute.For<IClientVisibilityGuard>();
         visibility.IsVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
@@ -68,20 +74,21 @@ public class UnitOfWorkFailureTranslationTests
         mediator.Send(Arg.Any<SetClientQualificationCommand>(), Arg.Any<CancellationToken>())
             .Returns(call => handler.Handle(call.Arg<SetClientQualificationCommand>(), CancellationToken.None));
 
-        var thrown = await Should.ThrowAsync<Exception>(() => new SetClientQualificationSkill(mediator).ExecuteAsync(
+        var result = await new SetClientQualificationSkill(mediator).ExecuteAsync(
             Ctx(),
             new Dictionary<string, object>
             {
                 ["clientId"] = Guid.NewGuid().ToString(),
                 ["qualificationId"] = Guid.NewGuid().ToString(),
                 ["level"] = 3
-            }));
+            });
 
-        ShouldBeDomainForeignKeyViolation(thrown);
+        result.Success.ShouldBeFalse();
+        result.Message.ShouldBe(ClientQualificationError);
     }
 
     [Test]
-    public async Task SetShiftRequiredQualificationSkill_UnknownShiftAndQualification_EscapesAsDomainForeignKeyViolation()
+    public async Task SetShiftRequiredQualificationSkill_UnknownShiftAndQualification_ReturnsTheFriendlyError()
     {
         var visibility = Substitute.For<IShiftVisibilityGuard>();
         visibility.IsVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
@@ -91,20 +98,21 @@ public class UnitOfWorkFailureTranslationTests
         mediator.Send(Arg.Any<SetShiftRequiredQualificationCommand>(), Arg.Any<CancellationToken>())
             .Returns(call => handler.Handle(call.Arg<SetShiftRequiredQualificationCommand>(), CancellationToken.None));
 
-        var thrown = await Should.ThrowAsync<Exception>(() => new SetShiftRequiredQualificationSkill(mediator).ExecuteAsync(
+        var result = await new SetShiftRequiredQualificationSkill(mediator).ExecuteAsync(
             Ctx(),
             new Dictionary<string, object>
             {
                 ["shiftId"] = Guid.NewGuid().ToString(),
                 ["qualificationId"] = Guid.NewGuid().ToString(),
                 ["minLevel"] = 2
-            }));
+            });
 
-        ShouldBeDomainForeignKeyViolation(thrown);
+        result.Success.ShouldBeFalse();
+        result.Message.ShouldBe(RequiredQualificationError);
     }
 
     [Test]
-    public async Task SetShiftPreferencesSkill_UnknownEmployeeAndShift_EscapesAsDomainForeignKeyViolation()
+    public async Task SetShiftPreferencesSkill_UnknownEmployeeAndShift_ReturnsTheFriendlyError()
     {
         var visibility = Substitute.For<IClientVisibilityGuard>();
         visibility.IsVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
@@ -114,16 +122,17 @@ public class UnitOfWorkFailureTranslationTests
         mediator.Send(Arg.Any<SetShiftPreferenceCommand>(), Arg.Any<CancellationToken>())
             .Returns(call => handler.Handle(call.Arg<SetShiftPreferenceCommand>(), CancellationToken.None));
 
-        var thrown = await Should.ThrowAsync<Exception>(() => new SetShiftPreferencesSkill(mediator).ExecuteAsync(
+        var result = await new SetShiftPreferencesSkill(mediator).ExecuteAsync(
             Ctx(),
             new Dictionary<string, object>
             {
                 ["clientId"] = Guid.NewGuid().ToString(),
                 ["shiftId"] = Guid.NewGuid().ToString(),
                 ["preference"] = "preferred"
-            }));
+            });
 
-        ShouldBeDomainForeignKeyViolation(thrown);
+        result.Success.ShouldBeFalse();
+        result.Message.ShouldBe(PreferenceError);
     }
 
     [Test]
@@ -139,13 +148,6 @@ public class UnitOfWorkFailureTranslationTests
 
         var domain = thrown.ShouldBeOfType<DatabaseUpdateException>();
         domain.IsDuplicate.ShouldBeTrue();
-        thrown.ShouldNotBeAssignableTo<DbUpdateException>();
-    }
-
-    private static void ShouldBeDomainForeignKeyViolation(Exception thrown)
-    {
-        var domain = thrown.ShouldBeOfType<DatabaseUpdateException>();
-        domain.IsForeignKeyViolation.ShouldBeTrue();
         thrown.ShouldNotBeAssignableTo<DbUpdateException>();
     }
 
