@@ -33,7 +33,7 @@ namespace Klacks.IntegrationTest.ReadModels;
 /// (links of the client's group tree; each shift once, by name; deleted links and deleted shifts dropped, scenario
 /// links kept), the member count per group of analyze_group_semantics (real client rows; scenario, shift, deleted
 /// rows dropped; ended memberships counted) and the link remove_shift_from_group deletes (the live link of the
-/// asked shift and group). Every shift, client and group carries the INTEGRATION_TEST_GroupItemReads_ prefix and
+/// asked shift and group), and compares each repository read with the former GetQuery() composition. Every shift, client and group carries the INTEGRATION_TEST_GroupItemReads_ prefix and
 /// the cleanup deletes exactly those and their group items.
 /// </summary>
 [TestFixture]
@@ -150,6 +150,39 @@ public class GroupItemReadShapesTests
         result.Success.ShouldBeFalse();
         result.Message.ShouldContain("not linked");
         routes.ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task RepositoryReads_EqualTheFormerGetQueryComposition()
+    {
+        var treeIds = new List<Guid> { _root.Id, _child.Id };
+        var linked = await _groupItemRepository.GetLinkedShiftNamesAsync(treeIds);
+        var legacyLinked = await _context.GroupItem
+            .Include(gi => gi.Shift)
+            .Where(gi => treeIds.Contains(gi.GroupId) && gi.ShiftId != null)
+            .Where(gi => gi.Shift != null)
+            .Select(gi => new { gi.Shift!.Id, gi.Shift.Name, gi.Shift.Abbreviation })
+            .Distinct()
+            .OrderBy(s => s.Name)
+            .ToListAsync();
+        linked.ShouldBe(legacyLinked.Select(s => new LinkedShiftName(s.Id, s.Name, s.Abbreviation)).ToList());
+
+        var groupIds = new List<Guid> { _root.Id, _child.Id, _foreign.Id, _empty.Id };
+        var counts = await _groupItemRepository.CountRealClientRowsPerGroupAsync(groupIds);
+        var legacyCounts = (await _context.GroupItem
+                .Where(gi => groupIds.Contains(gi.GroupId) && gi.ClientId != null && gi.AnalyseToken == null)
+                .Select(gi => gi.GroupId)
+                .ToListAsync())
+            .GroupBy(id => id)
+            .ToDictionary(g => g.Key, g => g.Count());
+        counts.ShouldBe(legacyCounts, ignoreOrder: true);
+        counts.ContainsKey(_empty.Id).ShouldBeFalse();
+
+        var linkId = await _groupItemRepository.FindShiftLinkIdAsync(_bravo.Id, _child.Id);
+        var legacyLink = await _context.GroupItem
+            .FirstOrDefaultAsync(gi => gi.ShiftId == _bravo.Id && gi.GroupId == _child.Id);
+        linkId.ShouldBe(legacyLink!.Id);
+        (await _groupItemRepository.FindShiftLinkIdAsync(_deletedLinkShift.Id, _root.Id)).ShouldBeNull();
     }
 
     private (RemoveShiftFromGroupSkill Skill, List<string> Routes) RemoveSkill(Guid shiftId, Group group)

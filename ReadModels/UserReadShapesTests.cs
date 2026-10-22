@@ -5,6 +5,7 @@ using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Models.Authentification;
 using Klacks.Api.Domain.Security;
 using Klacks.Api.Infrastructure.Persistence;
+using Klacks.Api.Infrastructure.Repositories.Authentification;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -34,6 +35,7 @@ public class UserReadShapesTests
 
     private DataBaseContext _context = null!;
     private UserManager<AppUser> _userManager = null!;
+    private AppUserReader _reader = null!;
     private UserManagementService _sut = null!;
 
     [SetUp]
@@ -55,7 +57,8 @@ public class UserReadShapesTests
             new IdentityErrorDescriber(),
             null!,
             NullLogger<UserManager<AppUser>>.Instance);
-        _sut = new UserManagementService(_userManager, NullLogger<UserManagementService>.Instance);
+        _reader = new AppUserReader(_userManager);
+        _sut = new UserManagementService(_userManager, _reader, NullLogger<UserManagementService>.Instance);
     }
 
     [TearDown]
@@ -150,6 +153,32 @@ public class UserReadShapesTests
         found.UserName.ShouldBe(user.UserName);
         _context.Entry(found).State.ShouldBe(EntityState.Detached);
         (await _sut.FindUserByIdNoTrackingAsync(Guid.NewGuid().ToString())).ShouldBeNull();
+    }
+
+    [Test]
+    public async Task ReaderReads_EqualTheFormerUserManagerUsersComposition()
+    {
+        const string token = "integration-compare-token";
+        var holder = NewUser("cmp-holder", 2);
+        holder.PasswordResetToken = PasswordResetTokenHasher.Hash(token);
+        var first = NewUser("cmp-first", 1);
+        var gone = NewUser("cmp-gone", 3);
+        gone.DeactivatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        _context.AppUser.AddRange(holder, first, gone);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var active = (await _reader.GetActiveUsersInDisplayOrderAsync()).Where(u => u.UserName!.StartsWith(Prefix)).Select(u => u.Id).ToList();
+        var legacyActive = (await _userManager.Users.Where(u => u.DeactivatedAt == null).OrderBy(u => u.DisplayOrder).ToListAsync())
+            .Where(u => u.UserName!.StartsWith(Prefix)).Select(u => u.Id).ToList();
+        active.ShouldBe(legacyActive);
+        active.ShouldBe([first.Id, holder.Id]);
+
+        var hash = PasswordResetTokenHasher.Hash(token);
+        (await _reader.FindByPasswordResetTokenHashAsync(hash))!.Id
+            .ShouldBe((await _userManager.Users.FirstOrDefaultAsync(u => u.PasswordResetToken == hash))!.Id);
+        (await _reader.FindByIdNoTrackingAsync(gone.Id))!.DeactivatedAt
+            .ShouldBe((await _userManager.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == gone.Id))!.DeactivatedAt);
     }
 
     private static AppUser NewUser(string suffix, int displayOrder)

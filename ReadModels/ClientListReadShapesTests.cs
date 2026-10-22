@@ -18,6 +18,7 @@ using Klacks.Api.Domain.DTOs.Schedules;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Models.Associations;
+using Klacks.Api.Domain.Models.Filters;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Assistant;
 using Klacks.Api.Domain.Services.Clients;
@@ -43,7 +44,8 @@ namespace Klacks.IntegrationTest.ReadModels;
 /// scenario rows), the client export (IdNumber order, include/exclude selection, the numeric search that unions the
 /// IdNumber hit with the zip hit, deleted clients for administrators) and the TargetHoursDrift roster (employees and
 /// external employees, no customers, no deleted clients). The group filter is replaced by a restriction to the
-/// seeded clients, so every assertion stays on seeded rows. Every client carries the INTEGRATION_TEST_ClientListReads_
+/// seeded clients, so every assertion stays on seeded rows; each repository read is compared with the former
+/// IQueryable composition. Every client carries the INTEGRATION_TEST_ClientListReads_
 /// prefix and the cleanup deletes exactly those and their memberships, addresses and group items.
 /// </summary>
 [TestFixture]
@@ -212,6 +214,80 @@ public class ClientListReadShapesTests
         await detector.GetActiveFingerprintsAsync();
         scanned.ShouldNotBeNull();
         scanned.Where(_seeded.Contains).ShouldBe([_alpha.Id, _bravo.Id, _charlie.Id, _delta.Id], ignoreOrder: true);
+    }
+
+    [Test]
+    public async Task RepositoryReads_EqualTheFormerQueryComposition()
+    {
+        var searchService = new ClientSearchService();
+        var baseQueryService = new ClientBaseQueryService(
+            _context,
+            SeededOnlyGroupFilter(),
+            new ClientSearchFilterService(searchService),
+            searchService,
+            Substitute.For<IClientFuzzySearchService>());
+        var baseFilter = new ClientBaseFilter
+        {
+            StartDate = new DateOnly(2031, 3, 1),
+            EndDate = new DateOnly(2031, 3, 31),
+            SearchString = string.Empty,
+            ShowEmployees = true,
+            ShowExtern = true,
+            OrderBy = "name",
+            SortOrder = "asc",
+        };
+        var (page, total) = await baseQueryService.GetPageWithGroupItemsAsync(baseFilter, 1, 2);
+        page.ShouldAllBe(c => _context.Entry(c).State == EntityState.Unchanged);
+        _context.ChangeTracker.Clear();
+        var legacyQuery = (await baseQueryService.BuildBaseQuery(baseFilter)).Include(c => c.GroupItems);
+        var legacyTotal = await legacyQuery.CountAsync();
+        var legacyPage = await legacyQuery.Skip(1).Take(2).ToListAsync();
+        total.ShouldBe(legacyTotal);
+        page.Select(c => c.Id).ShouldBe(legacyPage.Select(c => c.Id));
+        page.Select(c => c.GroupItems.Select(g => g.GroupId).Order().ToList())
+            .ShouldBe(legacyPage.Select(c => c.GroupItems.Select(g => g.GroupId).Order().ToList()));
+
+        var filterRepository = new ClientFilterRepository(
+            _context,
+            SeededOnlyGroupFilter(),
+            new ClientFilterService(),
+            new ClientMembershipFilterService(),
+            new ClientSearchService(),
+            new ClientSortingService(),
+            Substitute.For<IClientFuzzySearchService>());
+        var clientFilter = new FilterMapper().ToClientFilter(Filter());
+        var excluded = new List<Guid> { _bravo.Id };
+        var rows = await filterRepository.GetExportRowsAsync(clientFilter, onlyIds: null, excludedIds: excluded);
+        var legacyRows = await (await filterRepository.FilterClients(clientFilter))
+            .Where(c => !excluded.Contains(c.Id))
+            .OrderBy(c => c.IdNumber)
+            .Select(c => new { c.IdNumber, c.Name, c.FirstName, c.Company, c.Gender, c.Type, c.LegalEntity, c.Birthdate })
+            .ToListAsync();
+        rows.Select(r => (r.IdNumber, r.Name, r.FirstName, r.Company, r.Gender, r.Type, r.LegalEntity, r.Birthdate))
+            .ShouldBe(legacyRows.Select(r => (r.IdNumber, r.Name, r.FirstName ?? string.Empty, r.Company ?? string.Empty, r.Gender, r.Type, r.LegalEntity, r.Birthdate)));
+        var only = new List<Guid> { _charlie.Id, _alpha.Id };
+        (await filterRepository.GetExportRowsAsync(clientFilter, onlyIds: only, excludedIds: null)).Select(r => r.IdNumber)
+            .ShouldBe(await (await filterRepository.FilterClients(clientFilter))
+                .Where(c => only.Contains(c.Id)).OrderBy(c => c.IdNumber).Select(c => c.IdNumber).ToListAsync());
+
+        var clientRepository = new ClientRepository(
+            _context,
+            Substitute.For<IMacroEngine>(),
+            Substitute.For<IClientChangeTrackingService>(),
+            Substitute.For<IClientEntityManagementService>(),
+            new EntityCollectionUpdateService(_context),
+            Substitute.For<IClientValidator>(),
+            Substitute.For<ILogger<ClientRepository>>());
+        var legacyRoster = await _context.Client.AsNoTracking()
+            .Where(c => !c.IsDeleted && c.Type != EntityTypeEnum.Customer)
+            .Where(c => _seeded.Contains(c.Id))
+            .Select(c => new { c.Id, c.FirstName, c.Name })
+            .ToListAsync();
+        (await clientRepository.GetNonCustomerClientNamesAsync()).Where(c => _seeded.Contains(c.Id))
+            .Select(c => (c.Id, c.FirstName, c.Name))
+            .ShouldBe(legacyRoster.Select(c => (c.Id, c.FirstName, (string?)c.Name)), ignoreOrder: true);
+        (await clientRepository.GetNonCustomerClientIdsAsync()).Where(_seeded.Contains)
+            .ShouldBe(legacyRoster.Select(c => c.Id), ignoreOrder: true);
     }
 
     private async Task<ClientAvailabilityClientListResponse> ListAsync(int startRow, int rowCount, string sortOrder)

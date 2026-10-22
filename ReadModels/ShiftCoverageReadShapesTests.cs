@@ -22,7 +22,8 @@ namespace Klacks.IntegrationTest.ReadModels;
 /// <summary>
 /// Pins, against real PostgreSQL and get_shift_schedule, the dashboard shift-coverage statistics: the company month
 /// of the clock, the schedule restricted to the caller's visible roots, a shift day contributing Quantity x
-/// SumEmployees slots to each visible group it is linked to, and a shift of a hidden group contributing nothing. The
+/// SumEmployees slots to each visible group it is linked to, and a shift of a hidden group contributing nothing; the
+/// materialised schedule list equals the former GetShiftScheduleQuery composition. The
 /// clock is pinned to a month in 2031 so only seeded shifts plan there. Every shift and group carries the
 /// INTEGRATION_TEST_CoverageReads_ prefix and the cleanup deletes exactly those and their group items.
 /// </summary>
@@ -85,6 +86,21 @@ public class ShiftCoverageReadShapesTests
         row.TotalSlots.ShouldBe(DaysInMarch2031 * 2);
         row.CoveredSlots.ShouldBe(0);
         row.TotalWorkEntries.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task ScheduleList_EqualsTheFormerQueryComposition()
+    {
+        var start = new DateOnly(2031, 3, 1);
+        var end = new DateOnly(2031, 3, 31);
+        var visible = new List<Guid> { _visible.Id };
+
+        var list = await _scheduleService.GetShiftScheduleListAsync(start, end, visibleGroupIds: visible);
+        var legacy = await _scheduleService.GetShiftScheduleQuery(start, end, visibleGroupIds: visible).ToListAsync();
+
+        list.Select(r => (r.ShiftId, r.Date, r.Quantity, r.SumEmployees, r.Engaged))
+            .ShouldBe(legacy.Select(r => (r.ShiftId, r.Date, r.Quantity, r.SumEmployees, r.Engaged)));
+        list.Count.ShouldBe(DaysInMarch2031);
     }
 
     private async Task SeedAsync()

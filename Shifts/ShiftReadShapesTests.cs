@@ -277,7 +277,7 @@ public class ShiftReadShapesTests
             LegacyUncutFullDay().Where(s => seededFullDay.Contains(s.Id)));
 
         var templateIds = await _containerTemplateRepository.GetContainerIdsWithTemplateAsync();
-        var legacyTemplateIds = await _containerTemplateRepository.GetQuery()
+        var legacyTemplateIds = await _context.ContainerTemplate.AsNoTracking()
             .Where(t => !t.IsDeleted).Select(t => t.ContainerId).Distinct().ToListAsync();
         templateIds.Where(seeded.Contains).ShouldBe(legacyTemplateIds.Where(seeded.Contains), ignoreOrder: true);
         templateIds.ShouldContain(_containerWithTemplate.Id);
