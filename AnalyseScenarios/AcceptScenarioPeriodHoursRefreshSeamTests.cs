@@ -36,6 +36,7 @@ using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
 using Shift = Klacks.Api.Domain.Models.Schedules.Shift;
+using Klacks.Api.Infrastructure.Services.Clients;
 
 namespace Klacks.IntegrationTest.AnalyseScenarios;
 

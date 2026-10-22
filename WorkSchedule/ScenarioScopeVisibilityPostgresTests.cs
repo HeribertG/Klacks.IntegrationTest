@@ -30,6 +30,7 @@ using NUnit.Framework;
 using Shouldly;
 using ExpensesHandlers = Klacks.Api.Application.Handlers.Expenses;
 using WorkChangeHandlers = Klacks.Api.Application.Handlers.WorkChanges;
+using Klacks.Api.Infrastructure.Services.Clients;
 
 namespace Klacks.IntegrationTest.WorkSchedule;
 

@@ -19,6 +19,7 @@ using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
+using Klacks.Api.Infrastructure.Services.Clients;
 
 namespace Klacks.IntegrationTest.Search;
 

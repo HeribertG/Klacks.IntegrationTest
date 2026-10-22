@@ -24,6 +24,7 @@ using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
+using Klacks.Api.Infrastructure.Services.Clients;
 
 namespace Klacks.IntegrationTest.Infrastructure.Repositories;
 

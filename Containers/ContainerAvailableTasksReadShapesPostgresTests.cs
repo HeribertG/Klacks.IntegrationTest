@@ -12,7 +12,6 @@
 /// deletes exactly the prefixed rows.
 /// </summary>
 
-using Klacks.Api.Application.Mappers;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Models.Associations;
@@ -214,19 +213,10 @@ public class ContainerAvailableTasksReadShapesPostgresTests
     private ContainerAvailableTasksService BuildService()
     {
         var collectionUpdateService = new EntityCollectionUpdateService(_context);
-        var shiftRepository = new ShiftRepository(
-            _context,
-            Substitute.For<ILogger<Shift>>(),
-            Substitute.For<IShiftQueryPipelineService>(),
-            Substitute.For<IShiftGroupManagementService>(),
-            collectionUpdateService,
-            Substitute.For<IShiftValidator>(),
-            new ScheduleMapper(),
-            TestCompanyClock.Utc());
         var containerTemplateService = new ContainerTemplateService(
             Substitute.For<IUnitOfWork>(), Substitute.For<ILogger<ContainerTemplateService>>());
         return new ContainerAvailableTasksService(
-            shiftRepository,
+            new ShiftReader(_context),
             new GroupItemRepository(_context, Substitute.For<ILogger<GroupItem>>()),
             new ContainerTemplateRepository(
                 _context, Substitute.For<ILogger<ContainerTemplate>>(), collectionUpdateService, containerTemplateService),

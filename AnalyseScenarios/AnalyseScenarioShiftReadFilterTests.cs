@@ -44,7 +44,7 @@ public class AnalyseScenarioShiftReadFilterTests
     private DataBaseContext _context = null!;
     private string _connectionString = null!;
     private AnalyseScenarioService _scenarioService = null!;
-    private IShiftRepository _shiftRepository = null!;
+    private ShiftRepository _shiftRepository = null!;
     private ScheduleMapper _scheduleMapper = null!;
 
     [OneTimeSetUp]

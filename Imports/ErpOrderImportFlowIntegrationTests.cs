@@ -47,6 +47,7 @@ using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
 using SettingsEntity = Klacks.Api.Domain.Models.Settings.Settings;
+using Klacks.Api.Infrastructure.Services.Clients;
 
 namespace Klacks.IntegrationTest.Imports;
 

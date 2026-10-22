@@ -52,6 +52,7 @@ using NUnit.Framework;
 using Shouldly;
 using WorkPostHandler = Klacks.Api.Application.Handlers.Works.PostCommandHandler;
 using WorkPutHandler = Klacks.Api.Application.Handlers.Works.PutCommandHandler;
+using Klacks.Api.Infrastructure.Services.Clients;
 
 namespace Klacks.IntegrationTest.Works;
 

@@ -157,19 +157,10 @@ public class ContainerAvailableTasksEngineParityPostgresTests
     private void BuildServices()
     {
         var collectionUpdateService = new EntityCollectionUpdateService(_context);
-        var shiftRepository = new ShiftRepository(
-            _context,
-            Substitute.For<ILogger<Shift>>(),
-            Substitute.For<IShiftQueryPipelineService>(),
-            Substitute.For<IShiftGroupManagementService>(),
-            collectionUpdateService,
-            Substitute.For<IShiftValidator>(),
-            new ScheduleMapper(),
-            TestCompanyClock.Utc());
         var containerTemplateService = new ContainerTemplateService(
             Substitute.For<IUnitOfWork>(), Substitute.For<ILogger<ContainerTemplateService>>());
         _availableTasks = new ContainerAvailableTasksService(
-            shiftRepository,
+            new ShiftReader(_context),
             new GroupItemRepository(_context, Substitute.For<ILogger<GroupItem>>()),
             new ContainerTemplateRepository(
                 _context, Substitute.For<ILogger<ContainerTemplate>>(), collectionUpdateService, containerTemplateService),

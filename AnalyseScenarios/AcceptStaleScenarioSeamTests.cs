@@ -230,7 +230,7 @@ public class AcceptStaleScenarioSeamTests
     private WorkRepository WorkRepository() => new(
         _context,
         Substitute.For<ILogger<Work>>(),
-        Substitute.For<Klacks.Api.Domain.Services.Common.IClientBaseQueryService>(),
+        Substitute.For<Klacks.Api.Infrastructure.Services.Clients.IClientBaseQueryService>(),
         Substitute.For<Klacks.Api.Domain.Interfaces.Macros.IWorkMacroService>(),
         Substitute.For<Klacks.Api.Domain.Interfaces.Associations.IClientContractDataProvider>());
     private async Task<AnalyseScenario> CreateClonedScenarioAsync(string suffix, Guid? sourceToken = null)

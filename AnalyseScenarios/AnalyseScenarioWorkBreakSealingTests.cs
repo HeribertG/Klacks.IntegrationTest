@@ -21,6 +21,7 @@ using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
 using Break = Klacks.Api.Domain.Models.Schedules.Break;
+using Klacks.Api.Infrastructure.Services.Clients;
 
 namespace Klacks.IntegrationTest.AnalyseScenarios;
 

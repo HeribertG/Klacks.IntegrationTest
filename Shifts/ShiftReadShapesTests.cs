@@ -305,10 +305,27 @@ public class ShiftReadShapesTests
                         || s.Status == ShiftStatus.OriginalShift
                         || s.Status == ShiftStatus.SplitShift)
             .Where(s => EF.Functions.ILike(s.Name, $"%{fragment}%"))
-            .Select(s => s.Id)
+            .Select(s => new
+            {
+                s.Id,
+                s.Name,
+                s.Abbreviation,
+                s.Status,
+                s.StartShift,
+                s.EndShift,
+                s.FromDate,
+                s.UntilDate,
+                s.OriginalId
+            })
             .ToListAsync();
 
-        rows.Select(s => s.Id).ShouldBe(legacy);
+        rows.ShouldBe(legacy
+            .Select(s => new OrderFamilyShiftRow(
+                s.Id, s.Name, s.Abbreviation, s.Status, s.StartShift, s.EndShift, s.FromDate, s.UntilDate, s.OriginalId))
+            .ToList());
+        rows.Single(s => s.Id == _partDay.Id).ShouldBe(new OrderFamilyShiftRow(
+            _partDay.Id, _partDay.Name, _partDay.Abbreviation, ShiftStatus.SplitShift, _partDay.StartShift, _partDay.EndShift,
+            _partDay.FromDate, _partDay.UntilDate, _order.Id));
         rows.Select(s => s.Id).ShouldBe([_partDay.Id, _partNight.Id, _planEarly.Id, _planLate.Id, _order.Id]);
         (await _shiftReader.GetOrderFamilyShiftsInGroupAsync(_groupId, null)).Count.ShouldBe(5);
     }
