@@ -2,7 +2,6 @@
 
 using Klacks.Api.Domain.DTOs.Filter;
 using Klacks.Api.Domain.Models.Associations;
-using Klacks.Api.Domain.Services.Groups;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.Groups;
 using Microsoft.AspNetCore.Http;

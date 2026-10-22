@@ -3,8 +3,8 @@
 using Klacks.Api.Domain.Common;
 using Klacks.Api.Domain.DTOs.Filter;
 using Klacks.Api.Domain.Models.Schedules;
-using Klacks.Api.Domain.Services.Absences;
 using Klacks.Api.Infrastructure.Persistence;
+using Klacks.Api.Infrastructure.Services.Absences;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
