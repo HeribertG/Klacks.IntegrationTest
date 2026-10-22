@@ -448,13 +448,15 @@ public class WorkChangeDurationStorageTests
         return entries.Single();
     }
 
-    private async Task<List<ScheduleCell>> LoadWorkChangeEntries()
+    private async Task<IReadOnlyList<ScheduleCell>> LoadWorkChangeEntries()
     {
         var start = WorkDate.AddDays(-1);
         var end = WorkDate.AddDays(2);
-        return await _service.GetScheduleEntriesQuery(start, end)
-            .Where(e => (e.ClientId == _clientId || e.ClientId == _replaceClientId)
-                        && e.EntryType == EntryTypeWorkChange)
-            .ToListAsync();
+        return await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(start, end)
+            {
+                ClientIds = [_clientId, _replaceClientId],
+                EntryType = (ScheduleEntryType)EntryTypeWorkChange,
+            });
     }
 }

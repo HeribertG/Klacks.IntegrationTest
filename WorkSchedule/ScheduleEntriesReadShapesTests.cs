@@ -245,56 +245,42 @@ public class ScheduleEntriesReadShapesTests
             c => c.EntryType == (int)ScheduleEntryType.Break);
     }
 
-    private async Task<List<ScheduleCell>> ReadThreeDayWindowAsync(
+    private async Task<IReadOnlyList<ScheduleCell>> ReadThreeDayWindowAsync(
         List<Guid> clientIds, List<Guid> visibleGroupIds, Guid? analyseToken)
     {
-        if (clientIds.Count == 1)
-        {
-            var clientId = clientIds[0];
-            return await _service
-                .GetScheduleEntriesQuery(Day.AddDays(-1), Day.AddDays(1), visibleGroupIds, analyseToken)
-                .Where(e => e.ClientId == clientId)
-                .ToListAsync();
-        }
-
-        var first = clientIds[0];
-        var second = clientIds[1];
-        return await _service
-            .GetScheduleEntriesQuery(Day.AddDays(-1), Day.AddDays(1), visibleGroupIds, analyseToken)
-            .Where(e => e.ClientId == first || e.ClientId == second)
-            .ToListAsync();
+        return await _service.GetScheduleEntriesAsync(
+            ScheduleEntriesCriteria.RefreshWindowAround(Day, clientIds, visibleGroupIds, analyseToken));
     }
 
-    private async Task<List<ScheduleCell>> ReadRangeForClientsAsync(
+    private async Task<IReadOnlyList<ScheduleCell>> ReadRangeForClientsAsync(
         DateOnly from, DateOnly until, List<Guid> clientIds, List<Guid>? visibleGroupIds)
     {
-        return await _service
-            .GetScheduleEntriesQuery(from, until, visibleGroupIds, null)
-            .Where(e => clientIds.Contains(e.ClientId))
-            .ToListAsync();
+        return await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(from, until, visibleGroupIds) { ClientIds = clientIds });
     }
 
-    private async Task<List<ScheduleCell>> ReadRangeAsync(
+    private async Task<IReadOnlyList<ScheduleCell>> ReadRangeAsync(
         DateOnly from, DateOnly until, List<Guid> visibleGroupIds, Guid? analyseToken)
     {
-        return await _service.GetScheduleEntriesQuery(from, until, visibleGroupIds, analyseToken).ToListAsync();
+        return await _service.GetScheduleEntriesAsync(new ScheduleEntriesCriteria(from, until, visibleGroupIds, analyseToken));
     }
 
-    private async Task<List<ScheduleCell>> ReadWorkSlotsAsync(DateOnly day, Guid groupId, Guid clientId, Guid? analyseToken)
+    private async Task<IReadOnlyList<ScheduleCell>> ReadWorkSlotsAsync(
+        DateOnly day, Guid groupId, Guid clientId, Guid? analyseToken)
     {
-        return await _service
-            .GetScheduleEntriesQuery(day, day, [groupId], analyseToken)
-            .Where(c => c.EntryType == (int)ScheduleEntryType.Work && c.ClientId == clientId)
-            .OrderBy(c => c.StartTime)
-            .ToListAsync();
+        return await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(day, day, [groupId], analyseToken)
+            {
+                ClientIds = [clientId],
+                EntryType = ScheduleEntryType.Work,
+                OrderByStartTime = true,
+            });
     }
 
-    private async Task<List<ScheduleCell>> ReadBreaksAsync(DateOnly day, Guid groupId, Guid? analyseToken)
+    private async Task<IReadOnlyList<ScheduleCell>> ReadBreaksAsync(DateOnly day, Guid groupId, Guid? analyseToken)
     {
-        return await _service
-            .GetScheduleEntriesQuery(day, day, new List<Guid> { groupId }, analyseToken)
-            .Where(c => c.EntryType == (int)ScheduleEntryType.Break)
-            .ToListAsync();
+        return await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(day, day, [groupId], analyseToken) { EntryType = ScheduleEntryType.Break });
     }
 
     private IQueryable<ScheduleCell> LegacyQuery(

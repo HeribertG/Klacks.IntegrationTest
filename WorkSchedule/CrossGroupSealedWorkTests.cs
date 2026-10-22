@@ -7,6 +7,7 @@ using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Infrastructure.Services.ScheduleEntries;
 using Klacks.Api.Infrastructure.Persistence;
+using Klacks.Api.Domain.Enums;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -156,10 +157,12 @@ public class CrossGroupSealedWorkTests
         var endDate = new DateOnly(2026, 5, 31);
         var visibleGroupIds = new List<Guid> { _visibleGroupId };
 
-        var result = await _service
-            .GetScheduleEntriesQuery(startDate, endDate, visibleGroupIds, null)
-            .Where(e => e.ClientId == _clientId && e.EntryType == 0)
-            .ToListAsync();
+        var result = await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(startDate, endDate, visibleGroupIds)
+            {
+                ClientIds = [_clientId],
+                EntryType = ScheduleEntryType.Work,
+            });
 
         result.Count.ShouldBe(1, "the cross-group work must surface in the visible-group view");
         result[0].IsGroupRestricted.ShouldBeTrue(
@@ -175,10 +178,12 @@ public class CrossGroupSealedWorkTests
         var endDate = new DateOnly(2026, 5, 31);
         var visibleGroupIds = new List<Guid> { _foreignGroupId };
 
-        var result = await _service
-            .GetScheduleEntriesQuery(startDate, endDate, visibleGroupIds, null)
-            .Where(e => e.ClientId == _clientId && e.EntryType == 0)
-            .ToListAsync();
+        var result = await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(startDate, endDate, visibleGroupIds)
+            {
+                ClientIds = [_clientId],
+                EntryType = ScheduleEntryType.Work,
+            });
 
         result.Count.ShouldBe(1);
         result[0].IsGroupRestricted.ShouldBeFalse(
@@ -191,10 +196,12 @@ public class CrossGroupSealedWorkTests
         var startDate = new DateOnly(2026, 5, 1);
         var endDate = new DateOnly(2026, 5, 31);
 
-        var result = await _service
-            .GetScheduleEntriesQuery(startDate, endDate, null, null)
-            .Where(e => e.ClientId == _clientId && e.EntryType == 0)
-            .ToListAsync();
+        var result = await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(startDate, endDate, null)
+            {
+                ClientIds = [_clientId],
+                EntryType = ScheduleEntryType.Work,
+            });
 
         result.Count.ShouldBe(1);
         result[0].IsGroupRestricted.ShouldBeFalse(

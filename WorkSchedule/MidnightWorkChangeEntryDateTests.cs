@@ -139,9 +139,12 @@ public class MidnightWorkChangeEntryDateTests
     {
         var start = WorkDate.AddDays(-1);
         var end = WorkDate.AddDays(2);
-        var entries = await _service.GetScheduleEntriesQuery(start, end)
-            .Where(e => e.ClientId == _clientId && e.EntryType == 1)
-            .ToListAsync();
+        var entries = await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(start, end)
+            {
+                ClientIds = [_clientId],
+                EntryType = ScheduleEntryType.WorkChange,
+            });
         entries.Count.ShouldBe(1);
         return entries[0];
     }

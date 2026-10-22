@@ -3,6 +3,7 @@ using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Infrastructure.Services.ScheduleEntries;
 using Klacks.Api.Infrastructure.Persistence;
+using Klacks.Api.Domain.Enums;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -147,9 +148,12 @@ public class GetWorkScheduleTests
         var endDate = new DateOnly(2025, 1, 31);
 
         // Act
-        var result = await _service.GetScheduleEntriesQuery(startDate, endDate)
-            .Where(e => e.ClientId == _testClientId && e.EntryType == 0)
-            .ToListAsync();
+        var result = await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(startDate, endDate)
+            {
+                ClientIds = [_testClientId],
+                EntryType = ScheduleEntryType.Work,
+            });
 
         // Assert
         result.Count.ShouldBe(1);
@@ -167,9 +171,12 @@ public class GetWorkScheduleTests
         var endDate = new DateOnly(2025, 1, 31);
 
         // Act
-        var result = await _service.GetScheduleEntriesQuery(startDate, endDate)
-            .Where(e => e.ClientId == _testClientId && e.EntryType == 1)
-            .ToListAsync();
+        var result = await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(startDate, endDate)
+            {
+                ClientIds = [_testClientId],
+                EntryType = ScheduleEntryType.WorkChange,
+            });
 
         // Assert
         result.Count.ShouldBe(1);
@@ -186,9 +193,12 @@ public class GetWorkScheduleTests
         var endDate = new DateOnly(2025, 1, 31);
 
         // Act
-        var result = await _service.GetScheduleEntriesQuery(startDate, endDate)
-            .Where(e => e.ClientId == _testClientId && e.EntryType == 2)
-            .ToListAsync();
+        var result = await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(startDate, endDate)
+            {
+                ClientIds = [_testClientId],
+                EntryType = ScheduleEntryType.Expenses,
+            });
 
         // Assert
         result.Count.ShouldBe(1);
@@ -205,10 +215,10 @@ public class GetWorkScheduleTests
         var endDate = new DateOnly(2025, 1, 31);
 
         // Act
-        var result = await _service.GetScheduleEntriesQuery(startDate, endDate)
-            .Where(e => e.ClientId == _testClientId)
+        var result = (await _service.GetScheduleEntriesAsync(
+                new ScheduleEntriesCriteria(startDate, endDate) { ClientIds = [_testClientId] }))
             .OrderBy(e => e.EntryType)
-            .ToListAsync();
+            .ToList();
 
         // Assert
         result.Count.ShouldBe(3);
@@ -225,9 +235,8 @@ public class GetWorkScheduleTests
         var endDate = new DateOnly(2025, 2, 28);
 
         // Act
-        var result = await _service.GetScheduleEntriesQuery(startDate, endDate)
-            .Where(e => e.ClientId == _testClientId)
-            .ToListAsync();
+        var result = await _service.GetScheduleEntriesAsync(
+            new ScheduleEntriesCriteria(startDate, endDate) { ClientIds = [_testClientId] });
 
         // Assert
         result.ShouldBeEmpty();
