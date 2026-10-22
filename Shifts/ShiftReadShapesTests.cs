@@ -32,7 +32,7 @@ namespace Klacks.IntegrationTest.Shifts;
 
 /// <summary>
 /// Pins, against real PostgreSQL, every shift read shape the Application layer builds on the shift table: the
-/// open-order scan (FromDate from the company day, soonest first then id, capped), the uncut full-day scan, the
+/// open-order summary scan (unsealed orders not ended before the company day, one summary), the uncut full-day scan, the
 /// empty-container scan (anti-join against the template ids), Shifts/ByIds (real plan, repository order with
 /// PostgreSQL's NULLS LAST on the original id, client with addresses), find_split_shift_candidates (live group link,
 /// case-insensitive ILike name filter) and the order-lineage lookups of the cut skills (first plannable shift in
@@ -72,6 +72,7 @@ public class ShiftReadShapesTests
     private Shift _openTokenCopy = null!;
     private Shift _openSourceLinked = null!;
     private Shift _openDeleted = null!;
+    private Shift _openEnded = null!;
 
     private Shift _fullDayOpen = null!;
     private Shift _fullDayEndsToday = null!;
@@ -127,23 +128,21 @@ public class ShiftReadShapesTests
     }
 
     [Test]
-    public async Task OpenOrderScan_ReportsTodayAndLater_SoonestFirstThenId_WithoutPastScenarioOrDeletedOrders()
+    public async Task OpenOrderSummaryScan_CountsUnsealedOrdersNotEndedBeforeToday_WithoutEndedScenarioOrDeletedOrders()
     {
         var detector = new OpenOrderDetector(
             _shiftReader, new ShiftGroupScopeReadRepository(_context), _clock, NullLogger<OpenOrderDetector>.Instance);
 
-        var reported = (await detector.DetectAsync()).Cast<OpenOrderTriggerEvent>().Select(e => e.ShiftId).ToList();
+        var summary = (await detector.DetectAsync()).Cast<OpenOrdersSummaryTriggerEvent>().ShouldHaveSingleItem();
         var fingerprints = await detector.GetActiveFingerprintsAsync();
 
-        reported.Where(SeededIds().Contains).ShouldBe([_openToday.Id, _openLaterLowId.Id, _openLaterHighId.Id]);
-        foreach (var shift in new[] { _openToday, _openLaterLowId, _openLaterHighId })
-        {
-            fingerprints.ShouldContain(OpenOrderFingerprint(detector.Kind, shift));
-        }
-        foreach (var shift in new[] { _openPast, _openTokenCopy, _openSourceLinked, _openDeleted })
-        {
-            fingerprints.ShouldNotContain(OpenOrderFingerprint(detector.Kind, shift));
-        }
+        summary.CompanyDay.ShouldBe(Today);
+        summary.Orders.Select(order => order.ShiftId).Where(SeededIds().Contains)
+            .ShouldBe([_openToday.Id, _openLaterLowId.Id, _openLaterHighId.Id, _openPast.Id], ignoreOrder: true);
+        summary.Orders.Single(order => order.ShiftId == _openToday.Id).GroupIds.ShouldBeEmpty();
+        fingerprints.ShouldBe([AgentConditionLedgerPolicy.FingerprintFor(summary)]);
+        fingerprints.Single().ShouldBe(AgentConditionLedgerPolicy.FingerprintFor(
+            detector.Kind, OpenOrdersSummaryTriggerEvent.DedupKeyFor(Today)));
     }
 
     [Test]
@@ -257,13 +256,8 @@ public class ShiftReadShapesTests
     [Test]
     public async Task DetectorScans_EqualTheDetectorsFormerGetQueryComposition_OnTheSeededRows()
     {
-        var openScan = new RealPlanShiftScan(ShiftStatus.OriginalOrder) { StartsOnOrAfter = Today };
-        var openCapped = await _shiftReader.ScanRealPlanAsync(
-            openScan with { OrderByFromDateThenId = true, MaxCount = OpenOrderDetector.MaxCandidatesToScan });
-        var legacyOpenCapped = await LegacyOpenOrders()
-            .OrderBy(s => s.FromDate).ThenBy(s => s.Id).Take(OpenOrderDetector.MaxCandidatesToScan).ToListAsync();
         var seeded = SeededIds();
-        openCapped.Select(s => s.Id).Where(seeded.Contains).ShouldBe(legacyOpenCapped.Select(s => s.Id).Where(seeded.Contains));
+        var openScan = new RealPlanShiftScan(ShiftStatus.OriginalOrder) { NotEndedBefore = Today };
         await ShouldEqualAsSetAsync(openScan, LegacyOpenOrders());
 
         var uncutScan = new RealPlanShiftScan(ShiftStatus.OriginalShift)
@@ -370,7 +364,7 @@ public class ShiftReadShapesTests
     private IQueryable<Shift> LegacyOpenOrders() =>
         _shiftRepository.GetQuery()
             .Where(s => s.Status == ShiftStatus.OriginalOrder
-                && s.FromDate >= Today
+                && (s.UntilDate == null || s.UntilDate >= Today)
                 && s.AnalyseToken == null
                 && s.ScenarioSourceShiftId == null
                 && !s.IsDeleted);
@@ -422,9 +416,6 @@ public class ShiftReadShapesTests
 
     private HashSet<Guid> SeededIds() => _context.Shift.IgnoreQueryFilters().AsNoTracking()
         .Where(s => s.Name.StartsWith(Prefix)).Select(s => s.Id).ToHashSet();
-
-    private static string OpenOrderFingerprint(string kind, Shift shift) =>
-        AgentConditionLedgerPolicy.FingerprintFor(kind, OpenOrderTriggerEvent.DedupKeyFor(shift.Id, shift.FromDate));
 
     private static string UncutFingerprint(string kind, Shift shift) =>
         AgentConditionLedgerPolicy.FingerprintFor(kind, UncutFullDayShiftTriggerEvent.DedupKeyFor(shift.Id));
@@ -481,6 +472,8 @@ public class ShiftReadShapesTests
         _openSourceLinked.ScenarioSourceShiftId = _openToday.Id;
         _openDeleted = NewShift("OpenDeleted", ShiftStatus.OriginalOrder, Today.AddDays(3), new TimeOnly(8, 0));
         _openDeleted.IsDeleted = true;
+        _openEnded = NewShift("OpenEnded", ShiftStatus.OriginalOrder, Today.AddDays(-5), new TimeOnly(8, 0));
+        _openEnded.UntilDate = Today.AddDays(-1);
 
         _fullDayOpen = NewShift("FullDayOpen", ShiftStatus.OriginalShift, Today.AddDays(10), new TimeOnly(7, 0));
         _fullDayEndsToday = NewShift("FullDayEndsToday", ShiftStatus.OriginalShift, Today.AddDays(-30), new TimeOnly(7, 0));
@@ -501,7 +494,7 @@ public class ShiftReadShapesTests
 
         _context.Shift.AddRange(
             _order, _planLate, _planEarly, _partNight, _partDay, _unlinkedOrder,
-            _openToday, _openLaterHighId, _openLaterLowId, _openPast, _openTokenCopy, _openSourceLinked, _openDeleted,
+            _openToday, _openLaterHighId, _openLaterLowId, _openPast, _openTokenCopy, _openSourceLinked, _openDeleted, _openEnded,
             _fullDayOpen, _fullDayEndsToday, _fullDayEnded, _fullDayUnequalTimes, _fullDaySplit, _fullDayContainer, _fullDayTokenCopy,
             _containerEmpty, _containerWithTemplate, _containerDeletedTemplate);
         await _context.SaveChangesAsync();

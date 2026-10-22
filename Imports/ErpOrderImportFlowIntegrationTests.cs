@@ -937,7 +937,8 @@ public class ErpOrderImportFlowIntegrationTests
             new Klacks.Api.Application.Services.Imports.ErpImportRunState(),
             TimeProvider.System,
             Substitute.For<ILogger<ErpOrderImportRunner>>(),
-            new ErpCronTimeZoneDriftNotifier());
+            new ErpCronTimeZoneDriftNotifier(),
+            Substitute.For<Klacks.Api.Application.Interfaces.Assistant.IOpenOrderSummaryRescan>());
     }
 
     private string ReadFixtureXml()
