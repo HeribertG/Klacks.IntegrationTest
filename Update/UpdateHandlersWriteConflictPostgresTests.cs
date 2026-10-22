@@ -37,6 +37,13 @@ public class UpdateHandlersWriteConflictPostgresTests
 {
     private const string TestRequester = "INTEGRATION_TEST_UPDCONFLICT";
 
+    private static IInstallationIdentityProvider DockerInstallation()
+    {
+        var installation = Substitute.For<IInstallationIdentityProvider>();
+        installation.Get().Returns(new InstallationIdentity(InstallationKind.Docker, "linux-x64"));
+        return installation;
+    }
+
     private DataBaseContext _context = null!;
 
     [SetUp]
@@ -85,7 +92,7 @@ public class UpdateHandlersWriteConflictPostgresTests
         await SeedAsync(UpdateOperationStatus.Pending);
         var repository = new RacingRepository(new UpdateHistoryRepository(_context), _context, presentAsPending: false);
 
-        var result = await new InstallWhisperPluginCommandHandler(repository).Handle(
+        var result = await new InstallWhisperPluginCommandHandler(repository, DockerInstallation()).Handle(
             new InstallWhisperPluginCommand(WhisperPluginConstants.ModelAliasLarge, TestRequester), CancellationToken.None);
 
         result.Enqueued.ShouldBeFalse();
