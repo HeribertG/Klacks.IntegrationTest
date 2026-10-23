@@ -3,7 +3,6 @@
 using Klacks.Api.Domain.DTOs.Filter;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Schedules;
-using Klacks.Api.Domain.Services.Shifts;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.Schedules;
 using Klacks.Api.Infrastructure.Services.Shifts;
