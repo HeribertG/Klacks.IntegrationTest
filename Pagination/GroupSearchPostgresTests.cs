@@ -17,7 +17,7 @@ namespace Klacks.IntegrationTest.Pagination;
 /// Pins, against real PostgreSQL, the group list pipeline GroupRepository.Truncated runs (ApplyFilters, then
 /// ApplyPaginationAsync): the date-range buckets relative to a fixed company day, the case-insensitive substring
 /// search with AND over keywords, every sort key in both directions (PostgreSQL's NULLS LAST ascending and NULLS
-/// FIRST descending on valid_until), the paging numbers and the known failure when no date range is selected. The
+/// FIRST descending on valid_until), the paging numbers and the empty page when no date range is selected. The
 /// base query is restricted to the five seeded groups, so results never depend on other rows of the shared database.
 /// Every group carries the INTEGRATION_TEST_GroupSearch_ prefix and the cleanup deletes exactly those.
 /// </summary>
@@ -176,11 +176,16 @@ public class GroupSearchPostgresTests
     }
 
     [Test]
-    public async Task KnownGap_NoDateRangeSelected_FailsBecauseTheEmptyInMemoryQueryCannotBeCountedAsync()
+    public async Task ApplyFilters_NoDateRangeSelected_ReturnsAnEmptyPageWithMinusOneMarkers()
     {
         var filter = PageFilter();
 
-        await Should.ThrowAsync<InvalidOperationException>(() => RunAsync(filter));
+        var result = await RunAsync(filter);
+
+        result.Groups.ShouldBeEmpty();
+        result.MaxItems.ShouldBe(0);
+        result.FirstItemOnPage.ShouldBe(-1);
+        result.MaxPages.ShouldBe(-1);
     }
 
     private async Task<TruncatedGroup> RunAsync(GroupFilter filter)
