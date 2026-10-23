@@ -2,13 +2,13 @@
 
 using Klacks.Api.Domain.Common;
 using Klacks.Api.Domain.Models.Schedules;
-using Klacks.Api.Domain.Services.Absences;
 using Klacks.Api.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
+using Klacks.Api.Infrastructure.Services.Absences;
 
 namespace Klacks.IntegrationTest.Pagination;
 
