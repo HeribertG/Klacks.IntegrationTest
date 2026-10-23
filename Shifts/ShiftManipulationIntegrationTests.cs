@@ -167,6 +167,7 @@ public class ShiftManipulationIntegrationTests
             _scheduleMapper,
             _unitOfWork,
             AllShiftsVisible(),
+            new Klacks.Api.Infrastructure.Repositories.Schedules.ShiftExpensesRepository(_context, Substitute.For<ILogger<Klacks.Api.Domain.Models.Schedules.ShiftExpenses>>()),
             facadeLogger);
 
         // Create handlers

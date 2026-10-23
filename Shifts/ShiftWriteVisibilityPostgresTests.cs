@@ -488,6 +488,7 @@ public class ShiftWriteVisibilityPostgresTests
             _scheduleMapper,
             _unitOfWork,
             _shiftGuard,
+            new Klacks.Api.Infrastructure.Repositories.Schedules.ShiftExpensesRepository(_context, Substitute.For<ILogger<Klacks.Api.Domain.Models.Schedules.ShiftExpenses>>()),
             Substitute.For<ILogger<ShiftCutFacade>>());
     }
 
