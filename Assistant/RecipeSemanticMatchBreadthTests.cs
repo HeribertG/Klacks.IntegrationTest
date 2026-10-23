@@ -13,8 +13,6 @@ using Klacks.Api.Domain.Interfaces.Assistant;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Domain.Models.Assistant.Recipes;
 using Klacks.Api.Domain.Services.Assistant;
-using Klacks.Api.KnowledgeIndex.Application.Interfaces;
-using Klacks.Api.KnowledgeIndex.Domain;
 using Klacks.IntegrationTest.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
@@ -56,7 +54,7 @@ public class RecipeSemanticMatchBreadthTests
         using var scope = _factory.Services.CreateScope();
         var loader = scope.ServiceProvider.GetRequiredService<ITurnGoldsetLoader>();
         var recipeRepository = scope.ServiceProvider.GetRequiredService<IAgentRecipeRepository>();
-        var retrieval = scope.ServiceProvider.GetRequiredService<IKnowledgeRetrievalService>();
+        var retriever = scope.ServiceProvider.GetRequiredService<IRecipeCandidateRetriever>();
 
         var items = await loader.LoadAsync(GoldsetName);
         var recipes = await recipeRepository.GetAllEnabledAsync();
@@ -80,20 +78,17 @@ public class RecipeSemanticMatchBreadthTests
                 continue;
             }
 
-            RetrievalResult result;
+            IReadOnlyList<RecipeCandidate> candidates;
             try
             {
-                result = await retrieval.RetrieveAsync(item.Message, [], isAdmin: false, SemanticTopK, currentRoute: null, CancellationToken.None, KnowledgeEntryKind.Recipe);
+                candidates = await retriever.RetrieveAsync(item.Message, SemanticTopK, CancellationToken.None);
             }
             catch (InvalidOperationException ex)
             {
                 Assert.Ignore($"Semantic retrieval unavailable — embedding provider not configured: {ex.Message}");
                 return;
             }
-            var top = result.Candidates
-                .Where(c => c.Entry.Kind == KnowledgeEntryKind.Recipe)
-                .OrderByDescending(c => c.Score)
-                .FirstOrDefault();
+            var top = candidates.FirstOrDefault();
 
             if (top == null || top.Score < GreyZoneFloor)
             {
@@ -103,12 +98,12 @@ public class RecipeSemanticMatchBreadthTests
             else if (top.Score >= HighConfidence)
             {
                 semanticHigh++;
-                TestContext.WriteLine($"{item.Id}: SEMANTIC-HIGH {top.Entry.SourceId}={top.Score:F3} | \"{item.Message}\"");
+                TestContext.WriteLine($"{item.Id}: SEMANTIC-HIGH {top.RecipeName}={top.Score:F3} | \"{item.Message}\"");
             }
             else
             {
                 semanticGrey++;
-                TestContext.WriteLine($"{item.Id}: SEMANTIC-GREY {top.Entry.SourceId}={top.Score:F3} | \"{item.Message}\"");
+                TestContext.WriteLine($"{item.Id}: SEMANTIC-GREY {top.RecipeName}={top.Score:F3} | \"{item.Message}\"");
             }
         }
 
@@ -139,30 +134,27 @@ public class RecipeSemanticMatchBreadthTests
 
         using var scope = _factory.Services.CreateScope();
         var recipeRepository = scope.ServiceProvider.GetRequiredService<IAgentRecipeRepository>();
-        var retrieval = scope.ServiceProvider.GetRequiredService<IKnowledgeRetrievalService>();
+        var retriever = scope.ServiceProvider.GetRequiredService<IRecipeCandidateRetriever>();
         var recipes = await recipeRepository.GetAllEnabledAsync();
 
         foreach (var probe in probes)
         {
             var trigger = MatchDeterministic(recipes, probe.Message, null);
-            RetrievalResult result;
+            IReadOnlyList<RecipeCandidate> candidates;
             try
             {
-                result = await retrieval.RetrieveAsync(probe.Message, [], isAdmin: false, SemanticTopK, currentRoute: null, CancellationToken.None, KnowledgeEntryKind.Recipe);
+                candidates = await retriever.RetrieveAsync(probe.Message, SemanticTopK, CancellationToken.None);
             }
             catch (InvalidOperationException ex)
             {
                 Assert.Ignore($"Semantic retrieval unavailable — embedding provider not configured: {ex.Message}");
                 return;
             }
-            var top = result.Candidates
-                .Where(c => c.Entry.Kind == KnowledgeEntryKind.Recipe)
-                .OrderByDescending(c => c.Score)
-                .FirstOrDefault();
+            var top = candidates.FirstOrDefault();
 
             TestContext.WriteLine(
                 $"expected={probe.ExpectedRecipe,-28} deterministic={trigger ?? "-",-28} " +
-                $"semanticTop={top?.Entry.SourceId ?? "-"}={top?.Score ?? 0:F3} | \"{probe.Message}\"");
+                $"semanticTop={top?.RecipeName ?? "-"}={top?.Score ?? 0:F3} | \"{probe.Message}\"");
         }
 
         probes.Length.ShouldBeGreaterThan(0);

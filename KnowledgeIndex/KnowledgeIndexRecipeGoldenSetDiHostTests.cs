@@ -6,8 +6,9 @@
 /// report-only, so a recipe regression could not turn anything red.
 ///
 /// Runs the path production runs (RecipeEngineService.FindMatchingRecipeSemanticAsync): the raw user
-/// message rather than the history-widened query, no permissions, not admin, top-SemanticMatchTopK,
-/// filtered to KnowledgeEntryKind.Recipe. Anything else would measure a pipeline nobody uses.
+/// message rather than the history-widened query, through the same IRecipeCandidateRetriever the engine
+/// resolves (recipes only, no permissions, not admin, top-SemanticMatchTopK). Anything else would measure a
+/// pipeline nobody uses.
 ///
 /// The assertion floor is the measured state, not a target. It exists to catch a regression, so it
 /// must not be red on the day it is written; raise it when a change earns it.
@@ -16,8 +17,8 @@ namespace Klacks.IntegrationTest.KnowledgeIndex;
 
 using System.Text.Json;
 using Klacks.Api.Application.Interfaces.Settings;
+using Klacks.Api.Domain.Interfaces.Assistant;
 using Klacks.Api.KnowledgeIndex.Application.Interfaces;
-using Klacks.Api.KnowledgeIndex.Domain;
 using Klacks.IntegrationTest.SignalR;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -110,7 +111,7 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
     public async Task RecipeGoldenSet_RecallAndGateDistribution_ViaRealHostDi()
     {
         using var scope = _factory.Services.CreateScope();
-        var retrieval = scope.ServiceProvider.GetRequiredService<IKnowledgeRetrievalService>();
+        var retriever = scope.ServiceProvider.GetRequiredService<IRecipeCandidateRetriever>();
         var embeddingProvider = scope.ServiceProvider.GetRequiredService<IEmbeddingProvider>();
 
         TestContext.WriteLine($"Active embedding space: {embeddingProvider.EmbeddingSpaceId}");
@@ -142,11 +143,7 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
         {
             perPhrasingTotal[item.Phrasing] = perPhrasingTotal.GetValueOrDefault(item.Phrasing) + 1;
 
-            var result = await retrieval.RetrieveAsync(
-                item.Query, [], isAdmin: false, SemanticMatchTopK, currentRoute: null,
-                CancellationToken.None, KnowledgeEntryKind.Recipe);
-
-            var candidates = result.Candidates;
+            var candidates = await retriever.RetrieveAsync(item.Query, SemanticMatchTopK, CancellationToken.None);
             if (candidates.Count == 0)
             {
                 empty++;
@@ -155,13 +152,13 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
                 continue;
             }
 
-            var isTop1 = Matches(candidates[0].Entry.SourceId, item.ExpectedSourceId);
+            var isTop1 = Matches(candidates[0].RecipeName, item.ExpectedSourceId);
             if (isTop1)
             {
                 top1Hits++;
             }
 
-            var rank = candidates.ToList().FindIndex(c => Matches(c.Entry.SourceId, item.ExpectedSourceId));
+            var rank = candidates.ToList().FindIndex(c => Matches(c.RecipeName, item.ExpectedSourceId));
             if (rank >= 0)
             {
                 topKHits++;
@@ -170,7 +167,7 @@ public class KnowledgeIndexRecipeGoldenSetDiHostTests
             }
             else
             {
-                var top = string.Join(", ", candidates.Select(c => $"{c.Entry.SourceId}={c.Score:F4}"));
+                var top = string.Join(", ", candidates.Select(c => $"{c.RecipeName}={c.Score:F4}"));
                 misses.Add($"MISS | expected={item.ExpectedSourceId} | [{item.Phrasing}/{item.LangCode}] \"{item.Query}\" | got [{top}]");
             }
 
