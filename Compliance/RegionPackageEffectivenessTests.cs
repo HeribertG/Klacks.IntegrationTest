@@ -520,9 +520,9 @@ public class RegionPackageEffectivenessTests
         services.AddSingleton<IRestrictedTimeWindowRuleRepository, RestrictedTimeWindowRuleRepository>();
 
         // Dependencies of SettingsRepository that the entity import never exercises.
-        services.AddSingleton(Substitute.For<Klacks.Api.Domain.Interfaces.CalendarSelections.ICalendarRuleFilterService>());
-        services.AddSingleton(Substitute.For<Klacks.Api.Domain.Interfaces.CalendarSelections.ICalendarRuleSortingService>());
-        services.AddSingleton(Substitute.For<Klacks.Api.Domain.Interfaces.CalendarSelections.ICalendarRulePaginationService>());
+        services.AddSingleton(Substitute.For<Klacks.Api.Infrastructure.Services.Settings.ICalendarRuleFilterService>());
+        services.AddSingleton(Substitute.For<Klacks.Api.Infrastructure.Services.Settings.ICalendarRuleSortingService>());
+        services.AddSingleton(Substitute.For<Klacks.Api.Infrastructure.Services.Settings.ICalendarRulePaginationService>());
         services.AddSingleton(Substitute.For<IMacroManagementService>());
         services.AddSingleton(Substitute.For<ILanguagePluginService>());
         services.AddSingleton(Substitute.For<ICalendarSelectionRepository>());

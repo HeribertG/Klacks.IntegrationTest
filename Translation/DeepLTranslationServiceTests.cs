@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
+using Klacks.Api.Infrastructure.Services.Settings;
 
 namespace Klacks.IntegrationTest.Translation;
 

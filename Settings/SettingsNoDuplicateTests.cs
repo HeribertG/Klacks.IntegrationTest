@@ -15,6 +15,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NUnit.Framework;
+using Klacks.Api.Infrastructure.Services.Settings;
 
 namespace Klacks.IntegrationTest.Settings;
 
