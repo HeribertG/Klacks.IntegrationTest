@@ -22,6 +22,7 @@ using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
+using Klacks.Api.Infrastructure.Services.Groups;
 
 namespace Klacks.IntegrationTest.Groups;
 
