@@ -27,6 +27,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
+using Klacks.Api.Infrastructure.Services.Schedules;
 
 namespace Klacks.IntegrationTest.Shifts;
 
