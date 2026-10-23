@@ -341,8 +341,15 @@ public class ShiftReadShapesTests
                 .ThenBy(x => x.StartShift)
                 .AsNoTracking()
                 .Where(s => ids.Contains(s.Id) && s.AnalyseToken == null && s.ScenarioSourceShiftId == null);
-            var legacy = await ShiftGroupVisibilityQuery.Apply(legacyQuery, visibleGroupIds)
-                .ToListAsync();
+            if (visibleGroupIds != null)
+            {
+                var allowedGroupIds = visibleGroupIds;
+                legacyQuery = legacyQuery.Where(s =>
+                    !s.GroupItems.Any(gi => !gi.IsDeleted)
+                    || s.GroupItems.Any(gi => !gi.IsDeleted && allowedGroupIds.Contains(gi.GroupId)));
+            }
+
+            var legacy = await legacyQuery.ToListAsync();
 
             rows.Select(s => s.Id).ShouldBe(legacy.Select(s => s.Id));
             rows.Select(s => s.Client?.Addresses.Count ?? 0).ShouldBe(legacy.Select(s => s.Client?.Addresses.Count ?? 0));
