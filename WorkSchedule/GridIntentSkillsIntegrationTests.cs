@@ -107,7 +107,7 @@ public class GridIntentSkillsIntegrationTests
         _breakIds.Clear();
         _plannerId = null;
         _confirmingUserId = Guid.NewGuid();
-        _date =new DateOnly(2200, 1, 1).AddDays(Random.Shared.Next(0, 28000));
+        _date = new DateOnly(2101, 1, 1).AddDays(Random.Shared.Next(0, 28000));
 
         _context.Client.Add(new Client { Id = _sourceClientId, Name = SeedPrefix + "Source", FirstName = "Integration" });
         _context.Client.Add(new Client { Id = _targetClientId, Name = SeedPrefix + "Target", FirstName = "Integration" });
@@ -124,7 +124,7 @@ public class GridIntentSkillsIntegrationTests
             Name = SeedPrefix + "Contract",
             GuaranteedHours = 168m,
             FullTime = 100m,
-            ValidFrom = new DateTime(2199, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+            ValidFrom = new DateTime(2100, 1, 1, 0, 0, 0, DateTimeKind.Utc)
         });
         await _context.SaveChangesAsync();
 
@@ -135,7 +135,7 @@ public class GridIntentSkillsIntegrationTests
                 Id = Guid.NewGuid(),
                 ClientId = clientId,
                 ContractId = _contractId,
-                FromDate = new DateOnly(2199, 1, 1),
+                FromDate = new DateOnly(2100, 1, 1),
                 IsActive = true
             });
         }

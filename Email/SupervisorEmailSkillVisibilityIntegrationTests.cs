@@ -389,7 +389,7 @@ public class SupervisorEmailSkillVisibilityIntegrationTests
 
         var instances = skills.Values.ToDictionary(skill => skill.GetType());
         var services = Substitute.For<IServiceProvider>();
-        services.GetService(Arg.Any<Type>()).Returns(call => instances[call.Arg<Type>()]);
+        services.GetService(Arg.Any<Type>()).Returns(call => instances.GetValueOrDefault(call.Arg<Type>()));
 
         var gate = Substitute.For<IAutonomyGate>();
         gate.CheckAsync(

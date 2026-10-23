@@ -79,7 +79,7 @@ public class WorkBookingDiagnosisVisibilityNpgsqlTests
         _context = new DataBaseContext(SupervisorVisibilityScenario.BuildOptions(), Substitute.For<IHttpContextAccessor>());
         await CleanupAsync();
         _scenario = await SupervisorVisibilityScenario.CreateAsync(Prefix, _context);
-        _date = new DateOnly(2200, 1, 1).AddDays(Random.Shared.Next(0, 30000));
+        _date = new DateOnly(2101, 1, 1).AddDays(Random.Shared.Next(0, 30000));
         _sealedDayIds.Clear();
 
         _visibleShift = NewShift(VisibleShiftSuffix);
@@ -194,7 +194,7 @@ public class WorkBookingDiagnosisVisibilityNpgsqlTests
             .Select(index =>
             {
                 var twin = NewShift(TwinShiftSuffix);
-                twin.FromDate = new DateOnly(2190, 1, 1).AddDays(index);
+                twin.FromDate = new DateOnly(2090, 1, 1).AddDays(index);
                 return twin;
             })
             .ToList();
@@ -269,7 +269,7 @@ public class WorkBookingDiagnosisVisibilityNpgsqlTests
         Id = Guid.NewGuid(),
         Name = Prefix + suffix,
         Status = ShiftStatus.OriginalShift,
-        FromDate = new DateOnly(2199, 1, 1),
+        FromDate = new DateOnly(2100, 1, 1),
         StartShift = ShiftStart,
         EndShift = ShiftEnd,
     };
