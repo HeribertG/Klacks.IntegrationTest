@@ -341,7 +341,7 @@ public class ShiftReadShapesTests
                 .ThenBy(x => x.StartShift)
                 .AsNoTracking()
                 .Where(s => ids.Contains(s.Id) && s.AnalyseToken == null && s.ScenarioSourceShiftId == null);
-            var legacy = await Klacks.Api.Domain.Services.Shifts.ShiftGroupVisibilityFilter.Apply(legacyQuery, visibleGroupIds)
+            var legacy = await ShiftGroupVisibilityQuery.Apply(legacyQuery, visibleGroupIds)
                 .ToListAsync();
 
             rows.Select(s => s.Id).ShouldBe(legacy.Select(s => s.Id));
