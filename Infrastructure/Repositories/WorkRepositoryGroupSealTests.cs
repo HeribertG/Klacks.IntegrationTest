@@ -67,7 +67,7 @@ public class WorkRepositoryGroupSealTests
             _context,
             Substitute.For<IClientGroupFilterService>(),
             Substitute.For<IClientSearchFilterService>(),
-            new Klacks.Api.Domain.Services.Clients.ClientSearchService(),
+            new Klacks.Api.Infrastructure.Services.Clients.ClientSearchService(),
             fuzzySearchService);
 
         _repo = new WorkRepository(

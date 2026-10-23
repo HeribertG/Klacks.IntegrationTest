@@ -135,7 +135,7 @@ public class BulkAddWorksIntegrationTests
             _context,
             Substitute.For<IClientGroupFilterService>(),
             Substitute.For<IClientSearchFilterService>(),
-            new Klacks.Api.Domain.Services.Clients.ClientSearchService(),
+            new Klacks.Api.Infrastructure.Services.Clients.ClientSearchService(),
             fuzzySearchService);
         var workRepository = new WorkRepository(
             _context,
@@ -672,7 +672,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
             _context,
             Substitute.For<IClientGroupFilterService>(),
             Substitute.For<IClientSearchFilterService>(),
-            new Klacks.Api.Domain.Services.Clients.ClientSearchService(),
+            new Klacks.Api.Infrastructure.Services.Clients.ClientSearchService(),
             fuzzySearchService);
         var workRepository = new WorkRepository(
             _context,

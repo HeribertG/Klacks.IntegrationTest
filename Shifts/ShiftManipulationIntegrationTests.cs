@@ -39,6 +39,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NUnit.Framework;
+using Klacks.Api.Infrastructure.Services.Clients;
 using Shift = Klacks.Api.Domain.Models.Schedules.Shift;
 
 namespace Klacks.IntegrationTest.Shifts;
