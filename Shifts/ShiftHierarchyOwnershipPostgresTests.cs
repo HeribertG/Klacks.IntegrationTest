@@ -620,6 +620,7 @@ public class ShiftHierarchyOwnershipPostgresTests
             _scheduleMapper,
             unitOfWork,
             _allVisible,
+            new ShiftExpensesRepository(_context, Substitute.For<ILogger<ShiftExpenses>>()),
             Substitute.For<ILogger<ShiftCutFacade>>());
 
         var sealing = Substitute.For<IOrderSealingService>();
