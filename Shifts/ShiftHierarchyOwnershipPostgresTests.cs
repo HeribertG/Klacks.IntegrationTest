@@ -310,15 +310,12 @@ public class ShiftHierarchyOwnershipPostgresTests
     {
         var (plannableId, sealedOrderId) = await PostSealedOrderAsync("SKILL", _customerA);
 
-        var result = await CutSkill().ExecuteAsync(
-            SkillContext(),
-            new Dictionary<string, object>
-            {
-                ["shiftId"] = plannableId.ToString(),
-                ["parts"] = "08:00-12:00,12:00-16:00",
-                ["partNames"] = $"{Prefix}EARLY,{Prefix}LATE"
-            },
-            CancellationToken.None);
+        var result = await ConfirmedCutAsync(new Dictionary<string, object>
+        {
+            ["shiftId"] = plannableId.ToString(),
+            ["parts"] = "08:00-12:00,12:00-16:00",
+            ["partNames"] = $"{Prefix}EARLY,{Prefix}LATE"
+        });
 
         result.Success.ShouldBeTrue(result.Message);
         var parts = await PiecesOfAsync(sealedOrderId);
@@ -362,21 +359,31 @@ public class ShiftHierarchyOwnershipPostgresTests
         var (plannableId, sealedOrderId) = await PostSealedOrderAsync("SKILL_EXP", _customerA, MealExpense());
         await AddExpenseAsync(plannableId, ParkingAmount, ParkingDescription, taxable: true);
 
-        var result = await CutSkill().ExecuteAsync(
-            SkillContext(),
-            new Dictionary<string, object>
-            {
-                ["shiftId"] = plannableId.ToString(),
-                ["parts"] = "08:00-11:00,11:00-14:00,14:00-16:00",
-                ["partNames"] = $"{Prefix}P1,{Prefix}P2,{Prefix}P3"
-            },
-            CancellationToken.None);
+        var result = await ConfirmedCutAsync(ThreePartCut(plannableId));
 
         result.Success.ShouldBeTrue(result.Message);
         var parts = await PiecesOfAsync(sealedOrderId);
         parts.Count.ShouldBe(3);
         await ShouldEachCarryMealAndParkingAsync(parts.Select(p => p.Id).ToList());
         (await ExpensesOfAsync(sealedOrderId)).Select(e => e.Description).ShouldBe([MealDescription], "the order stays unchanged");
+    }
+
+    [Test]
+    public async Task CutShiftSkill_ExpenseChangedAfterThePreview_IsRefused_AndNothingIsCut()
+    {
+        var (plannableId, sealedOrderId) = await PostSealedOrderAsync("SKILL_EXP_CHANGED", _customerA, MealExpense());
+        var parameters = ThreePartCut(plannableId);
+        var preview = await PreviewAsync(parameters);
+        preview.Text.ShouldContain($"{MealDescription} 12.50 (non-taxable expense)");
+        await AddExpenseAsync(plannableId, ParkingAmount, ParkingDescription, taxable: true);
+
+        var result = await CutSkill().ExecuteAsync(
+            SkillContext() with { ConfirmedActionBinding = preview.Binding }, parameters, CancellationToken.None);
+
+        result.Success.ShouldBeFalse();
+        result.Message!.ShouldStartWith("What this confirmation was given for has changed since the preview");
+        (await PiecesOfAsync(sealedOrderId)).ShouldBeEmpty();
+        (await ReloadAsync(plannableId)).Status.ShouldBe(ShiftStatus.OriginalShift);
     }
 
     [Test]
@@ -470,8 +477,30 @@ public class ShiftHierarchyOwnershipPostgresTests
         allIds.Distinct().Count().ShouldBe(allIds.Count, "every piece owns its rows; no row is shared");
     }
 
-    private CutShiftSkill CutSkill() =>
-        new(new ShiftTimeCutPlanner(_shiftRepository, new ShiftReader(_context), _allVisible), _cutFacade);
+    private ShiftTimeCutPlanner CutPlanner() =>
+        new(_shiftRepository, new ShiftReader(_context), _allVisible, new ShiftExpensesRepository(_context, Substitute.For<ILogger<ShiftExpenses>>()));
+
+    private CutShiftSkill CutSkill() => new(CutPlanner(), _cutFacade);
+
+    private Task<SkillConfirmationPreview> PreviewAsync(Dictionary<string, object> parameters) =>
+        new CutShiftConfirmationPreviewProvider(CutPlanner())
+            .BuildAsync(CutShiftSkill.SkillName, SkillContext(), parameters, CancellationToken.None);
+
+    private async Task<SkillResult> ConfirmedCutAsync(Dictionary<string, object> parameters)
+    {
+        var preview = await PreviewAsync(parameters);
+        preview.IsRefusal.ShouldBeFalse(preview.Text);
+        _context.ChangeTracker.Clear();
+        return await CutSkill().ExecuteAsync(
+            SkillContext() with { ConfirmedActionBinding = preview.Binding }, parameters, CancellationToken.None);
+    }
+
+    private static Dictionary<string, object> ThreePartCut(Guid plannableId) => new()
+    {
+        ["shiftId"] = plannableId.ToString(),
+        ["parts"] = "08:00-11:00,11:00-14:00,14:00-16:00",
+        ["partNames"] = $"{Prefix}P1,{Prefix}P2,{Prefix}P3"
+    };
 
     private async Task<List<ShiftExpenses>> ExpensesOfAsync(Guid shiftId)
     {
