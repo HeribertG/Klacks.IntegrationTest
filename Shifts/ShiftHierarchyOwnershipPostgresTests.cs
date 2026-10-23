@@ -6,8 +6,10 @@
 /// reference, customer and tree fields on an UPDATE, derives them from the parent on a CREATE (also along a chain
 /// inside one batch) and refuses an UPDATE of a sealed order with nothing written. PUT Shifts keeps a stored draft order
 /// a draft or seals it, any other status is refused with nothing written. The UI batch form (pieces cloned from their
-/// parent), cut_shift and cut_shift_by_date keep working. Every row carries the INTEGRATION_TEST_SHIFTHIER_
-/// prefix and the cleanup deletes exactly those rows.
+/// parent), cut_shift and cut_shift_by_date keep working. Every new cut piece starts with default expenses of its own:
+/// copies of the rows of the plannable shift or piece it is cut from (fresh ids, never the source rows), also when the
+/// UI form sends the parent's rows along. Every row carries the INTEGRATION_TEST_SHIFTHIER_ prefix and the cleanup
+/// deletes exactly those rows.
 /// </summary>
 
 using Klacks.Api.Application.Commands;
@@ -41,6 +43,7 @@ using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
 using Shift = Klacks.Api.Domain.Models.Schedules.Shift;
+using ShiftExpenses = Klacks.Api.Domain.Models.Schedules.ShiftExpenses;
 using ShiftPostHandler = Klacks.Api.Application.Handlers.Shifts.PostCommandHandler;
 using ShiftPutHandler = Klacks.Api.Application.Handlers.Shifts.PutCommandHandler;
 
@@ -53,6 +56,10 @@ public class ShiftHierarchyOwnershipPostgresTests
     private const string Prefix = "INTEGRATION_TEST_SHIFTHIER_";
     private const string UpdateOperation = CutOperation.UpdateType;
     private const string CreateOperation = CutOperation.CreateType;
+    private const decimal MealAmount = 12.50m;
+    private const string MealDescription = Prefix + "MEAL";
+    private const decimal ParkingAmount = 5.00m;
+    private const string ParkingDescription = Prefix + "PARKING";
     private static readonly DateOnly OrderFrom = new(2026, 1, 1);
 
     private DataBaseContext _context = null!;
@@ -349,10 +356,155 @@ public class ShiftHierarchyOwnershipPostgresTests
         (await ReloadAsync(secondPiece.Id)).UntilDate.ShouldBe(new DateOnly(2026, 9, 30));
     }
 
-    private async Task<(Guid PlannableId, Guid SealedOrderId)> PostSealedOrderAsync(string suffix, Guid customerId)
+    [Test]
+    public async Task CutShiftSkill_EveryPart_CarriesTheDefaultExpensesOfThePlannableShift_AsOwnRows()
     {
-        var created = await _postHandler.Handle(
-            new PostCommand<ShiftResource>(NewResource(suffix, ShiftStatus.SealedOrder, customerId)), CancellationToken.None);
+        var (plannableId, sealedOrderId) = await PostSealedOrderAsync("SKILL_EXP", _customerA, MealExpense());
+        await AddExpenseAsync(plannableId, ParkingAmount, ParkingDescription, taxable: true);
+
+        var result = await new CutShiftSkill(_shiftRepository, new ShiftReader(_context), _cutFacade, _allVisible).ExecuteAsync(
+            SkillContext(),
+            new Dictionary<string, object>
+            {
+                ["shiftId"] = plannableId.ToString(),
+                ["parts"] = "08:00-11:00,11:00-14:00,14:00-16:00",
+                ["partNames"] = $"{Prefix}P1,{Prefix}P2,{Prefix}P3"
+            },
+            CancellationToken.None);
+
+        result.Success.ShouldBeTrue(result.Message);
+        var parts = await PiecesOfAsync(sealedOrderId);
+        parts.Count.ShouldBe(3);
+        await ShouldEachCarryMealAndParkingAsync(parts.Select(p => p.Id).ToList());
+        (await ExpensesOfAsync(sealedOrderId)).Select(e => e.Description).ShouldBe([MealDescription], "the order stays unchanged");
+    }
+
+    [Test]
+    public async Task CutShiftByDateSkill_NewPieces_CarryTheDefaultExpensesOfThePieceTheyAreCutFrom()
+    {
+        var (plannableId, sealedOrderId) = await PostSealedOrderAsync("BYDATE_EXP", _customerA, MealExpense());
+        await AddExpenseAsync(plannableId, ParkingAmount, ParkingDescription, taxable: true);
+        var skill = new CutShiftByDateSkill(_shiftRepository, new ShiftReader(_context), _cutFacade, _allVisible);
+
+        var first = await skill.ExecuteAsync(SkillContext(),
+            new Dictionary<string, object> { ["shiftId"] = plannableId.ToString(), ["cutDate"] = "2026-07-01" },
+            CancellationToken.None);
+        _context.ChangeTracker.Clear();
+        first.Success.ShouldBeTrue(first.Message);
+        var secondPiece = (await PiecesOfAsync(sealedOrderId)).Single(p => p.Id != plannableId);
+
+        var second = await skill.ExecuteAsync(SkillContext(),
+            new Dictionary<string, object> { ["shiftId"] = secondPiece.Id.ToString(), ["cutDate"] = "2026-10-01" },
+            CancellationToken.None);
+        _context.ChangeTracker.Clear();
+
+        second.Success.ShouldBeTrue(second.Message);
+        var pieces = await PiecesOfAsync(sealedOrderId);
+        pieces.Count.ShouldBe(3);
+        await ShouldEachCarryMealAndParkingAsync(pieces.Select(p => p.Id).ToList());
+    }
+
+    [Test]
+    public async Task CutBatch_UiForm_PieceClonedWithTheParentsExpenseRows_GetsFreshRows_WithoutDuplicates()
+    {
+        var (plannableId, sealedOrderId) = await PostSealedOrderAsync("UI_EXP_CLONE", _customerA, MealExpense());
+        var first = await StoredResourceAsync(plannableId);
+        first.DefaultExpenses.Count.ShouldBe(1, "the stored plannable shift carries the order's expense");
+        first.Status = ShiftStatus.SplitShift;
+        first.UntilDate = new DateOnly(2026, 6, 30);
+        var second = CloneForUi(first, Guid.NewGuid());
+        second.FromDate = new DateOnly(2026, 7, 1);
+        second.UntilDate = null;
+
+        await _cutFacade.ProcessBatchCutsAsync(
+        [
+            new CutOperation { Type = UpdateOperation, ParentId = sealedOrderId.ToString(), Data = first },
+            new CutOperation { Type = CreateOperation, ParentId = plannableId.ToString(), Data = second }
+        ]);
+
+        var plannableRows = await ExpensesOfAsync(plannableId);
+        var pieceRows = await ExpensesOfAsync(second.Id);
+        plannableRows.Select(e => e.Description).ShouldBe([MealDescription]);
+        pieceRows.Select(e => e.Description).ShouldBe([MealDescription]);
+        pieceRows.Single().Id.ShouldNotBe(plannableRows.Single().Id);
+    }
+
+    [Test]
+    public async Task CutBatch_UiForm_PieceFromTheCutListWithoutExpenses_GetsTheParentsExpenses()
+    {
+        var (plannableId, sealedOrderId) = await PostSealedOrderAsync("UI_EXP_LIST", _customerA, MealExpense());
+        var first = await StoredResourceAsync(plannableId);
+        first.DefaultExpenses = [];
+        first.Status = ShiftStatus.SplitShift;
+        first.UntilDate = new DateOnly(2026, 6, 30);
+        var second = CloneForUi(first, Guid.NewGuid());
+        second.FromDate = new DateOnly(2026, 7, 1);
+        second.UntilDate = null;
+
+        await _cutFacade.ProcessBatchCutsAsync(
+        [
+            new CutOperation { Type = UpdateOperation, ParentId = sealedOrderId.ToString(), Data = first },
+            new CutOperation { Type = CreateOperation, ParentId = plannableId.ToString(), Data = second }
+        ]);
+
+        (await ExpensesOfAsync(plannableId)).Select(e => e.Description).ShouldBe([MealDescription]);
+        (await ExpensesOfAsync(second.Id)).Select(e => e.Description).ShouldBe([MealDescription]);
+    }
+
+    private async Task ShouldEachCarryMealAndParkingAsync(IReadOnlyCollection<Guid> pieceIds)
+    {
+        var allIds = new List<Guid>();
+        foreach (var pieceId in pieceIds)
+        {
+            var rows = await ExpensesOfAsync(pieceId);
+            rows.OrderBy(e => e.Description, StringComparer.Ordinal)
+                .Select(e => $"{e.Description}|{e.Amount.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{e.Taxable}")
+                .ShouldBe(
+                [
+                    $"{MealDescription}|12.50|False",
+                    $"{ParkingDescription}|5.00|True"
+                ], $"piece {pieceId}");
+            allIds.AddRange(rows.Select(e => e.Id));
+        }
+
+        allIds.Distinct().Count().ShouldBe(allIds.Count, "every piece owns its rows; no row is shared");
+    }
+
+    private async Task<List<ShiftExpenses>> ExpensesOfAsync(Guid shiftId)
+    {
+        _context.ChangeTracker.Clear();
+        return await _context.Set<ShiftExpenses>().AsNoTracking()
+            .Where(e => e.ShiftId == shiftId)
+            .ToListAsync();
+    }
+
+    private async Task AddExpenseAsync(Guid shiftId, decimal amount, string description, bool taxable)
+    {
+        _context.Set<ShiftExpenses>().Add(new ShiftExpenses
+        {
+            Id = Guid.NewGuid(),
+            ShiftId = shiftId,
+            Amount = amount,
+            Description = description,
+            Taxable = taxable
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    private static ShiftExpensesResource MealExpense() => new()
+    {
+        Amount = MealAmount,
+        Description = MealDescription,
+        Taxable = false
+    };
+
+    private async Task<(Guid PlannableId, Guid SealedOrderId)> PostSealedOrderAsync(
+        string suffix, Guid customerId, params ShiftExpensesResource[] expenses)
+    {
+        var order = NewResource(suffix, ShiftStatus.SealedOrder, customerId);
+        order.DefaultExpenses = expenses.ToList();
+        var created = await _postHandler.Handle(new PostCommand<ShiftResource>(order), CancellationToken.None);
         _context.ChangeTracker.Clear();
         created.ShouldNotBeNull();
         created!.Status.ShouldBe(ShiftStatus.OriginalShift);
