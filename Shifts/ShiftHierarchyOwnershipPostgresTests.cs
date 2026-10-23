@@ -310,7 +310,7 @@ public class ShiftHierarchyOwnershipPostgresTests
     {
         var (plannableId, sealedOrderId) = await PostSealedOrderAsync("SKILL", _customerA);
 
-        var result = await new CutShiftSkill(_shiftRepository, new ShiftReader(_context), _cutFacade, _allVisible).ExecuteAsync(
+        var result = await CutSkill().ExecuteAsync(
             SkillContext(),
             new Dictionary<string, object>
             {
@@ -362,7 +362,7 @@ public class ShiftHierarchyOwnershipPostgresTests
         var (plannableId, sealedOrderId) = await PostSealedOrderAsync("SKILL_EXP", _customerA, MealExpense());
         await AddExpenseAsync(plannableId, ParkingAmount, ParkingDescription, taxable: true);
 
-        var result = await new CutShiftSkill(_shiftRepository, new ShiftReader(_context), _cutFacade, _allVisible).ExecuteAsync(
+        var result = await CutSkill().ExecuteAsync(
             SkillContext(),
             new Dictionary<string, object>
             {
@@ -469,6 +469,9 @@ public class ShiftHierarchyOwnershipPostgresTests
 
         allIds.Distinct().Count().ShouldBe(allIds.Count, "every piece owns its rows; no row is shared");
     }
+
+    private CutShiftSkill CutSkill() =>
+        new(new ShiftTimeCutPlanner(_shiftRepository, new ShiftReader(_context), _allVisible), _cutFacade);
 
     private async Task<List<ShiftExpenses>> ExpensesOfAsync(Guid shiftId)
     {
