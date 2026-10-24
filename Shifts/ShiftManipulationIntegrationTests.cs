@@ -167,6 +167,7 @@ public class ShiftManipulationIntegrationTests
             _scheduleMapper,
             _unitOfWork,
             AllShiftsVisible(),
+            new Klacks.Api.Infrastructure.Repositories.Schedules.ShiftExpensesRepository(_context, Substitute.For<ILogger<Klacks.Api.Domain.Models.Schedules.ShiftExpenses>>()),
             facadeLogger);
 
         // Create handlers
@@ -1042,7 +1043,23 @@ public class ShiftManipulationIntegrationTests
 
     #region Test 8: CutShiftSkill (Klacksy) - one 24h order cut into 3 linked parts
 
-    private CutShiftSkill CreateCutSkill() => new(_shiftRepository, new ShiftReader(_context), _shiftCutFacade, AllShiftsVisible());
+    private ShiftTimeCutPlanner CreateCutPlanner() => new(
+        _shiftRepository,
+        new ShiftReader(_context),
+        AllShiftsVisible(),
+        new Klacks.Api.Infrastructure.Repositories.Schedules.ShiftExpensesRepository(
+            _context, Substitute.For<ILogger<Klacks.Api.Domain.Models.Schedules.ShiftExpenses>>()));
+
+    private CutShiftSkill CreateCutSkill() => new(CreateCutPlanner(), _shiftCutFacade);
+
+    private async Task<SkillResult> ConfirmedCutAsync(Dictionary<string, object> parameters)
+    {
+        var preview = await new CutShiftConfirmationPreviewProvider(CreateCutPlanner())
+            .BuildAsync(CutShiftSkill.SkillName, TestSkillContext(), parameters, CancellationToken.None);
+        preview.IsRefusal.ShouldBeFalse(preview.Text);
+        return await CreateCutSkill().ExecuteAsync(
+            TestSkillContext() with { ConfirmedActionBinding = preview.Binding }, parameters, CancellationToken.None);
+    }
 
     private static SkillExecutionContext TestSkillContext() => new()
     {
@@ -1080,7 +1097,7 @@ public class ShiftManipulationIntegrationTests
         };
 
         // Act
-        var result = await CreateCutSkill().ExecuteAsync(TestSkillContext(), parameters, CancellationToken.None);
+        var result = await ConfirmedCutAsync(parameters);
 
         // Assert - skill succeeded and produced exactly ONE order with 3 linked parts.
         result.Success.ShouldBeTrue(result.Message);
@@ -1138,10 +1155,13 @@ public class ShiftManipulationIntegrationTests
         };
 
         var skill = CreateCutSkill();
-        (await skill.ExecuteAsync(TestSkillContext(), firstParams, CancellationToken.None)).Success.ShouldBeTrue();
+        (await ConfirmedCutAsync(firstParams)).Success.ShouldBeTrue();
 
         // Act - cut the same order again
-        var secondResult = await skill.ExecuteAsync(TestSkillContext(), firstParams, CancellationToken.None);
+        var secondResult = await skill.ExecuteAsync(
+            TestSkillContext() with { ConfirmedActionBinding = ConfirmationBinding.Of(ConfirmationBindingKinds.ShiftCut, ["first cut"]) },
+            firstParams,
+            CancellationToken.None);
 
         // Assert - refused, so no double-cut wreckage
         secondResult.Success.ShouldBeFalse("cutting an already-split order must be refused");
@@ -1174,7 +1194,7 @@ public class ShiftManipulationIntegrationTests
             ["parts"] = "07:00-19:00,19:00-07:00",
             ["partNames"] = $"{TestShiftPrefix}Day,{TestShiftPrefix}Night"
         };
-        (await CreateCutSkill().ExecuteAsync(TestSkillContext(), cutParams, CancellationToken.None)).Success.ShouldBeTrue();
+        (await ConfirmedCutAsync(cutParams)).Success.ShouldBeTrue();
 
         // Act - the disambiguation skill (exercises group resolution + GroupItems.Any + ILike + GetQuery).
         var skill = new FindSplitShiftCandidatesSkill(new ShiftReader(_context), new GroupSearchRepository(_context));
