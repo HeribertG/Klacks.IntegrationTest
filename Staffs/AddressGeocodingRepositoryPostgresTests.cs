@@ -7,8 +7,10 @@ using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Geocoding;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Geocoding;
+using Klacks.Api.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
@@ -171,6 +173,37 @@ public class AddressGeocodingRepositoryPostgresTests
 
         filled.ShouldBeFalse();
         (await ReloadAsync(address.Id)).Latitude.ShouldBeNull();
+    }
+
+    [Test]
+    public async Task GetDueCandidates_FilledAddressWhoseCoordinatesWereLost_IsDueAgain()
+    {
+        var address = await AddAddressAsync(EntityTypeEnum.Customer);
+        (await _repository.TryFillAsync(Fill(address, stateIfEmpty: null))).ShouldBeTrue();
+        (await DueIdsAsync(includeEmployees: false)).ShouldNotContain(address.Id);
+
+        await _context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE address SET latitude = NULL, longitude = NULL WHERE id = {address.Id}");
+
+        (await DueIdsAsync(includeEmployees: false)).ShouldContain(address.Id);
+    }
+
+    [Test]
+    public async Task AutofillCoordinateWriter_FillsOnlyEmptyCoordinatesAndRecordsTheStreetSource()
+    {
+        var empty = await AddAddressAsync(EntityTypeEnum.Customer);
+        var geocoded = await AddAddressAsync(EntityTypeEnum.Customer, latitude: 46.0, longitude: 7.0);
+        var writer = new AddressCoordinateWriter(
+            _context, _repository, TimeProvider.System, NullLogger<AddressCoordinateWriter>.Instance);
+
+        await writer.UpdateCoordinatesAsync(empty.Id, 47.1, 8.1);
+        await writer.UpdateCoordinatesAsync(geocoded.Id, 47.1, 8.1);
+
+        (await ReloadAsync(empty.Id)).Latitude.ShouldBe(47.1);
+        (await ReloadAsync(geocoded.Id)).Latitude.ShouldBe(46.0);
+        var state = await _context.AddressGeocodingStates.AsNoTracking().SingleAsync(s => s.AddressId == empty.Id);
+        state.FillSource.ShouldBe(AddressGeocodingSource.NominatimStreet);
+        state.FilledBy.ShouldBe(AddressGeocodingTrigger.Autofill);
     }
 
     [Test]
