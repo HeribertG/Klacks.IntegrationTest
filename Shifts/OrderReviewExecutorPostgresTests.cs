@@ -109,7 +109,9 @@ public class OrderReviewExecutorPostgresTests
             Substitute.For<ILogger<ShiftCutFacade>>());
         var planner = new ShiftTimeCutPlanner(_shiftRepository, new ShiftReader(_context), visible, expenses);
         var sealing = new OrderSealingService(_shiftRepository, unitOfWork, visible);
-        _executor = new OrderReviewExecutor(_shiftRepository, unitOfWork, sealing, planner, facade, TestCompanyClock.Utc());
+        _executor = new OrderReviewExecutor(
+            _shiftRepository, unitOfWork, sealing, planner, facade, TestCompanyClock.Utc(),
+            Substitute.For<ILogger<OrderReviewExecutor>>());
     }
 
     private async Task SeedAsync()
