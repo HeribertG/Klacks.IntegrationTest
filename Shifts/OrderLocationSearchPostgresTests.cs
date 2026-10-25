@@ -112,6 +112,26 @@ public class OrderLocationSearchPostgresTests
     }
 
     [Test]
+    public async Task CountryList_MatchesAnyListedCountry()
+    {
+        (await FindAsync(new AddressLocationCriteria(null, [], null, null, ["DE"]))).ShouldBe(["BERLIN"]);
+        (await FindAsync(new AddressLocationCriteria(null, [], null, null, ["de", "CH"])))
+            .ShouldBe(["BERLIN", "GONE", "HIDDEN", "INV", "MAIN", "WP"]);
+        (await FindAsync(new AddressLocationCriteria(null, [], null, null, ["FR"]))).ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task CountryListWithStatePairs_KeepsBernAndBerlinApart()
+    {
+        var bernAndZurich = new AddressLocationCriteria(
+            null, [new StateCodeMatch("BE", "CH"), new StateCodeMatch("ZH", "CH")], null, null, ["CH", "DE"]);
+        var berlinOnly = new AddressLocationCriteria(null, [new StateCodeMatch("BE", "DE")], null, null, ["CH", "DE"]);
+
+        (await FindAsync(bernAndZurich)).ShouldBe(["GONE", "HIDDEN", "INV", "MAIN", "WP"]);
+        (await FindAsync(berlinOnly)).ShouldBe(["BERLIN"]);
+    }
+
+    [Test]
     public async Task ZipPrefix_AndCity_HoldOnTheSameOrderAddress()
     {
         (await FindAsync(new AddressLocationCriteria(null, [], null, "30"))).ShouldBe(["HIDDEN", "MAIN"]);
