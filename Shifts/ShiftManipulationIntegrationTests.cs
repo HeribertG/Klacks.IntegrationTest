@@ -399,6 +399,30 @@ public class ShiftManipulationIntegrationTests
         Console.WriteLine("=== TEST PASSED: Workflow OriginalOrder → SealedOrder + OriginalShift ===");
     }
 
+    [Test]
+    public async Task SealOriginalOrder_WithANewDefaultExpenseInTheSamePut_CopiesItOnceToThePlannableShift()
+    {
+        var orderResource = CreateTestShiftResource("Seal_Expense_Test", ShiftStatus.OriginalOrder);
+        orderResource.ClientId = _customerId;
+        var order = await _postHandler.Handle(new PostCommand<ShiftResource>(orderResource), CancellationToken.None);
+        order.ShouldNotBeNull();
+        _context.ChangeTracker.Clear();
+
+        order!.Status = ShiftStatus.SealedOrder;
+        order.DefaultExpenses = [new ShiftExpensesResource { Id = Guid.Empty, Amount = 15m, Description = "Mahlzeit" }];
+        var plannable = await _putHandler.Handle(new PutCommand<ShiftResource>(order), CancellationToken.None);
+
+        plannable.ShouldNotBeNull();
+        plannable!.Status.ShouldBe(ShiftStatus.OriginalShift);
+        _context.ChangeTracker.Clear();
+        var orderExpenses = await _context.Set<Klacks.Api.Domain.Models.Schedules.ShiftExpenses>().AsNoTracking()
+            .CountAsync(e => e.ShiftId == order.Id && e.Description == "Mahlzeit");
+        var plannableExpenses = await _context.Set<Klacks.Api.Domain.Models.Schedules.ShiftExpenses>().AsNoTracking()
+            .CountAsync(e => e.ShiftId == plannable.Id && e.Description == "Mahlzeit");
+        orderExpenses.ShouldBe(1, "the sealed order keeps the one expense of the PUT");
+        plannableExpenses.ShouldBe(1, "sealing copies the expense once to the plannable shift");
+    }
+
     #endregion
 
     #region Test 2: Split OriginalShift to SplitShifts
