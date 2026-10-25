@@ -202,10 +202,16 @@ public class OrderReviewExecutorPostgresTests
             .OrderBy(s => s.StartShift)
             .ToListAsync();
         parts.Select(p => p.StartShift).ToArray().ShouldBe(new[] { Seven, new TimeOnly(15, 0), new TimeOnly(23, 0) });
+        var familyIds = parts.Select(p => p.Id).Append(orderId).ToList();
+        var familyExpenses = await verify.Set<ShiftExpenses>().IgnoreQueryFilters().AsNoTracking()
+            .Where(e => familyIds.Contains(e.ShiftId))
+            .ToListAsync();
+        var expenseDump = string.Join("; ", familyExpenses.Select(e =>
+            $"{(e.ShiftId == orderId ? "order" : parts.Single(p => p.Id == e.ShiftId).StartShift.ToString())}:{e.Description}:{e.Amount}:deleted={e.IsDeleted}:{e.Id}"));
         foreach (var part in parts)
         {
             (await verify.Set<ShiftExpenses>().CountAsync(e => e.ShiftId == part.Id && e.Description == "Mahlzeit" && e.Amount == 15m))
-                .ShouldBe(1, $"part {part.StartShift} must carry the expense");
+                .ShouldBe(1, $"part {part.StartShift} must carry the expense; family expenses: {expenseDump}");
             (await verify.ShiftRequiredQualification.CountAsync(q => q.ShiftId == part.Id && q.QualificationId == _qualificationId))
                 .ShouldBe(1, $"part {part.StartShift} must require the qualification");
         }
