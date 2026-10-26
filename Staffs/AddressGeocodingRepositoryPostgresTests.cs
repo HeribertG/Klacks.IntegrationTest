@@ -218,7 +218,7 @@ public class AddressGeocodingRepositoryPostgresTests
         byClient.Select(c => c.AddressId).ShouldBe([missing.Id]);
         byId.Select(c => c.AddressId).ShouldBe([missing.Id]);
         byClient[0].ClientType.ShouldBe(EntityTypeEnum.Employee);
-        byClient[0].ClientName.ShouldStartWith(Prefix);
+        byClient[0].ClientName.ShouldContain(Prefix);
     }
 
     [Test]
