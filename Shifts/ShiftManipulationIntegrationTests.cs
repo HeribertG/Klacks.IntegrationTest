@@ -399,6 +399,30 @@ public class ShiftManipulationIntegrationTests
         Console.WriteLine("=== TEST PASSED: Workflow OriginalOrder → SealedOrder + OriginalShift ===");
     }
 
+    [Test]
+    public async Task SealOriginalOrder_WithANewDefaultExpenseInTheSamePut_CopiesItOnceToThePlannableShift()
+    {
+        var orderResource = CreateTestShiftResource("Seal_Expense_Test", ShiftStatus.OriginalOrder);
+        orderResource.ClientId = _customerId;
+        var order = await _postHandler.Handle(new PostCommand<ShiftResource>(orderResource), CancellationToken.None);
+        order.ShouldNotBeNull();
+        _context.ChangeTracker.Clear();
+
+        order!.Status = ShiftStatus.SealedOrder;
+        order.DefaultExpenses = [new ShiftExpensesResource { Id = Guid.Empty, Amount = 15m, Description = "Mahlzeit" }];
+        var plannable = await _putHandler.Handle(new PutCommand<ShiftResource>(order), CancellationToken.None);
+
+        plannable.ShouldNotBeNull();
+        plannable!.Status.ShouldBe(ShiftStatus.OriginalShift);
+        _context.ChangeTracker.Clear();
+        var orderExpenses = await _context.Set<Klacks.Api.Domain.Models.Schedules.ShiftExpenses>().AsNoTracking()
+            .CountAsync(e => e.ShiftId == order.Id && e.Description == "Mahlzeit");
+        var plannableExpenses = await _context.Set<Klacks.Api.Domain.Models.Schedules.ShiftExpenses>().AsNoTracking()
+            .CountAsync(e => e.ShiftId == plannable.Id && e.Description == "Mahlzeit");
+        orderExpenses.ShouldBe(1, "the sealed order keeps the one expense of the PUT");
+        plannableExpenses.ShouldBe(1, "sealing copies the expense once to the plannable shift");
+    }
+
     #endregion
 
     #region Test 2: Split OriginalShift to SplitShifts
@@ -1197,7 +1221,8 @@ public class ShiftManipulationIntegrationTests
         (await ConfirmedCutAsync(cutParams)).Success.ShouldBeTrue();
 
         // Act - the disambiguation skill (exercises group resolution + GroupItems.Any + ILike + GetQuery).
-        var skill = new FindSplitShiftCandidatesSkill(new ShiftReader(_context), new GroupSearchRepository(_context));
+        var skill = new FindSplitShiftCandidatesSkill(
+            new ShiftReader(_context), new GroupSearchRepository(_context), Substitute.For<IMediator>());
         var result = await skill.ExecuteAsync(
             TestSkillContext(),
             new Dictionary<string, object> { ["groupName"] = $"{TestShiftPrefix}Biel/Bienne" },
@@ -1305,18 +1330,18 @@ public class ShiftManipulationIntegrationTests
         ok.Success.ShouldBeTrue(ok.Message);
 
         var order = await _context.Shift.AsNoTracking()
-            .FirstAsync(s => s.Name == $"{TestShiftPrefix}WithCustomer" && s.Status == ShiftStatus.SealedOrder);
+            .FirstAsync(s => s.Name == $"{TestShiftPrefix}WithCustomer" && s.Status == ShiftStatus.OriginalOrder);
         order.ClientId.ShouldBe(customerId, "the order must be billed to the chosen customer");
         order.MacroId.ShouldBe(allShiftMacroId, "the order must get the default Shift-category macro");
         order.IsTimeRange.ShouldBeTrue(
             "a created order must be a time-range shift, matching every FE shift, so it is not hidden by the shift-list filter");
 
-        var plannable = await _context.Shift.AsNoTracking()
-            .FirstAsync(s => s.Name == $"{TestShiftPrefix}WithCustomer" && s.Status == ShiftStatus.OriginalShift);
-        plannable.IsTimeRange.ShouldBeTrue("the plannable OriginalShift copy must inherit is_time_range=true");
+        (await _context.Shift.AsNoTracking()
+            .CountAsync(s => s.Name == $"{TestShiftPrefix}WithCustomer" && s.Status != ShiftStatus.OriginalOrder))
+            .ShouldBe(0, "Klacksy creates an open order only; nothing is sealed and no plannable shift exists yet");
 
-        // The success message must steer the model to split via cut_shift instead of navigating to the cut page.
-        ok.Message.ShouldContain("cut_shift");
+        // The success message must point to the confirmed sealing step before any split.
+        ok.Message.ShouldContain("seal_shift");
     }
 
     private static IShiftVisibilityGuard AllShiftsVisible()
@@ -1364,7 +1389,7 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task CreateShiftSkill_ReIssue_Reuses_Existing_Uncut_Order()
     {
-        // ORD-5a: re-issuing create_shift for the same uncut order (same key, incl. start/end time) must
+        // ORD-5a: re-issuing create_shift for the same open order (same key, incl. start/end time) must
         // reuse it instead of creating a duplicate. Counter-test: a different time is a distinct order.
         var customerId = _customerId;
         var skill = CreateShiftSkillWithDefaultMacro();
@@ -1386,11 +1411,11 @@ public class ShiftManipulationIntegrationTests
         second.Success.ShouldBeTrue(second.Message);
 
         (await _context.Shift.AsNoTracking()
-            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.SealedOrder && !s.IsDeleted))
-            .ShouldBe(1, "re-issuing create_shift must not create a second order");
+            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalOrder && !s.IsDeleted))
+            .ShouldBe(1, "re-issuing create_shift must not create a second open order");
         (await _context.Shift.AsNoTracking()
-            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalShift && !s.IsDeleted))
-            .ShouldBe(1, "exactly one plannable OriginalShift must remain");
+            .CountAsync(s => s.Name == name && s.Status != ShiftStatus.OriginalOrder && !s.IsDeleted))
+            .ShouldBe(0, "nothing is sealed on create");
 
         // Counter-test: same name/date/customer but a DIFFERENT time -> a genuinely distinct order.
         var diffTime = Args();
@@ -1400,7 +1425,7 @@ public class ShiftManipulationIntegrationTests
         third.Success.ShouldBeTrue(third.Message);
 
         (await _context.Shift.AsNoTracking()
-            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.SealedOrder && !s.IsDeleted))
+            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalOrder && !s.IsDeleted))
             .ShouldBe(2, "an order with a different time must NOT be merged into the existing one");
 
         // HIGH-2: a case/whitespace-only name change on re-issue must still reuse (no duplicate).
@@ -1409,7 +1434,7 @@ public class ShiftManipulationIntegrationTests
         var fourth = await skill.ExecuteAsync(TestSkillContext(), caseVariant, CancellationToken.None);
         fourth.Success.ShouldBeTrue(fourth.Message);
         (await _context.Shift.AsNoTracking()
-            .CountAsync(s => s.Status == ShiftStatus.SealedOrder && !s.IsDeleted
+            .CountAsync(s => s.Status == ShiftStatus.OriginalOrder && !s.IsDeleted
                              && s.Name.ToLower().Trim() == name.ToLower()))
             .ShouldBe(2, "a case/whitespace-only name change must reuse, not create a third order");
     }
@@ -1439,7 +1464,7 @@ public class ShiftManipulationIntegrationTests
             .Success.ShouldBeTrue();
 
         (await _context.Shift.AsNoTracking()
-            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.SealedOrder && !s.IsDeleted))
+            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalOrder && !s.IsDeleted))
             .ShouldBe(2, "orders with different weekdays are distinct and must not be merged");
     }
 
@@ -1483,7 +1508,7 @@ public class ShiftManipulationIntegrationTests
         ok.Success.ShouldBeTrue(ok.Message);
 
         var order = await _context.Shift.AsNoTracking()
-            .FirstAsync(s => s.Name == name && s.Status == ShiftStatus.SealedOrder);
+            .FirstAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalOrder);
         order.SumEmployees.ShouldBe(3, "the required staff count must be persisted");
         order.Quantity.ShouldBe(2, "the quantity (Menge) must be persisted, not hardcoded to 1");
     }
@@ -1508,9 +1533,9 @@ public class ShiftManipulationIntegrationTests
         var first = await skill.ExecuteAsync(TestSkillContext(), Args(), CancellationToken.None);
         first.Success.ShouldBeTrue(first.Message);
 
-        // Turn the created OriginalShift into a scenario row.
+        // Turn the created open order into a scenario row.
         var orig = await _context.Shift
-            .FirstAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalShift);
+            .FirstAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalOrder);
         orig.AnalyseToken = Guid.NewGuid();
         await _context.SaveChangesAsync();
 
@@ -1519,10 +1544,10 @@ public class ShiftManipulationIntegrationTests
         second.Success.ShouldBeTrue(second.Message);
 
         (await _context.Shift.AsNoTracking()
-            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalShift && !s.IsDeleted))
+            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalOrder && !s.IsDeleted))
             .ShouldBe(2, "the reuse-guard must ignore scenario rows and create a real order");
         (await _context.Shift.AsNoTracking()
-            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalShift && s.AnalyseToken == null && !s.IsDeleted))
+            .CountAsync(s => s.Name == name && s.Status == ShiftStatus.OriginalOrder && s.AnalyseToken == null && !s.IsDeleted))
             .ShouldBe(1, "exactly one real (non-scenario) order must exist");
     }
 
