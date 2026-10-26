@@ -299,7 +299,8 @@ public class ShiftGroupVisibilityPostgresTests
     private async Task<List<Guid>> ListAsAsync(AppUser caller, Guid? selectedGroup)
     {
         var handler = new GetTruncatedListQueryHandler(
-            _shiftRepository, _groupFilter, _scheduleMapper, Substitute.For<ILogger<GetTruncatedListQueryHandler>>());
+            _shiftRepository, _groupFilter, Substitute.For<IAddressLocationResolver>(), _scheduleMapper,
+            Substitute.For<ILogger<GetTruncatedListQueryHandler>>());
         var filter = new ShiftFilter
         {
             FilterType = ShiftFilterType.Shift,
