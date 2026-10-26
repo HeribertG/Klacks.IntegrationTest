@@ -1197,7 +1197,8 @@ public class ShiftManipulationIntegrationTests
         (await ConfirmedCutAsync(cutParams)).Success.ShouldBeTrue();
 
         // Act - the disambiguation skill (exercises group resolution + GroupItems.Any + ILike + GetQuery).
-        var skill = new FindSplitShiftCandidatesSkill(new ShiftReader(_context), new GroupSearchRepository(_context));
+        var skill = new FindSplitShiftCandidatesSkill(
+            new ShiftReader(_context), new GroupSearchRepository(_context), Substitute.For<IMediator>());
         var result = await skill.ExecuteAsync(
             TestSkillContext(),
             new Dictionary<string, object> { ["groupName"] = $"{TestShiftPrefix}Biel/Bienne" },

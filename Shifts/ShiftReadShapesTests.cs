@@ -410,7 +410,8 @@ public class ShiftReadShapesTests
         var groupSearch = Substitute.For<IGroupSearchRepository>();
         groupSearch.SearchAsync(Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new GroupSearchResult { Items = [new GroupSearchItem { Id = _groupId, Name = Prefix + "Group" }], TotalCount = 1 });
-        var skill = new FindSplitShiftCandidatesSkill(_shiftReader, groupSearch);
+        var skill = new FindSplitShiftCandidatesSkill(
+            _shiftReader, groupSearch, Substitute.For<Klacks.Api.Infrastructure.Mediator.IMediator>());
 
         var result = await skill.ExecuteAsync(
             new SkillExecutionContext { UserId = Guid.NewGuid(), TenantId = Guid.NewGuid(), UserName = "planner", UserPermissions = [] },
