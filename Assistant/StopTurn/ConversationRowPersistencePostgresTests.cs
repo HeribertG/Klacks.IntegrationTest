@@ -11,12 +11,15 @@
 /// skill runs. Everything is keyed by the INTEGRATION_TEST_ prefix of the base class.
 /// </summary>
 
+using Klacks.Api.Application.Services.Playground;
+using Klacks.Api.Domain.Interfaces.Playground;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Domain.Services.Assistant;
 using Klacks.Api.Infrastructure.Repositories.Assistant;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
 using ProviderUsage = Klacks.Api.Domain.Services.Assistant.Providers.LLMUsage;
@@ -311,7 +314,10 @@ public class ConversationRowPersistencePostgresTests : StopTurnPostgresTestBase
         Klacks.Api.Infrastructure.Persistence.DataBaseContext context)
     {
         var repository = new LLMRepository(context, NullLogger<LLMModel>.Instance);
-        var manager = new LLMConversationManager(NullLogger<LLMConversationManager>.Instance, repository);
+        var manager = new LLMConversationManager(
+            NullLogger<LLMConversationManager>.Instance,
+            repository,
+            new PlaygroundConversationStore(Substitute.For<IPlaygroundMode>(), TimeProvider.System));
         var conversation = await manager.GetOrCreateConversationAsync(ConversationKey, UserId);
         return (manager, conversation);
     }
