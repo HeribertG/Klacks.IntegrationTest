@@ -282,7 +282,7 @@ public class ContainerVisibilityPostgresTests
         var service = Substitute.For<IContainerAvailableTasksService>();
         service.GetAvailableTasksAsync(
                 Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<TimeOnly>(), Arg.Any<TimeOnly>(), Arg.Any<string?>(), Arg.Any<Guid?>(),
-                Arg.Any<bool?>(), Arg.Any<bool?>(), Arg.Any<IReadOnlyCollection<Guid>?>(), Arg.Any<CancellationToken>())
+                Arg.Any<bool?>(), Arg.Any<bool?>(), Arg.Any<IReadOnlyCollection<Guid>?>(), Arg.Any<IReadOnlyCollection<Guid>?>(), Arg.Any<CancellationToken>())
             .Returns(_ => new List<Shift> { new() { Id = _visibleTask.Id }, new() { Id = _hiddenTask.Id } });
         var handler = new GetAvailableTasksQueryHandler(service, _mapper, _containerGuard, _shiftGuard);
 
