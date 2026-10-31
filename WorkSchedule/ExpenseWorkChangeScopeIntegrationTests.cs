@@ -2,22 +2,30 @@
 
 using Shouldly;
 using Klacks.Api.Application.Commands;
+using Klacks.Api.Application.Commands.Schedules;
 using Klacks.Api.Application.Common;
 using Klacks.Api.Application.Constants;
 using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Application.Mappers;
+using Klacks.Api.Application.Handlers.Schedules;
+using Klacks.Api.Application.Queries;
+using Klacks.Api.Application.Queries.Schedules;
+using Klacks.Api.Application.Services.Schedules.Recovery;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Exceptions;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Interfaces.Schedules;
+using Klacks.Api.Domain.Interfaces.Settings;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Schedules;
 using Klacks.Api.Domain.Services.ShiftSchedule;
+using Klacks.Api.Infrastructure.Mediator;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Schedules;
+using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
 using Klacks.Api.Infrastructure.Services.ScheduleEntries;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -47,6 +55,7 @@ public class ExpenseWorkChangeScopeIntegrationTests
     private Guid _scenarioWorkId;
     private Guid _closedWorkId;
     private Guid _scenarioToken;
+    private readonly List<Guid> _extraClientIds = [];
 
     [OneTimeSetUp]
     public void OneTimeSetUp()
@@ -118,7 +127,16 @@ public class ExpenseWorkChangeScopeIntegrationTests
             await _context.Database.ExecuteSqlRawAsync("DELETE FROM work WHERE id = {0} AND client_id = {1}", workId, _clientId);
         }
         await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM replacement_requests WHERE absent_client_id = {0} AND analyse_token = {1}", _clientId, _scenarioToken);
+        await _context.Database.ExecuteSqlRawAsync(
             "DELETE FROM shift WHERE id = {0} AND name LIKE {1}", _shiftId, Prefix + "%");
+        foreach (var extraClientId in _extraClientIds)
+        {
+            await _context.Database.ExecuteSqlRawAsync(
+                "DELETE FROM client WHERE id = {0} AND name LIKE {1}", extraClientId, Prefix + "%");
+        }
+
+        _extraClientIds.Clear();
         await _context.Database.ExecuteSqlRawAsync(
             "DELETE FROM client WHERE id = {0} AND name LIKE {1}", _clientId, Prefix + "%");
         _context.Dispose();
@@ -210,6 +228,120 @@ public class ExpenseWorkChangeScopeIntegrationTests
     }
 
     [Test]
+    public async Task GetWorkChange_ById_ResolvesAScenarioChangeFromTheStoredRow()
+    {
+        var changeId = await SeedScenarioWorkChangeAsync();
+        var handler = new WorkChangeHandlers.GetQueryHandler(
+            BuildWorkChangeRepository(), AllRowsVisible(), new ScheduleMapper(),
+            Substitute.For<ILogger<WorkChangeHandlers.GetQueryHandler>>());
+        _context.ChangeTracker.Clear();
+
+        var result = await handler.Handle(new GetQuery<WorkChangeResource>(changeId), CancellationToken.None);
+
+        result.Id.ShouldBe(changeId);
+    }
+
+    [Test]
+    public async Task GetExpense_ById_ResolvesAScenarioExpenseFromTheStoredRow()
+    {
+        var expenseId = await SeedScenarioExpenseAsync();
+        var handler = new ExpensesHandlers.GetQueryHandler(
+            new ExpensesRepository(_context, Substitute.For<ILogger<Expenses>>()), AllRowsVisible(), new ScheduleMapper(),
+            Substitute.For<ILogger<ExpensesHandlers.GetQueryHandler>>());
+        _context.ChangeTracker.Clear();
+
+        var result = await handler.Handle(new GetQuery<ExpensesResource>(expenseId), CancellationToken.None);
+
+        result.Id.ShouldBe(expenseId);
+    }
+
+    [Test]
+    public async Task ScenarioReplacementQueries_FindOnlyTheReplacementOfThatEmployeeDayAndScenario()
+    {
+        var changeId = await SeedScenarioWorkChangeAsync();
+        var stored = await _context.WorkChange.SingleAsync(wc => wc.Id == changeId);
+        stored.Type = WorkChangeType.ReplacementWithin;
+        stored.ReplaceClientId = _clientId;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        var repository = BuildWorkChangeRepository();
+
+        var onTheDay = await repository.ListScenarioReplacementsAsync(_scenarioToken, _clientId, Day);
+        var otherDay = await repository.ListScenarioReplacementsAsync(_scenarioToken, _clientId, Day.AddDays(1));
+        var otherScenario = await repository.ListScenarioReplacementsAsync(Guid.NewGuid(), _clientId, Day);
+
+        onTheDay.ShouldHaveSingleItem().Id.ShouldBe(changeId);
+        onTheDay[0].Work.ShouldNotBeNull().ShiftId.ShouldBe(_shiftId);
+        otherDay.ShouldBeEmpty();
+        otherScenario.ShouldBeEmpty();
+        (await repository.IsReplacementInScenarioAsync(_scenarioToken, _clientId)).ShouldBeTrue();
+        (await repository.IsReplacementInScenarioAsync(Guid.NewGuid(), _clientId)).ShouldBeFalse();
+        var slotStart = stored.StartTime;
+        var slotEnd = stored.EndTime;
+        (await repository.HasOverlappingScenarioReplacementAsync(_scenarioToken, _clientId, Day, slotStart, slotStart, slotEnd)).ShouldBeTrue();
+        (await repository.HasOverlappingScenarioReplacementAsync(_scenarioToken, _clientId, Day.AddDays(3), slotStart, slotStart, slotEnd)).ShouldBeFalse();
+        (await repository.HasOverlappingScenarioReplacementAsync(Guid.NewGuid(), _clientId, Day, slotStart, slotStart, slotEnd)).ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task AcceptingAnAlternative_SwitchesTheReplacement_AndDropsTheUntouchedProposal()
+    {
+        var oldStandInId = await AddExtraClientAsync("OldStandIn");
+        var alternativeId = await AddExtraClientAsync("Alternative");
+        var changeId = await SeedScenarioWorkChangeAsync();
+        var seeded = await _context.WorkChange.SingleAsync(wc => wc.Id == changeId);
+        seeded.Type = WorkChangeType.ReplacementWithin;
+        seeded.ReplaceClientId = oldStandInId;
+        var slot = (Start: seeded.StartTime, End: seeded.EndTime);
+        _context.ReplacementRequests.Add(new ReplacementRequest
+        {
+            Id = Guid.NewGuid(),
+            AbsentClientId = _clientId,
+            CandidateClientId = oldStandInId,
+            ShiftId = _shiftId,
+            Date = Day,
+            StartTime = slot.Start,
+            EndTime = slot.End,
+            Outcome = ReplacementRequestOutcome.Proposed,
+            Source = ReplacementRequestSource.RecoveryEngine,
+            ReportedAtUtc = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc),
+            ShiftStartUtc = new DateTime(2026, 5, 6, 8, 0, 0, DateTimeKind.Utc),
+            AnalyseToken = _scenarioToken,
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var result = await BuildContactHandler(alternativeId).Handle(
+            new RecordReplacementContactCommand(new RecordReplacementContactRequest(
+                _clientId, alternativeId, _shiftId, Day, slot.Start, slot.End, null, null, _scenarioToken,
+                ReplacementRequestOutcome.Accepted)),
+            CancellationToken.None);
+        _context.ChangeTracker.Clear();
+
+        result.IsScenarioReplacement.ShouldBeTrue();
+        var stored = await _context.WorkChange.AsNoTracking().SingleAsync(wc => wc.Id == changeId);
+        stored.ReplaceClientId.ShouldBe(alternativeId);
+        stored.AnalyseToken.ShouldBe(_scenarioToken);
+        stored.StartTime.ShouldBe(slot.Start);
+        var rows = await _context.ReplacementRequests.IgnoreQueryFilters().AsNoTracking()
+            .Where(r => r.AbsentClientId == _clientId).ToListAsync();
+        rows.Single(r => r.CandidateClientId == oldStandInId).IsDeleted.ShouldBeTrue();
+        var accepted = rows.Single(r => r.CandidateClientId == alternativeId);
+        accepted.IsDeleted.ShouldBeFalse();
+        accepted.Outcome.ShouldBe(ReplacementRequestOutcome.Accepted);
+    }
+
+    [Test]
+    public async Task RemoveScenarioMemberships_TranslatesOnPostgres()
+    {
+        var stager = new ScenarioOwnedRowStager(_context);
+
+        await stager.RemoveScenarioMembershipsAsync(_scenarioToken, _clientId, Day, CancellationToken.None);
+
+        _context.ChangeTracker.Entries().ShouldNotContain(e => e.State == EntityState.Deleted);
+    }
+
+    [Test]
     public async Task PutExpense_OnAClosedMainPlanWork_IsRefused_RowUnchanged()
     {
         var expenseId = await SeedExpenseAsync(_closedWorkId, null);
@@ -258,6 +390,52 @@ public class ExpenseWorkChangeScopeIntegrationTests
 
         var stored = await _context.WorkChange.AsNoTracking().SingleAsync(wc => wc.Id == changeId);
         stored.ChangeTime.ShouldBe(0.5m, "a closed period must not be changed through its work changes");
+    }
+
+    private async Task<Guid> AddExtraClientAsync(string suffix)
+    {
+        var client = new Client { Id = Guid.NewGuid(), Name = Prefix + suffix, FirstName = "Integration" };
+        _extraClientIds.Add(client.Id);
+        _context.Client.Add(client);
+        await _context.SaveChangesAsync();
+        return client.Id;
+    }
+
+    private RecordReplacementContactCommandHandler BuildContactHandler(Guid eligibleClientId)
+    {
+        var mediator = Substitute.For<IMediator>();
+        mediator.Send(Arg.Any<FindReplacementQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new ReplacementSearchResult(
+                [new ReplacementCandidate(eligibleClientId, "Alternative", false, [], 0m)], []));
+        mediator.Send(Arg.Any<GetWorkChangeInScopeQuery>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new WorkChangeHandlers.GetInScopeQueryHandler(
+                    BuildWorkChangeRepository(), AllClientsVisible(), new ScheduleMapper(),
+                    Substitute.For<ILogger<WorkChangeHandlers.GetInScopeQueryHandler>>())
+                .Handle(ci.Arg<GetWorkChangeInScopeQuery>(), CancellationToken.None));
+        mediator.Send(Arg.Any<PutCommand<WorkChangeResource>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => BuildWorkChangePutHandler().Handle(ci.Arg<PutCommand<WorkChangeResource>>(), CancellationToken.None));
+
+        var scenarioRepository = Substitute.For<IAnalyseScenarioRepository>();
+        scenarioRepository.GetByTokenAsync(_scenarioToken, Arg.Any<CancellationToken>())
+            .Returns(new AnalyseScenario { Token = _scenarioToken, GroupId = Guid.NewGuid(), Status = AnalyseScenarioStatus.Active });
+        var scenarioService = Substitute.For<IAnalyseScenarioService>();
+        scenarioService.ResolveRootShiftIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<Guid, Guid>());
+
+        var requestRepository = new ReplacementRequestRepository(_context, Substitute.For<ILogger<ReplacementRequest>>());
+        var companyClock = Substitute.For<ICompanyClock>();
+        companyClock.GetTimeZoneAsync(Arg.Any<CancellationToken>()).Returns(TimeZoneInfo.Utc);
+
+        return new RecordReplacementContactCommandHandler(
+            requestRepository,
+            Substitute.For<IReplacementContactValidator>(),
+            new UnitOfWork(_context, Substitute.For<ILogger<UnitOfWork>>()),
+            Substitute.For<ISettingsReader>(),
+            companyClock,
+            TimeProvider.System,
+            BuildHttpContextAccessor(),
+            new ScenarioReplacementSwitcher(
+                BuildWorkChangeRepository(), requestRepository, scenarioRepository, scenarioService, mediator));
     }
 
     private Task<Guid> SeedScenarioExpenseAsync() => SeedExpenseAsync(_scenarioWorkId, _scenarioToken);

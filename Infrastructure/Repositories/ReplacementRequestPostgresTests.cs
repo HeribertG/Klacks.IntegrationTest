@@ -12,6 +12,7 @@
 using Klacks.Api.Application.Commands.Schedules;
 using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.Handlers.Schedules;
+using Klacks.Api.Application.Exceptions;
 using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Application.Mappers;
 using Klacks.Api.Domain.Constants;
@@ -140,7 +141,8 @@ public class ReplacementRequestPostgresTests
             Substitute.For<ISettingsReader>(),
             UtcClock(),
             TimeProvider.System,
-            Substitute.For<IHttpContextAccessor>());
+            Substitute.For<IHttpContextAccessor>(),
+            Substitute.For<IScenarioReplacementSwitcher>());
 
         var result = await handler.Handle(
             new RecordReplacementContactCommand(new RecordReplacementContactRequest(
@@ -153,6 +155,77 @@ public class ReplacementRequestPostgresTests
         (await _context.ReplacementRequests.SingleAsync(r => r.Id == winner.Id)).Outcome.ShouldBe(ReplacementRequestOutcome.Declined);
         (await _context.ReplacementRequests.CountAsync(r => r.CandidateClientId == candidate)).ShouldBe(1);
     }
+    [Test]
+    public async Task RecordContact_ARefusedSwitch_RollsTheAnswerBack()
+    {
+        var absent = await AddClientAsync("RefusedAbsent");
+        var candidate = await AddClientAsync("RefusedCandidate");
+        var shiftId = await AddShiftAsync("RefusedShift", null, null);
+        var switcher = Substitute.For<IScenarioReplacementSwitcher>();
+        switcher.ApplyAcceptedAsync(Arg.Any<ReplacementRequest>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<bool>(new ConflictException("no longer eligible")));
+        var handler = new RecordReplacementContactCommandHandler(
+            _repository,
+            Substitute.For<IReplacementContactValidator>(),
+            new UnitOfWork(_context, Substitute.For<ILogger<UnitOfWork>>()),
+            Substitute.For<ISettingsReader>(),
+            UtcClock(),
+            TimeProvider.System,
+            Substitute.For<IHttpContextAccessor>(),
+            switcher);
+
+        await Should.ThrowAsync<ConflictException>(() => handler.Handle(
+            new RecordReplacementContactCommand(new RecordReplacementContactRequest(
+                absent, candidate, shiftId, Day, new TimeOnly(8, 0), new TimeOnly(16, 0), null, null, null,
+                ReplacementRequestOutcome.Accepted)),
+            CancellationToken.None));
+        _context.ChangeTracker.Clear();
+
+        (await _context.ReplacementRequests.CountAsync(r => r.CandidateClientId == candidate)).ShouldBe(0);
+    }
+
+    [Test]
+    public async Task OverlapCheck_PlacesANightSlotAfterMidnightOnTheNextDay()
+    {
+        var token = Guid.NewGuid();
+        var substitute = await AddClientAsync("NightSubstitute");
+        var nextDayCover = await AddClientAsync("NightNextDayCover");
+        await AddCoverAsync(token, nextDayCover, substitute, Day.AddDays(1), new TimeOnly(2, 0), new TimeOnly(5, 0), 3m);
+
+        var overlaps = await NewWorkChangeRepository().HasOverlappingScenarioReplacementAsync(
+            token, substitute, Day, new TimeOnly(23, 0), new TimeOnly(1, 0), new TimeOnly(7, 0));
+
+        overlaps.ShouldBeTrue("the 01:00-07:00 part of OBN 23-07 lies on the next day, where the cover is");
+    }
+
+    [Test]
+    public async Task OverlapCheck_DoesNotRefuseANightSlotBecauseOfACoverOnTheEarlyMorningOfItsWorkday()
+    {
+        var token = Guid.NewGuid();
+        var substitute = await AddClientAsync("NightEarlySubstitute");
+        var sameDayCover = await AddClientAsync("NightSameDayCover");
+        await AddCoverAsync(token, sameDayCover, substitute, Day, new TimeOnly(2, 0), new TimeOnly(5, 0), 3m);
+
+        var overlaps = await NewWorkChangeRepository().HasOverlappingScenarioReplacementAsync(
+            token, substitute, Day, new TimeOnly(23, 0), new TimeOnly(1, 0), new TimeOnly(7, 0));
+
+        overlaps.ShouldBeFalse("the cover ends long before the night slot starts on the next day");
+    }
+
+    [Test]
+    public async Task OverlapCheck_SkipsAReplacementWithoutHours()
+    {
+        var token = Guid.NewGuid();
+        var substitute = await AddClientAsync("ZeroSubstitute");
+        var owner = await AddClientAsync("ZeroOwner");
+        await AddCoverAsync(token, owner, substitute, Day, new TimeOnly(8, 0), new TimeOnly(16, 0), 0m);
+
+        var overlaps = await NewWorkChangeRepository().HasOverlappingScenarioReplacementAsync(
+            token, substitute, Day, new TimeOnly(8, 0), new TimeOnly(8, 0), new TimeOnly(16, 0));
+
+        overlaps.ShouldBeFalse();
+    }
+
     [Test]
     public async Task RepositoryQueries_TranslateOnPostgres()
     {
@@ -324,6 +397,43 @@ public class ReplacementRequestPostgresTests
     {
         _rowIds.Add(row.Id);
         return row;
+    }
+
+    private WorkChangeRepository NewWorkChangeRepository()
+        => new(_context, Substitute.For<ILogger<WorkChange>>(), Substitute.For<IWorkMacroService>());
+
+    private async Task AddCoverAsync(
+        Guid token, Guid owner, Guid substitute, DateOnly date, TimeOnly start, TimeOnly end, decimal hours)
+    {
+        var shiftId = await AddShiftAsync("Cover", token, null);
+        var work = new Work
+        {
+            Id = Guid.NewGuid(),
+            ClientId = owner,
+            ShiftId = shiftId,
+            CurrentDate = date,
+            StartTime = start,
+            EndTime = end,
+            WorkTime = hours,
+            AnalyseToken = token
+        };
+        _workIds.Add(work.Id);
+        _context.Work.Add(work);
+        var change = new WorkChange
+        {
+            Id = Guid.NewGuid(),
+            WorkId = work.Id,
+            Type = WorkChangeType.ReplacementWithin,
+            StartTime = start,
+            EndTime = end,
+            ReplaceClientId = substitute,
+            ChangeTime = hours,
+            AnalyseToken = token
+        };
+        _workChangeIds.Add(change.Id);
+        _context.WorkChange.Add(change);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
     }
 
     private async Task AddAndSaveAsync(ReplacementRequest row)
