@@ -26,6 +26,12 @@ internal static class TurnEvalScorecardBreakdown
         }
 
         var overall = result.Dimensions;
+        if (overall?.MissKindCounts != null)
+        {
+            TestContext.WriteLine(
+                "MissKinds: " + string.Join(", ", overall.MissKindCounts.Select(pair => $"{pair.Key}={pair.Value}")));
+        }
+
         if (overall?.RightsRefusalAccuracy != null)
         {
             TestContext.WriteLine(
