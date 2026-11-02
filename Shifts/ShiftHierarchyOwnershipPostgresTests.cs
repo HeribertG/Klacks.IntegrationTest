@@ -647,7 +647,7 @@ public class ShiftHierarchyOwnershipPostgresTests
             _shiftRepository,
             requirementRepository,
             new ShiftTreeService(_context, Substitute.For<ILogger<ShiftTreeService>>()),
-            new ShiftResetService(_shiftRepository, Substitute.For<ILogger<ShiftResetService>>()),
+            ShiftFamilyResetFactory.Create(_context, _shiftRepository, new ShiftTreeService(_context, Substitute.For<ILogger<ShiftTreeService>>()), _allVisible, unitOfWork),
             shiftValidator,
             _scheduleMapper,
             unitOfWork,

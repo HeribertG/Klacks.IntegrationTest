@@ -128,7 +128,7 @@ public abstract class VariantPromotionSeamTestBase
             _shiftRepository,
             new ShiftRequiredQualificationRepository(_context, Substitute.For<ILogger<ShiftRequiredQualification>>()),
             new ShiftTreeService(_context, Substitute.For<ILogger<ShiftTreeService>>()),
-            new ShiftResetService(_shiftRepository, Substitute.For<ILogger<ShiftResetService>>()),
+            ShiftFamilyResetFactory.Create(_context, _shiftRepository, new ShiftTreeService(_context, Substitute.For<ILogger<ShiftTreeService>>()), visibility, stagingUnitOfWork),
             shiftValidator,
             _mapper,
             stagingUnitOfWork,

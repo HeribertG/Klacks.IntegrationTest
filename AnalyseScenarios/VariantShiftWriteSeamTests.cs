@@ -122,7 +122,8 @@ public class VariantShiftWriteSeamTests
             Name = TestPrefix + "CLIENT",
             FirstName = "Test",
             Company = string.Empty,
-            LegalEntity = false
+            LegalEntity = false,
+            Type = EntityTypeEnum.Customer
         };
         await _context.Set<Client>().AddAsync(_client);
         await _context.SaveChangesAsync();
@@ -303,10 +304,10 @@ public class VariantShiftWriteSeamTests
     public async Task SealedOrderExport_ListsNeitherKeyShiftsNorScenarioClones()
     {
         var variant = await CreateVariantAsync("VARIANT");
-        var real = await CreateShiftAsync("EXPORT_REAL", null);
-        var key = await CreateShiftAsync("EXPORT_KEY", variant.Token);
-        var clone = await CreateShiftAsync("EXPORT_CLONE", Guid.NewGuid(), sourceShiftId: real.Id);
-        var promotedLookingClone = await CreateShiftAsync("EXPORT_SOURCED", null, sourceShiftId: real.Id);
+        var real = await CreateShiftAsync("EXPORT_REAL", null, clientId: _client.Id);
+        var key = await CreateShiftAsync("EXPORT_KEY", variant.Token, clientId: _client.Id);
+        var clone = await CreateShiftAsync("EXPORT_CLONE", Guid.NewGuid(), sourceShiftId: real.Id, clientId: _client.Id);
+        var promotedLookingClone = await CreateShiftAsync("EXPORT_SOURCED", null, sourceShiftId: real.Id, clientId: _client.Id);
         var loader = new SealedOrderListLoader(_context, new ShiftDescendantResolver(_context));
 
         var listed = await loader.LoadAsync(null, null, null, TestPrefix);
@@ -319,8 +320,8 @@ public class VariantShiftWriteSeamTests
     public async Task SealedOrderExport_FindsAnOrderThroughARealPieceButNotThroughAKeyPiece()
     {
         var variant = await CreateVariantAsync("VARIANT");
-        var real = await CreateShiftAsync("EXPORT_ORDER", null);
-        var other = await CreateShiftAsync("EXPORT_OTHER", null);
+        var real = await CreateShiftAsync("EXPORT_ORDER", null, clientId: _client.Id);
+        var other = await CreateShiftAsync("EXPORT_OTHER", null, clientId: _client.Id);
         await CreateShiftAsync("EXPORT_REALPIECE", null, ShiftStatus.OriginalShift, originalId: real.Id);
         await CreateShiftAsync("EXPORT_KEYPIECE", variant.Token, ShiftStatus.OriginalShift, originalId: other.Id);
         var loader = new SealedOrderListLoader(_context, new ShiftDescendantResolver(_context));
@@ -485,7 +486,8 @@ public class VariantShiftWriteSeamTests
         Guid? analyseToken,
         ShiftStatus status = ShiftStatus.SealedOrder,
         Guid? originalId = null,
-        Guid? sourceShiftId = null)
+        Guid? sourceShiftId = null,
+        Guid? clientId = null)
     {
         var shift = new Shift
         {
@@ -503,7 +505,8 @@ public class VariantShiftWriteSeamTests
             WorkTime = 8m,
             OriginalId = originalId,
             ScenarioSourceShiftId = sourceShiftId,
-            AnalyseToken = analyseToken
+            AnalyseToken = analyseToken,
+            ClientId = clientId
         };
         await _context.Shift.AddAsync(shift);
         await _context.SaveChangesAsync();

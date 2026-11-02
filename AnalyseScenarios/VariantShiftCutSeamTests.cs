@@ -108,6 +108,8 @@ public class VariantShiftCutSeamTests
 
         var unitOfWork = Substitute.For<IUnitOfWork>();
         unitOfWork.CompleteAsync().Returns(_ => _context.SaveChangesAsync());
+        unitOfWork.ExecuteInTransactionAsync(Arg.Any<Func<Task<List<Shift>>>>())
+            .Returns(call => call.Arg<Func<Task<List<Shift>>>>()());
 
         var groupGuard = Substitute.For<IGroupVisibilityGuard>();
         groupGuard.IsUnrestrictedAsync(Arg.Any<CancellationToken>()).Returns(true);
@@ -126,7 +128,7 @@ public class VariantShiftCutSeamTests
             _shiftRepository,
             new ShiftRequiredQualificationRepository(_context, Substitute.For<ILogger<ShiftRequiredQualification>>()),
             new ShiftTreeService(_context, Substitute.For<ILogger<ShiftTreeService>>()),
-            new ShiftResetService(_shiftRepository, Substitute.For<ILogger<ShiftResetService>>()),
+            ShiftFamilyResetFactory.Create(_context, _shiftRepository, new ShiftTreeService(_context, Substitute.For<ILogger<ShiftTreeService>>()), _visibility, unitOfWork),
             shiftValidator,
             _mapper,
             unitOfWork,
@@ -235,7 +237,7 @@ public class VariantShiftCutSeamTests
     }
 
     [Test]
-    public async Task KeyReset_WritesTheNewPlannableCopyWithTheToken_AndClosesRowsOfTheKeyOnly()
+    public async Task KeyReset_RemovesThePiecesOfTheKeyOnly_AndTheNewPlannableCopyKeepsTheTokenFromTheStartOfTheKey()
     {
         var variant = await CreateVariantAsync("VARIANT");
         var (keyOrder, keyPlannable) = await CreateOrderAsync("KEY", variant.Token);
@@ -247,17 +249,14 @@ public class VariantShiftCutSeamTests
 
         _context.ChangeTracker.Clear();
         var rows = await LoadRowsAsync(keyOrder.Id);
-        rows.Count.ShouldBe(PieceCount + 1);
-        rows.ShouldAllBe(row => row.AnalyseToken == variant.Token);
-        var copy = rows.Single(row => row.Status == ShiftStatus.OriginalShift);
-        copy.FromDate.ShouldBe(ResetFrom);
+        var copy = rows.ShouldHaveSingleItem();
+        copy.Status.ShouldBe(ShiftStatus.OriginalShift);
+        copy.AnalyseToken.ShouldBe(variant.Token);
+        copy.FromDate.ShouldBe(keyOrder.FromDate);
         copy.OriginalId.ShouldBe(keyOrder.Id);
         copy.GroupItems.Count.ShouldBe(1);
         copy.GroupItems.ShouldAllBe(item => item.AnalyseToken == variant.Token);
-        rows.Single(row => row.FromDate == SecondPieceFrom).UntilDate.ShouldBe(ResetFrom.AddDays(-1));
-        rows.Single(row => row.UntilDate == FirstPieceUntil).Status.ShouldBe(ShiftStatus.SplitShift);
-        result.Count.ShouldBe(rows.Count);
-        result.ShouldAllBe(row => row.AnalyseToken == variant.Token);
+        result.ShouldHaveSingleItem().Id.ShouldBe(copy.Id);
         (await LoadRowsAsync(realOrder.Id)).ShouldAllBe(row => row.UntilDate == PeriodUntil && row.AnalyseToken == null);
         (await _context.Shift.AsNoTracking().CountAsync(s => s.OriginalId == keyOrder.Id && s.AnalyseToken == null))
             .ShouldBe(0);
@@ -314,7 +313,7 @@ public class VariantShiftCutSeamTests
         var variant = await CreateVariantAsync("VARIANT");
         var (keyOrder, _) = await CreateOrderAsync("KEY", variant.Token);
         var handler = new GetResetDateRangeQueryHandler(
-            _shiftRepository, _visibility, _writeGuard, Substitute.For<ILogger<GetResetDateRangeQueryHandler>>());
+            _shiftRepository, _visibility, _writeGuard, new OrderFamilyEndRepository(_context), Substitute.For<ILogger<GetResetDateRangeQueryHandler>>());
 
         var range = await handler.Handle(new GetResetDateRangeQuery(keyOrder.Id), CancellationToken.None);
 

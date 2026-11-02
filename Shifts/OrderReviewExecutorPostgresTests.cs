@@ -100,7 +100,7 @@ public class OrderReviewExecutorPostgresTests
             _shiftRepository,
             new ShiftRequiredQualificationRepository(_context, Substitute.For<ILogger<ShiftRequiredQualification>>()),
             new ShiftTreeService(_context, Substitute.For<ILogger<ShiftTreeService>>()),
-            new ShiftResetService(_shiftRepository, Substitute.For<ILogger<ShiftResetService>>()),
+            ShiftFamilyResetFactory.Create(_context, _shiftRepository, new ShiftTreeService(_context, Substitute.For<ILogger<ShiftTreeService>>()), visible, unitOfWork),
             validator,
             mapper,
             unitOfWork,

@@ -48,7 +48,7 @@ namespace Klacks.IntegrationTest.Shifts;
 
 [TestFixture]
 [Category("RealDatabase")]
-public class ShiftManipulationIntegrationTests
+public partial class ShiftManipulationIntegrationTests
 {
     private DataBaseContext _context = null!;
     private string _connectionString = null!;
@@ -153,10 +153,6 @@ public class ShiftManipulationIntegrationTests
             _scheduleMapper,
             TestCompanyClock.Utc());
 
-        // Create ShiftResetService
-        var shiftResetServiceLogger = Substitute.For<ILogger<ShiftResetService>>();
-        var shiftResetService = new ShiftResetService(_shiftRepository, shiftResetServiceLogger);
-
         _requirementRepository = new ShiftRequiredQualificationRepository(
             _context, Substitute.For<ILogger<Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification>>());
 
@@ -166,7 +162,7 @@ public class ShiftManipulationIntegrationTests
             _shiftRepository,
             _requirementRepository,
             shiftTreeService,
-            shiftResetService,
+            ShiftFamilyResetFactory.Create(_context, _shiftRepository, shiftTreeService, AllShiftsVisible(), _unitOfWork),
             shiftValidator,
             _scheduleMapper,
             _unitOfWork,
@@ -755,7 +751,7 @@ public class ShiftManipulationIntegrationTests
     #region Test 4: Reset cuts
 
     [Test]
-    public async Task PostResetCuts_Should_Close_Old_Splits_And_Create_New_OriginalShift()
+    public async Task PostResetCuts_WithoutWork_Should_Delete_The_Splits_And_Create_One_OriginalShift_From_The_Order_Start()
     {
         // Arrange - Create SealedOrder and splits
         var shiftResource = CreateTestShiftResource("Reset_Test", ShiftStatus.SealedOrder,
@@ -806,23 +802,49 @@ public class ShiftManipulationIntegrationTests
             Console.WriteLine($"  - {s.Name}: Status={s.Status}, FromDate={s.FromDate}, UntilDate={s.UntilDate}");
         }
 
-        // Check that old splits are closed (UntilDate set)
-        var closedSplits = resetResults.Where(s =>
-            s.Status == ShiftStatus.SplitShift &&
-            s.UntilDate.HasValue &&
-            s.UntilDate.Value < new DateOnly(2025, 7, 1)).ToList();
+        // No work anywhere: the family is back to one plannable shift from the first day of the order
+        resetResults.ShouldHaveSingleItem();
+        resetResults[0].Status.ShouldBe(ShiftStatus.OriginalShift);
+        resetResults[0].FromDate.ShouldBe(new DateOnly(2025, 1, 1));
 
-        closedSplits.Count.ShouldBeGreaterThanOrEqualTo(0, "Old splits should be closed or deleted");
-
-        // Check for new OriginalShift starting from reset date
-        var newOriginalShift = resetResults.FirstOrDefault(s =>
-            s.Status == ShiftStatus.OriginalShift &&
-            s.FromDate >= new DateOnly(2025, 7, 1));
-
-        newOriginalShift.ShouldNotBeNull("New OriginalShift should be created from reset date");
-        Console.WriteLine($"New OriginalShift: Id={newOriginalShift!.Id}, FromDate={newOriginalShift.FromDate}");
+        var deleted = await _context.Shift.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => s.OriginalId == sealedOrderId && s.IsDeleted).CountAsync();
+        deleted.ShouldBe(3, "both pieces and the plannable shift are soft-deleted");
 
         Console.WriteLine("=== TEST PASSED ===");
+    }
+
+    [Test]
+    public async Task PostResetCuts_Twice_Should_Not_Leave_Two_Open_OriginalShifts()
+    {
+        var created = await _postHandler.Handle(
+            new PostCommand<ShiftResource>(CreateTestShiftResource("Double_Reset", ShiftStatus.SealedOrder, fromDate: new DateOnly(2025, 1, 1))),
+            CancellationToken.None);
+        var sealedOrderId = created!.OriginalId!.Value;
+
+        var split = CreateTestShiftResource("Double_Reset_Split", ShiftStatus.SplitShift,
+            fromDate: new DateOnly(2025, 1, 1), untilDate: new DateOnly(2025, 3, 31), originalId: sealedOrderId);
+        await _batchCutsHandler.Handle(
+            new PostBatchCutsCommand([new CutOperation { Type = "CREATE", ParentId = created.Id.ToString(), Data = split }]),
+            CancellationToken.None);
+
+        await _resetCutsHandler.Handle(new PostResetCutsCommand(sealedOrderId, new DateOnly(2025, 7, 1)), CancellationToken.None);
+
+        try
+        {
+            await _resetCutsHandler.Handle(new PostResetCutsCommand(sealedOrderId, new DateOnly(2025, 7, 1)), CancellationToken.None);
+        }
+        catch (ConflictException)
+        {
+            // The second reset may be refused; what counts is the state it leaves.
+        }
+
+        _context.ChangeTracker.Clear();
+        var open = (await GetAllShiftsWithOriginalId(sealedOrderId))
+            .Where(s => s.Status == ShiftStatus.OriginalShift && !s.UntilDate.HasValue)
+            .ToList();
+
+        open.Count.ShouldBe(1);
     }
 
     #endregion
@@ -3090,16 +3112,24 @@ public class ShiftManipulationIntegrationTests
         (await StoredAsync(containerId)).UntilDate.ShouldBeNull();
     }
 
-    private async Task<(Guid Head, Guid First, Guid Later, Guid LaterChild)> CutContainerWithoutOrderAsync(string suffix, DateOnly? headUntil = null)
+    private async Task<Guid> AddShiftWithoutOrderAsync(string suffix)
     {
-        var head = await AddContainerWithoutOrderAsync(suffix);
+        var shift = _scheduleMapper.ToShiftEntity(
+            CreateTestShiftResource(suffix, ShiftStatus.OriginalShift, fromDate: new DateOnly(2026, 1, 1)));
+        _context.Shift.Add(shift);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return shift.Id;
+    }
+
+    private async Task<(Guid Head, Guid First, Guid Later, Guid LaterChild)> CutShiftWithoutOrderAsync(string suffix, DateOnly? headUntil = null)
+    {
+        var head = await AddShiftWithoutOrderAsync(suffix);
         var update = await LoadThroughTheWireAsync(head);
         update.Status = ShiftStatus.SplitShift;
         update.UntilDate = headUntil;
         var first = CreateTestShiftResource($"{suffix}_First", ShiftStatus.SplitShift, fromDate: new DateOnly(2026, 1, 1));
-        first.ShiftType = ShiftType.IsContainer;
         var later = CreateTestShiftResource($"{suffix}_Later", ShiftStatus.SplitShift, fromDate: new DateOnly(2026, 7, 1));
-        later.ShiftType = ShiftType.IsContainer;
         await _batchCutsHandler.Handle(
             new PostBatchCutsCommand(
             [
@@ -3111,7 +3141,6 @@ public class ShiftManipulationIntegrationTests
         _context.ChangeTracker.Clear();
 
         var laterChild = CreateTestShiftResource($"{suffix}_LaterChild", ShiftStatus.SplitShift, fromDate: new DateOnly(2026, 8, 1));
-        laterChild.ShiftType = ShiftType.IsContainer;
         await _batchCutsHandler.Handle(
             new PostBatchCutsCommand([new CutOperation { Type = "CREATE", ParentId = later.Id.ToString(), Data = laterChild }]),
             CancellationToken.None);
@@ -3122,7 +3151,7 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FamilyWithoutOrder_BatchCut_EveryPieceOnBothLevels_CarriesTheFirstShiftAsRoot()
     {
-        var family = await CutContainerWithoutOrderAsync("Root_Cut");
+        var family = await CutShiftWithoutOrderAsync("Root_Cut");
 
         foreach (var id in new[] { family.Head, family.First, family.Later, family.LaterChild })
         {
@@ -3139,9 +3168,8 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FamilyWithoutOrder_ACreateOnlyBatch_ChildrenTakeTheUncutShiftAsRoot()
     {
-        var head = await AddContainerWithoutOrderAsync("Root_CreateOnly");
+        var head = await AddShiftWithoutOrderAsync("Root_CreateOnly");
         var piece = CreateTestShiftResource("Root_CreateOnly_Piece", ShiftStatus.SplitShift, fromDate: new DateOnly(2026, 1, 1));
-        piece.ShiftType = ShiftType.IsContainer;
 
         await _batchCutsHandler.Handle(
             new PostBatchCutsCommand([new CutOperation { Type = "CREATE", ParentId = head.ToString(), Data = piece }]),
@@ -3160,7 +3188,7 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FamilyWithoutOrder_ACreateOnlyBatch_IsRenumberedAfterAFamilyEndRemovedAPiece()
     {
-        var head = await AddContainerWithoutOrderAsync("Root_CreateOnlyEnd");
+        var head = await AddShiftWithoutOrderAsync("Root_CreateOnlyEnd");
         var first = CreateTestShiftResource("Root_CreateOnlyEnd_First", ShiftStatus.SplitShift, fromDate: new DateOnly(2026, 1, 1));
         var later = CreateTestShiftResource("Root_CreateOnlyEnd_Later", ShiftStatus.SplitShift, fromDate: new DateOnly(2026, 7, 1));
         await _batchCutsHandler.Handle(
@@ -3185,7 +3213,7 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FamilyWithoutOrder_CutListOfAScenarioCopy_DoesNotReturnTheRealFamily_SoTheVariantFallbackStaysReachable()
     {
-        var family = await CutContainerWithoutOrderAsync("Root_CloneKey");
+        var family = await CutShiftWithoutOrderAsync("Root_CloneKey");
         var clone = await CloneIntoScenarioAsync(family.Head);
 
         var stored = await _context.Shift.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == clone.CloneId);
@@ -3197,9 +3225,8 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FamilyWithoutOrder_ACreateOnlyBatch_ThenAnEndDateOnTheChild_EndsTheFamilyToo()
     {
-        var head = await AddContainerWithoutOrderAsync("Root_CreateEnd");
+        var head = await AddShiftWithoutOrderAsync("Root_CreateEnd");
         var piece = CreateTestShiftResource("Root_CreateEnd_Piece", ShiftStatus.SplitShift, fromDate: new DateOnly(2026, 1, 1));
-        piece.ShiftType = ShiftType.IsContainer;
         await _batchCutsHandler.Handle(
             new PostBatchCutsCommand([new CutOperation { Type = "CREATE", ParentId = head.ToString(), Data = piece }]),
             CancellationToken.None);
@@ -3214,13 +3241,12 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FamilyWithoutOrder_ACutBehindTheEndDate_IsRefused_AndSoIsAnUpdateThatReopensIt()
     {
-        var family = await CutContainerWithoutOrderAsync("Root_CutBehind");
+        var family = await CutShiftWithoutOrderAsync("Root_CutBehind");
         await PutFamilyEndAsync(family.Head, new DateOnly(2026, 8, 31));
         _context.ChangeTracker.Clear();
 
         var behind = CreateTestShiftResource("Root_CutBehind_New", ShiftStatus.SplitShift,
             fromDate: new DateOnly(2026, 9, 1), untilDate: new DateOnly(2026, 9, 30));
-        behind.ShiftType = ShiftType.IsContainer;
         await Should.ThrowAsync<BadRequestException>(() => _batchCutsHandler.Handle(
             new PostBatchCutsCommand([new CutOperation { Type = "CREATE", ParentId = family.LaterChild.ToString(), Data = behind }]),
             CancellationToken.None));
@@ -3240,9 +3266,8 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FamilyWithoutOrder_ACutBeforeTheFirstDay_IsRefused()
     {
-        var family = await CutContainerWithoutOrderAsync("Root_CutBefore");
+        var family = await CutShiftWithoutOrderAsync("Root_CutBefore");
         var before = CreateTestShiftResource("Root_CutBefore_New", ShiftStatus.SplitShift, fromDate: new DateOnly(2025, 12, 1));
-        before.ShiftType = ShiftType.IsContainer;
 
         await Should.ThrowAsync<BadRequestException>(() => _batchCutsHandler.Handle(
             new PostBatchCutsCommand([new CutOperation { Type = "CREATE", ParentId = family.Head.ToString(), Data = before }]),
@@ -3252,7 +3277,7 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FamilyWithoutOrder_CutList_FindsTheHeadAndEveryPiece_FromAnyRow()
     {
-        var family = await CutContainerWithoutOrderAsync("Root_CutList");
+        var family = await CutShiftWithoutOrderAsync("Root_CutList");
         var expected = new[] { family.Head, family.First, family.Later, family.LaterChild };
 
         (await _shiftRepository.CutList(family.Head)).Select(row => row.Id).ShouldBe(expected, ignoreOrder: true);
@@ -3272,7 +3297,7 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FamilyWithoutOrder_EndDateOnTheHead_TrimsThePieces_AndRemovesLaterOnesWithTheirSubtree()
     {
-        var family = await CutContainerWithoutOrderAsync("Root_EndHead");
+        var family = await CutShiftWithoutOrderAsync("Root_EndHead");
 
         await PutFamilyEndAsync(family.Head, FamilyEndDay);
 
@@ -3289,7 +3314,7 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FamilyWithoutOrder_EndDateOnAPiece_EndsTheFamilyAlike()
     {
-        var family = await CutContainerWithoutOrderAsync("Root_EndPiece");
+        var family = await CutShiftWithoutOrderAsync("Root_EndPiece");
 
         await PutFamilyEndAsync(family.First, FamilyEndDay);
 
@@ -3301,7 +3326,7 @@ public class ShiftManipulationIntegrationTests
     [Test]
     public async Task FamilyWithoutOrder_AWorkOnAPieceAfterTheDay_IsRefused_AndAWorkOnTheDayPasses()
     {
-        var family = await CutContainerWithoutOrderAsync("Root_Works");
+        var family = await CutShiftWithoutOrderAsync("Root_Works");
         await AddWorkOnAsync(family.LaterChild, new DateOnly(2026, 8, 3));
 
         var thrown = await Should.ThrowAsync<ShiftEndDateRefusedException>(() => PutFamilyEndAsync(family.Head, FamilyEndDay));
@@ -3310,7 +3335,7 @@ public class ShiftManipulationIntegrationTests
         thrown.ConflictDetails![ShiftEndDateRefusedException.LastWorkDateKey].ShouldBe("2026-08-03");
         (await StoredAsync(family.First)).UntilDate.ShouldBeNull();
 
-        var onTheDay = await CutContainerWithoutOrderAsync("Root_WorksOnDay");
+        var onTheDay = await CutShiftWithoutOrderAsync("Root_WorksOnDay");
         await AddWorkOnAsync(onTheDay.First, FamilyEndDay);
 
         await PutFamilyEndAsync(onTheDay.Head, FamilyEndDay);
@@ -3322,7 +3347,7 @@ public class ShiftManipulationIntegrationTests
     public async Task FamilyWithoutOrder_TheCutEndOfTheFirstShift_IsNoStoredEnd_ForTheLastPiece()
     {
         var cutEnd = new DateOnly(2026, 6, 30);
-        var family = await CutContainerWithoutOrderAsync("Root_CutEnd", cutEnd);
+        var family = await CutShiftWithoutOrderAsync("Root_CutEnd", cutEnd);
         var day = new DateOnly(2026, 8, 31);
 
         await PutFamilyEndAsync(family.LaterChild, day);
