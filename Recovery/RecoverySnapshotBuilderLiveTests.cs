@@ -1,14 +1,18 @@
 // Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
 
 using Klacks.Api.Application.Services.Schedules.Recovery;
+using Klacks.Api.Domain.Common;
+using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
+using Klacks.Api.Domain.Models.Staffs;
 using Klacks.IntegrationTest.Wizard;
 using Klacks.ScheduleRecovery.Model;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using Shouldly;
+using Shift = Klacks.Api.Domain.Models.Schedules.Shift;
 
 namespace Klacks.IntegrationTest.Recovery;
 
@@ -24,6 +28,7 @@ public sealed class RecoverySnapshotBuilderLiveTests : WizardHarnessTestBase
 {
     private const int CandidateSampleSize = 40;
     private const int MaxBuildAttempts = 12;
+    private const string SeedPrefix = "INTEGRATION_TEST_SNAPABSENCE_";
 
     private sealed record Fixture(Guid GroupId, Guid ClientId, DateOnly Date);
 
@@ -82,6 +87,124 @@ public sealed class RecoverySnapshotBuilderLiveTests : WizardHarnessTestBase
         ids.ShouldBe(ids.OrderBy(x => x).ToList(), "candidates must be in stable Guid order");
         snapshot.GetWorks(fixture.ClientId, fixture.Date).ShouldNotBeEmpty();
     }
+
+    [Test]
+    public async Task A_blocking_absence_of_a_candidate_on_the_next_day_reaches_the_snapshot_with_its_real_span()
+    {
+        await CleanupSeededAsync();
+        try
+        {
+            var group = new Group
+            {
+                Id = Guid.NewGuid(),
+                Name = SeedPrefix + "G",
+                Description = string.Empty,
+                ValidFrom = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                Parent = null,
+            };
+            var shift = new Shift
+            {
+                Id = Guid.NewGuid(),
+                Name = SeedPrefix + "S",
+                Abbreviation = "TST",
+                Description = "snapshot absence window",
+                Status = ShiftStatus.OriginalShift,
+                FromDate = new DateOnly(2099, 1, 1),
+                StartShift = new TimeOnly(22, 0),
+                EndShift = new TimeOnly(6, 0),
+                IsMonday = true, IsTuesday = true, IsWednesday = true, IsThursday = true, IsFriday = true,
+                ShiftType = ShiftType.IsTask,
+                Quantity = 1,
+                WorkTime = 8m,
+            };
+            var absent = NewClient("ABSENT");
+            var candidate = NewClient("CANDIDATE");
+            var absence = new Absence
+            {
+                Id = Guid.NewGuid(),
+                Name = new MultiLanguage { De = SeedPrefix + "A" },
+                Abbreviation = new MultiLanguage { De = "TST" },
+                Description = new MultiLanguage { De = "snapshot absence window" },
+                Color = "#cccccc",
+                IsOnCall = false,
+            };
+            var day = new DateOnly(2099, 7, 6);
+            var nextDay = day.AddDays(1);
+            await Context.Set<Group>().AddAsync(group);
+            await Context.Shift.AddAsync(shift);
+            await Context.Set<Client>().AddRangeAsync(absent, candidate);
+            await Context.Set<Absence>().AddAsync(absence);
+            await Context.Set<GroupItem>().AddRangeAsync(
+                new GroupItem { Id = Guid.NewGuid(), GroupId = group.Id, ShiftId = shift.Id },
+                new GroupItem { Id = Guid.NewGuid(), GroupId = group.Id, ClientId = absent.Id },
+                new GroupItem { Id = Guid.NewGuid(), GroupId = group.Id, ClientId = candidate.Id });
+            await Context.Work.AddAsync(new Work
+            {
+                Id = Guid.NewGuid(),
+                ClientId = absent.Id,
+                ShiftId = shift.Id,
+                CurrentDate = day,
+                StartTime = new TimeOnly(22, 0),
+                EndTime = new TimeOnly(6, 0),
+                WorkTime = 8m,
+            });
+            await Context.Break.AddAsync(new Break
+            {
+                Id = Guid.NewGuid(),
+                ClientId = candidate.Id,
+                AbsenceId = absence.Id,
+                CurrentDate = nextDay,
+                StartTime = new TimeOnly(14, 0),
+                EndTime = new TimeOnly(18, 0),
+                WorkTime = 4m,
+            });
+            await Context.SaveChangesAsync();
+
+            using var scope = CreateScope();
+            var builder = scope.ServiceProvider.GetRequiredService<IRecoverySnapshotBuilder>();
+            var snapshot = await builder.BuildAsync(group.Id, absent.Id, [day], null, CancellationToken.None);
+
+            var night = snapshot.GetWorks(absent.Id, day).ShouldHaveSingleItem();
+            night.StartAt.ShouldBe(day.ToDateTime(new TimeOnly(22, 0)));
+            night.EndAt.ShouldBe(nextDay.ToDateTime(new TimeOnly(6, 0)));
+            var window = snapshot.GetBlockingAbsences(candidate.Id, nextDay).ShouldHaveSingleItem();
+            window.Start.ShouldBe(nextDay.ToDateTime(new TimeOnly(14, 0)));
+            window.End.ShouldBe(nextDay.ToDateTime(new TimeOnly(18, 0)));
+            snapshot.GetAvailability(candidate.Id, nextDay).HasBreakBlocker.ShouldBeTrue();
+            snapshot.GetBlockingAbsences(candidate.Id, day).ShouldBeEmpty();
+        }
+        finally
+        {
+            await CleanupSeededAsync();
+        }
+    }
+
+    private static Client NewClient(string suffix) => new()
+    {
+        Id = Guid.NewGuid(),
+        Name = SeedPrefix + suffix,
+        FirstName = "Test",
+        Company = string.Empty,
+        LegalEntity = false,
+        Membership = new Membership
+        {
+            Id = Guid.NewGuid(),
+            ValidFrom = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            ValidUntil = null,
+        },
+    };
+
+    private Task CleanupSeededAsync() => Context.Database.ExecuteSqlRawAsync($@"
+        DELETE FROM work_change WHERE work_id IN (SELECT id FROM work WHERE client_id IN (SELECT id FROM client WHERE name LIKE '{SeedPrefix}%'));
+        DELETE FROM break WHERE client_id IN (SELECT id FROM client WHERE name LIKE '{SeedPrefix}%');
+        DELETE FROM work WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{SeedPrefix}%')
+            OR client_id IN (SELECT id FROM client WHERE name LIKE '{SeedPrefix}%');
+        DELETE FROM group_item WHERE group_id IN (SELECT id FROM ""group"" WHERE name LIKE '{SeedPrefix}%');
+        DELETE FROM shift WHERE name LIKE '{SeedPrefix}%';
+        DELETE FROM ""group"" WHERE name LIKE '{SeedPrefix}%';
+        DELETE FROM absence WHERE name->>'de' LIKE '{SeedPrefix}%';
+        DELETE FROM membership WHERE client_id IN (SELECT id FROM client WHERE name LIKE '{SeedPrefix}%');
+        DELETE FROM client WHERE name LIKE '{SeedPrefix}%';");
 
     [Test]
     public async Task Two_builds_produce_an_identical_snapshot()

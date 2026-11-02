@@ -284,6 +284,26 @@ public class ExpenseWorkChangeScopeIntegrationTests
     }
 
     [Test]
+    public async Task NonReplacementChangesOfAWork_AreListedAndReplacementsAreNot()
+    {
+        var changeId = await SeedScenarioWorkChangeAsync();
+        var repository = BuildWorkChangeRepository();
+
+        var listed = await repository.ListNonReplacementChangesAsync(_scenarioWorkId);
+        (await repository.ListNonReplacementChangesAsync(Guid.NewGuid())).ShouldBeEmpty();
+
+        listed.ShouldHaveSingleItem().Id.ShouldBe(changeId);
+
+        var stored = await _context.WorkChange.SingleAsync(wc => wc.Id == changeId);
+        stored.Type = WorkChangeType.ReplacementWithin;
+        stored.ReplaceClientId = _clientId;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        (await repository.ListNonReplacementChangesAsync(_scenarioWorkId)).ShouldBeEmpty();
+    }
+
+    [Test]
     public async Task AcceptingAnAlternative_SwitchesTheReplacement_AndDropsTheUntouchedProposal()
     {
         var oldStandInId = await AddExtraClientAsync("OldStandIn");

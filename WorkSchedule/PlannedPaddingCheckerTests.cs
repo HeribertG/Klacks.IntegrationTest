@@ -39,6 +39,7 @@ public class PlannedPaddingCheckerTests
     private string _connectionString = null!;
     private DataBaseContext _context = null!;
     private PreCommitConflictChecker _checker = null!;
+    private IPeriodCapEvaluator _periodCapEvaluator = null!;
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp()
@@ -68,7 +69,7 @@ public class PlannedPaddingCheckerTests
 
         var settingsReader = Substitute.For<ISettingsReader>();
 
-        var periodCapEvaluator = Substitute.For<IPeriodCapEvaluator>();
+        var periodCapEvaluator = _periodCapEvaluator = Substitute.For<IPeriodCapEvaluator>();
         periodCapEvaluator
             .EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, decimal Hours)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
@@ -198,6 +199,26 @@ public class PlannedPaddingCheckerTests
         bareResult.NewConflicts.ShouldNotContain(c => c.Comment == "schedule.error-list.collision");
         paddedResult.NewConflicts.ShouldContain(c =>
             c.Comment == "schedule.error-list.collision" && c.Type == ScheduleValidationType.Error);
+    }
+
+    [Test]
+    public async Task ExtraPaidHoursOfAPlannedRow_CountOnThePeriodCap_ButAVacatedRowGivesBackOnlyItsHours()
+    {
+        var client = await CreateClientAsync();
+        var shift = await CreateShiftAsync();
+        var planned = new PlannedWorkRow(
+            client.Id, WorkDate, new TimeOnly(8, 0), new TimeOnly(16, 0), shift.Id, 0m, 0m, 1.5m);
+        var vacated = new PlannedRemovalRow(client.Id, WorkDate, new TimeOnly(10, 0), new TimeOnly(14, 0));
+
+        await _checker.CheckAsync(new[] { planned }, new[] { vacated }, null, CancellationToken.None);
+
+        await _periodCapEvaluator.Received(1).EvaluatePlannedAsync(
+            client.Id,
+            string.Empty,
+            Arg.Is<IReadOnlyList<(DateOnly Date, decimal Hours)>>(hours =>
+                hours.Count == 2 && hours.Any(h => h.Hours == 9.5m) && hours.Any(h => h.Hours == -4m)),
+            (Guid?)null,
+            CancellationToken.None);
     }
 
     [Test]
