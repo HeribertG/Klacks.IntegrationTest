@@ -196,7 +196,7 @@ public class AcceptStaleScenarioSeamTests
         var scenario = await CreateClonedScenarioAsync("SEAL");
         await Task.Delay(ClockGapMilliseconds);
 
-        var sealedCount = await WorkRepository().SealByDayAndGroup(WorkDate, _group.Id, WorkLockLevel.Confirmed, "sealer");
+        var sealedCount = await WorkRepository().SealByDayAndGroup(WorkDate, _group.Id, WorkLockLevel.Confirmed, "sealer", new ServiceEndCutoff(new DateOnly(2999, 1, 1), TimeOnly.MinValue));
         sealedCount.ShouldBe(1);
 
         var accepted = await Handler().Handle(new AcceptAnalyseScenarioCommand(scenario.Id), CancellationToken.None);

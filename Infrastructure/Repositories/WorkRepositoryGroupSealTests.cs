@@ -37,6 +37,7 @@ public class WorkRepositoryGroupSealTests
     private Guid _work1Id;
     private Guid _work2Id;
 
+    private static readonly ServiceEndCutoff AllServicesEnded = new(new DateOnly(2999, 1, 1), TimeOnly.MinValue);
     private static readonly DateOnly TestDate = new DateOnly(2026, 6, 15);
     private static readonly DateOnly PeriodStart = new DateOnly(2026, 6, 1);
     private static readonly DateOnly PeriodEnd = new DateOnly(2026, 6, 30);
@@ -140,7 +141,7 @@ public class WorkRepositoryGroupSealTests
     {
         var before = DateTime.UtcNow.AddSeconds(-1);
 
-        await _repo.SealByDayAndGroup(TestDate, _group1Id, WorkLockLevel.Approved, "test-user");
+        await _repo.SealByDayAndGroup(TestDate, _group1Id, WorkLockLevel.Approved, "test-user", AllServicesEnded);
 
         await ShouldBeStampedAsync(_work1Id, before);
     }
