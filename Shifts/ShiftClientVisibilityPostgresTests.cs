@@ -214,7 +214,7 @@ public class ShiftClientVisibilityPostgresTests
         var handler = new ShiftPostHandler(
             _shiftRepository, _scheduleMapper, _unitOfWork, Substitute.For<IDefaultShiftMacroResolver>(),
             Substitute.For<IOrderSealingService>(), _shiftGuard, _clientReferenceGuard,
-            Substitute.For<ILogger<ShiftPostHandler>>());
+            Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<ShiftPostHandler>>());
         var shift = NewShift(suffix, clientId, _visibleGroupId);
         try
         {
@@ -245,7 +245,7 @@ public class ShiftClientVisibilityPostgresTests
 
         var handler = new ShiftPutHandler(
             _shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, _shiftGuard, _clientReferenceGuard,
-            Substitute.For<ILogger<ShiftPutHandler>>());
+            Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<ShiftPutHandler>>());
         try
         {
             using (ExecutionPrincipal.Begin(Guid.Parse(caller.Id)))

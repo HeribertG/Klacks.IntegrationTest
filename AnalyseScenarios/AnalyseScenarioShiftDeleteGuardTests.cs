@@ -3,7 +3,8 @@
 /// <summary>
 /// Integration tests for the Shift-Delete guard introduced as defense-in-depth
 /// for the phantom-shift fix. Verifies that ShiftRepository.Delete blocks
-/// deletion of clone shifts (AnalyseToken set) and source shifts that are
+/// deletion of clone shifts (AnalyseToken of anything but a live variant, see
+/// VariantShiftWriteSeamTests for that exception) and source shifts that are
 /// still referenced by active scenario clones.
 /// </summary>
 

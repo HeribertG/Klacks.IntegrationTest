@@ -7,17 +7,23 @@ using Klacks.Api.Application.Handlers.ClientShiftPreferences;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Queries;
 using Klacks.Api.Application.Queries.ClientShiftPreferences;
+using Klacks.Api.Application.Services.Shifts;
 using Klacks.Api.Application.Skills;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces;
+using Klacks.Api.Domain.Interfaces.Associations;
+using Klacks.Api.Domain.Interfaces.Macros;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
+using Klacks.Api.Domain.Services.ShiftSchedule;
 using Klacks.Api.Infrastructure.Mediator;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Associations;
+using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Infrastructure.Services.Assistant;
+using Klacks.Api.Infrastructure.Services.Clients;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -30,11 +36,12 @@ namespace Klacks.IntegrationTest.ReadModels;
 
 /// <summary>
 /// Pins, against real PostgreSQL, the group-item reads of the Application layer: the shifts a client may prefer
-/// (links of the client's group tree; each shift once, by name; deleted links and deleted shifts dropped, scenario
-/// links kept), the member count per group of analyze_group_semantics (real client rows; scenario, shift, deleted
+/// (real links of the client's group tree that the caller may see; each shift once, by name; deleted links, deleted
+/// shifts and the rows of a variant or scenario dropped, also through a hidden sister group), the shift count per group
+/// (real rows only), the member count per group of analyze_group_semantics (real client rows; scenario, shift, deleted
 /// rows dropped; ended memberships counted) and the link remove_shift_from_group deletes (the live link of the
-/// asked shift and group), and compares each repository read with the former GetQuery() composition. Every shift, client and group carries the INTEGRATION_TEST_GroupItemReads_ prefix and
-/// the cleanup deletes exactly those and their group items.
+/// asked shift and group), and compares each repository read with its plain GetQuery() composition. Every shift, client
+/// and group carries the INTEGRATION_TEST_GroupItemReads_ prefix and the cleanup deletes exactly those and their group items.
 /// </summary>
 [TestFixture]
 [Category("RealDatabase")]
@@ -50,6 +57,7 @@ public class GroupItemReadShapesTests
     private Group _child = null!;
     private Group _foreign = null!;
     private Group _empty = null!;
+    private Group _hiddenSister = null!;
     private Client _member = null!;
     private readonly List<Client> _counted = [];
 
@@ -59,6 +67,9 @@ public class GroupItemReadShapesTests
     private Shift _deletedShift = null!;
     private Shift _foreignShift = null!;
     private Shift _deletedLinkShift = null!;
+    private Shift _keyInSister = null!;
+    private Shift _realInSister = null!;
+    private Shift _scenarioCloneOfBravo = null!;
     private Guid _bravoChildLinkId;
 
     [SetUp]
@@ -84,16 +95,62 @@ public class GroupItemReadShapesTests
     [Test]
     public async Task AvailableShifts_AreTheTreeLinks_EachShiftOnce_ByName_WithoutDeletedLinksOrShifts()
     {
-        var guard = Substitute.For<IClientVisibilityGuard>();
-        guard.IsVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
-        var handler = new GetAvailableShiftsQueryHandler(
-            _groupItemRepository, guard, NullLogger<GetAvailableShiftsQueryHandler>.Instance);
+        var result = await AvailableShiftsHandler(visibleGroupIds: null)
+            .Handle(new GetAvailableShiftsQuery(_member.Id), CancellationToken.None);
 
-        var result = await handler.Handle(new GetAvailableShiftsQuery(_member.Id), CancellationToken.None);
+        result.Select(s => s.Id).ShouldBe([_alpha.Id, _bravo.Id, _realInSister.Id]);
+        result.Select(s => s.Name).ShouldBe([_alpha.Name, _bravo.Name, _realInSister.Name]);
+        result.Select(s => s.Abbreviation).ShouldBe(["A", "B", "R"]);
+    }
 
-        result.Select(s => s.Id).ShouldBe([_alpha.Id, _bravo.Id, _charlieScenarioLink.Id]);
-        result.Select(s => s.Name).ShouldBe([_alpha.Name, _bravo.Name, _charlieScenarioLink.Name]);
-        result.Select(s => s.Abbreviation).ShouldBe(["A", "B", "C"]);
+    [Test]
+    public async Task AvailableShifts_OfARestrictedCaller_LeaveOutTheHiddenSisterGroup_AndNeverNameAKeyShift()
+    {
+        var result = await AvailableShiftsHandler(visibleGroupIds: [_child.Id])
+            .Handle(new GetAvailableShiftsQuery(_member.Id), CancellationToken.None);
+
+        result.Select(s => s.Id).ShouldBe([_alpha.Id, _bravo.Id]);
+        result.Select(s => s.Name).ShouldNotContain(_keyInSister.Name);
+    }
+
+    [Test]
+    public async Task ShiftCounts_CountRealShiftRowsOnly()
+    {
+        var counts = await _groupItemRepository.GetShiftCountsPerGroupAsync();
+
+        counts[_root.Id].ShouldBe(1);
+        counts[_child.Id].ShouldBe(2);
+        counts[_hiddenSister.Id].ShouldBe(1);
+    }
+
+    [Test]
+    public async Task UsedPeriods_NameTheGroupsOfRealWorks_NeverTheGroupOfAKeyShiftPlannedInAScenario()
+    {
+        var periodStart = new DateOnly(2031, 3, 1);
+        var periodEnd = new DateOnly(2031, 3, 31);
+        _context.ClientPeriodHours.Add(new ClientPeriodHours
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _member.Id,
+            StartDate = periodStart,
+            EndDate = periodEnd,
+            CalculatedAt = DateTime.UtcNow
+        });
+        _context.Work.AddRange(
+            NewWork(_alpha.Id, periodStart, analyseToken: null),
+            NewWork(_keyInSister.Id, periodStart.AddDays(1), analyseToken: Guid.NewGuid()));
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        var workRepository = new WorkRepository(
+            _context,
+            Substitute.For<ILogger<Work>>(),
+            Substitute.For<IClientBaseQueryService>(),
+            Substitute.For<IWorkMacroService>(),
+            Substitute.For<IClientContractDataProvider>());
+
+        var periods = await workRepository.GetUsedPeriodsAsync();
+
+        periods.Where(p => p.StartDate == periodStart && p.GroupId != null).Select(p => p.GroupId).ShouldBe(new Guid?[] { _child.Id });
     }
 
     [Test]
@@ -155,12 +212,12 @@ public class GroupItemReadShapesTests
     [Test]
     public async Task RepositoryReads_EqualTheFormerGetQueryComposition()
     {
-        var treeIds = new List<Guid> { _root.Id, _child.Id };
+        var treeIds = new List<Guid> { _root.Id, _child.Id, _hiddenSister.Id };
         var linked = await _groupItemRepository.GetLinkedShiftNamesAsync(treeIds);
         var legacyLinked = await _context.GroupItem
             .Include(gi => gi.Shift)
-            .Where(gi => treeIds.Contains(gi.GroupId) && gi.ShiftId != null)
-            .Where(gi => gi.Shift != null)
+            .Where(gi => treeIds.Contains(gi.GroupId) && gi.ShiftId != null && gi.AnalyseToken == null)
+            .Where(gi => gi.Shift != null && gi.Shift.AnalyseToken == null && gi.Shift.ScenarioSourceShiftId == null)
             .Select(gi => new { gi.Shift!.Id, gi.Shift.Name, gi.Shift.Abbreviation })
             .Distinct()
             .OrderBy(s => s.Name)
@@ -185,6 +242,22 @@ public class GroupItemReadShapesTests
         (await _groupItemRepository.FindShiftLinkIdAsync(_deletedLinkShift.Id, _root.Id)).ShouldBeNull();
     }
 
+    private GetAvailableShiftsQueryHandler AvailableShiftsHandler(IReadOnlyCollection<Guid>? visibleGroupIds)
+    {
+        var clientGuard = Substitute.For<IClientVisibilityGuard>();
+        clientGuard.IsVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
+        var groupFilter = Substitute.For<IShiftGroupFilterService>();
+        groupFilter.ResolveShiftListGroupIdsAsync(null).Returns(visibleGroupIds?.ToList());
+        var shiftGuard = new ShiftVisibilityGuard(
+            groupFilter,
+            new ShiftVisibilityReadRepository(_context),
+            Substitute.For<IGroupVisibilityGuard>(),
+            NullLogger<ShiftVisibilityGuard>.Instance);
+
+        return new GetAvailableShiftsQueryHandler(
+            _groupItemRepository, clientGuard, shiftGuard, NullLogger<GetAvailableShiftsQueryHandler>.Instance);
+    }
+
     private (RemoveShiftFromGroupSkill Skill, List<string> Routes) RemoveSkill(Guid shiftId, Group group)
     {
         var shiftRepository = Substitute.For<IShiftRepository>();
@@ -205,6 +278,18 @@ public class GroupItemReadShapesTests
             shiftRepository, groupRepository, scopeGuard, _groupItemRepository, selfApi, new SelfApiRouteResolver());
         return (skill, routes);
     }
+
+    private Work NewWork(Guid shiftId, DateOnly day, Guid? analyseToken) => new()
+    {
+        Id = Guid.NewGuid(),
+        ClientId = _member.Id,
+        ShiftId = shiftId,
+        CurrentDate = day,
+        StartTime = new TimeOnly(8, 0),
+        EndTime = new TimeOnly(16, 0),
+        WorkTime = 8m,
+        AnalyseToken = analyseToken
+    };
 
     private static Dictionary<string, object> RemoveParams(Guid shiftId, Guid groupId) => new()
     {
@@ -228,7 +313,10 @@ public class GroupItemReadShapesTests
         _child.Parent = _root.Id;
         _foreign = NewGroup("Foreign");
         _empty = NewGroup("Empty");
-        _context.Group.AddRange(_root, _child, _foreign, _empty);
+        _hiddenSister = NewGroup("HiddenSister");
+        _hiddenSister.Root = _root.Id;
+        _hiddenSister.Parent = _root.Id;
+        _context.Group.AddRange(_root, _child, _foreign, _empty, _hiddenSister);
 
         _member = NewClient("Member");
         _counted.Clear();
@@ -247,7 +335,15 @@ public class GroupItemReadShapesTests
         _deletedShift.IsDeleted = true;
         _foreignShift = NewShift("echo", "E");
         _deletedLinkShift = NewShift("foxtrot", "F");
+        _keyInSister = NewShift("golf", "K");
+        _keyInSister.AnalyseToken = Guid.NewGuid();
+        _realInSister = NewShift("hotel", "R");
+        _scenarioCloneOfBravo = NewShift("india", "I");
+        _scenarioCloneOfBravo.AnalyseToken = Guid.NewGuid();
+        _scenarioCloneOfBravo.ScenarioSourceShiftId = _bravo.Id;
         _context.Shift.AddRange(_alpha, _bravo, _charlieScenarioLink, _deletedShift, _foreignShift, _deletedLinkShift);
+        await _context.SaveChangesAsync();
+        _context.Shift.AddRange(_keyInSister, _realInSister, _scenarioCloneOfBravo);
         await _context.SaveChangesAsync();
 
         _bravoChildLinkId = Guid.NewGuid();
@@ -260,6 +356,9 @@ public class GroupItemReadShapesTests
             new GroupItem { Id = Guid.NewGuid(), ShiftId = _deletedShift.Id, GroupId = _root.Id },
             new GroupItem { Id = Guid.NewGuid(), ShiftId = _foreignShift.Id, GroupId = _foreign.Id },
             new GroupItem { Id = Guid.NewGuid(), ShiftId = _deletedLinkShift.Id, GroupId = _root.Id, IsDeleted = true },
+            new GroupItem { Id = Guid.NewGuid(), ShiftId = _keyInSister.Id, GroupId = _hiddenSister.Id, AnalyseToken = _keyInSister.AnalyseToken },
+            new GroupItem { Id = Guid.NewGuid(), ShiftId = _realInSister.Id, GroupId = _hiddenSister.Id },
+            new GroupItem { Id = Guid.NewGuid(), ShiftId = _scenarioCloneOfBravo.Id, GroupId = _child.Id },
             new GroupItem { Id = Guid.NewGuid(), ClientId = _counted[0].Id, GroupId = _root.Id },
             new GroupItem { Id = Guid.NewGuid(), ClientId = _counted[1].Id, GroupId = _root.Id, ValidFrom = Past, ValidUntil = Past.AddYears(1) },
             new GroupItem { Id = Guid.NewGuid(), ClientId = _counted[2].Id, GroupId = _root.Id, AnalyseToken = Guid.NewGuid() },
@@ -306,9 +405,12 @@ public class GroupItemReadShapesTests
     private async Task CleanupAsync()
     {
         var sql = $@"
+            DELETE FROM work WHERE client_id IN (SELECT id FROM client WHERE starts_with(name, '{Prefix}'));
+            DELETE FROM client_period_hours WHERE client_id IN (SELECT id FROM client WHERE starts_with(name, '{Prefix}'));
             DELETE FROM group_item WHERE shift_id IN (SELECT id FROM shift WHERE starts_with(name, '{Prefix}'));
             DELETE FROM group_item WHERE client_id IN (SELECT id FROM client WHERE starts_with(name, '{Prefix}'));
             DELETE FROM group_item WHERE group_id IN (SELECT id FROM ""group"" WHERE starts_with(name, '{Prefix}'));
+            UPDATE shift SET scenario_source_shift_id = NULL WHERE starts_with(name, '{Prefix}');
             DELETE FROM shift WHERE starts_with(name, '{Prefix}');
             DELETE FROM client WHERE starts_with(name, '{Prefix}');
             DELETE FROM ""group"" WHERE starts_with(name, '{Prefix}');

@@ -653,16 +653,17 @@ public class ShiftHierarchyOwnershipPostgresTests
             unitOfWork,
             _allVisible,
             new ShiftExpensesRepository(_context, Substitute.For<ILogger<ShiftExpenses>>()),
+            Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(),
             Substitute.For<ILogger<ShiftCutFacade>>());
 
         var sealing = Substitute.For<IOrderSealingService>();
         sealing.CollectMissingRequirements(Arg.Any<Shift>()).Returns(Array.Empty<string>());
         _postHandler = new ShiftPostHandler(
             _shiftRepository, _scheduleMapper, unitOfWork, Substitute.For<IDefaultShiftMacroResolver>(),
-            sealing, _allVisible, Substitute.For<IClientReferenceGuard>(), Substitute.For<ILogger<ShiftPostHandler>>());
+            sealing, _allVisible, Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<ShiftPostHandler>>());
         _putHandler = new ShiftPutHandler(
             _shiftRepository, requirementRepository, _scheduleMapper, unitOfWork, _allVisible,
-            Substitute.For<IClientReferenceGuard>(), Substitute.For<ILogger<ShiftPutHandler>>());
+            Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<ShiftPutHandler>>());
     }
 
     private async Task CleanupAsync()

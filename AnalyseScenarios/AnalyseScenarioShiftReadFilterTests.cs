@@ -247,6 +247,7 @@ public class AnalyseScenarioShiftReadFilterTests
             _shiftRepository,
             UnrestrictedShiftGroupFilter(),
             _scheduleMapper,
+            Substitute.For<Klacks.Api.Application.Interfaces.IScenarioTokenAccessGuard>(),
             Substitute.For<ILogger<GetQueryHandler>>());
 
         var act = async () => await handler.Handle(
@@ -264,6 +265,7 @@ public class AnalyseScenarioShiftReadFilterTests
             _shiftRepository,
             UnrestrictedShiftGroupFilter(),
             _scheduleMapper,
+            Substitute.For<Klacks.Api.Application.Interfaces.IScenarioTokenAccessGuard>(),
             Substitute.For<ILogger<GetQueryHandler>>());
 
         var result = await handler.Handle(

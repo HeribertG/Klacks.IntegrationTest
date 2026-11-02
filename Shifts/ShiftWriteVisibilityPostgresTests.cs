@@ -191,7 +191,7 @@ public class ShiftWriteVisibilityPostgresTests
         sealing.CollectMissingRequirements(Arg.Any<Shift>()).Returns(Array.Empty<string>());
         var handler = new ShiftPostHandler(
             _shiftRepository, _scheduleMapper, _unitOfWork, Substitute.For<IDefaultShiftMacroResolver>(),
-            sealing, _shiftGuard, Substitute.For<IClientReferenceGuard>(), Substitute.For<ILogger<ShiftPostHandler>>());
+            sealing, _shiftGuard, Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<ShiftPostHandler>>());
 
         using (ExecutionPrincipal.Begin(Guid.Parse(_supervisor.Id)))
         {
@@ -362,7 +362,7 @@ public class ShiftWriteVisibilityPostgresTests
     {
         var handler = new ShiftPutHandler(
             _shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, _shiftGuard,
-            Substitute.For<IClientReferenceGuard>(), Substitute.For<ILogger<ShiftPutHandler>>());
+            Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<ShiftPutHandler>>());
         try
         {
             using (ExecutionPrincipal.Begin(Guid.Parse(caller.Id)))
@@ -489,6 +489,7 @@ public class ShiftWriteVisibilityPostgresTests
             _unitOfWork,
             _shiftGuard,
             new Klacks.Api.Infrastructure.Repositories.Schedules.ShiftExpensesRepository(_context, Substitute.For<ILogger<Klacks.Api.Domain.Models.Schedules.ShiftExpenses>>()),
+            Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(),
             Substitute.For<ILogger<ShiftCutFacade>>());
     }
 

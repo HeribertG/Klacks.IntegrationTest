@@ -169,7 +169,7 @@ public class ShiftGroupVisibilityPostgresTests
     public async Task GetById_Supervisor_HiddenShift_IsAnsweredLikeMissing()
     {
         var handler = new GetQueryHandler(
-            _shiftRepository, _groupFilter, _scheduleMapper, Substitute.For<ILogger<GetQueryHandler>>());
+            _shiftRepository, _groupFilter, _scheduleMapper, Substitute.For<Klacks.Api.Application.Interfaces.IScenarioTokenAccessGuard>(), Substitute.For<ILogger<GetQueryHandler>>());
 
         Exception? hiddenError;
         Exception? missingError;
@@ -191,7 +191,7 @@ public class ShiftGroupVisibilityPostgresTests
     public async Task GetById_Admin_HiddenGroupShift_IsReturned()
     {
         var handler = new GetQueryHandler(
-            _shiftRepository, _groupFilter, _scheduleMapper, Substitute.For<ILogger<GetQueryHandler>>());
+            _shiftRepository, _groupFilter, _scheduleMapper, Substitute.For<Klacks.Api.Application.Interfaces.IScenarioTokenAccessGuard>(), Substitute.For<ILogger<GetQueryHandler>>());
 
         ShiftResource result;
         using (ExecutionPrincipal.Begin(Guid.Parse(_admin.Id)))
@@ -220,7 +220,8 @@ public class ShiftGroupVisibilityPostgresTests
         _context.ChangeTracker.Clear();
 
         var handler = new CutListQueryHandler(
-            _shiftRepository, _groupFilter, _scheduleMapper, Substitute.For<ILogger<CutListQueryHandler>>());
+            _shiftRepository, _groupFilter, _scheduleMapper,
+            Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<CutListQueryHandler>>());
 
         List<Guid> supervisorIds;
         using (ExecutionPrincipal.Begin(Guid.Parse(_supervisor.Id)))

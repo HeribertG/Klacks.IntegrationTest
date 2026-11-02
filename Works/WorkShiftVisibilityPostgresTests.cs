@@ -251,7 +251,7 @@ public class WorkShiftVisibilityPostgresTests
             Substitute.For<IScheduleCompletionService>(), Substitute.For<IWorkNotificationFacade>(),
             Substitute.For<IContainerWorkCascadeService>(), Substitute.For<ISelectedGroupContextResolver>(),
             Substitute.For<IDayLockService>(), _unitOfWork, Substitute.For<IOvertimeCascadeService>(),
-            new Klacks.Api.Application.Services.Schedules.WorkWriteGuardService(Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftRepository>(), Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>(), conflictChecker),
+            new Klacks.Api.Application.Services.Schedules.WorkWriteGuardService(Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftRepository>(), Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>(), conflictChecker, Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftVisibilityReader>()),
             Substitute.For<IHttpContextAccessor>(), new ParentWorkLockGuard(new WorkLockLevelService()),
             Substitute.For<IClientPlanningPeriodGuard>(), _shiftGuard, Substitute.For<ILogger<WorkPutHandler>>());
 
@@ -277,7 +277,7 @@ public class WorkShiftVisibilityPostgresTests
             _workRepository, AllClientsVisible(), _scheduleMapper, Substitute.For<IPeriodHoursService>(), completionService,
             Substitute.For<IWorkNotificationFacade>(), Substitute.For<IContainerWorkExpansionService>(),
             Substitute.For<IOvertimeCascadeService>(), Substitute.For<IDayLockService>(),
-            new Klacks.Api.Application.Services.Schedules.WorkWriteGuardService(Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftRepository>(), Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>(), conflictChecker),
+            new Klacks.Api.Application.Services.Schedules.WorkWriteGuardService(Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftRepository>(), Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>(), conflictChecker, Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftVisibilityReader>()),
             Substitute.For<IShiftDefaultExpensesApplier>(), Substitute.For<IClientPlanningPeriodGuard>(), _shiftGuard,
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
         var request = new BulkAddWorksRequest

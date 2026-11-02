@@ -106,6 +106,7 @@ public class OrderReviewExecutorPostgresTests
             unitOfWork,
             visible,
             expenses,
+            Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(),
             Substitute.For<ILogger<ShiftCutFacade>>());
         var planner = new ShiftTimeCutPlanner(_shiftRepository, new ShiftReader(_context), visible, expenses);
         var sealing = new OrderSealingService(_shiftRepository, unitOfWork, visible);

@@ -781,7 +781,8 @@ OUTPUT 1, Round(TotalBonus, 2)",
         => new Klacks.Api.Application.Services.Schedules.WorkWriteGuardService(
             Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftRepository>(),
             Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>(),
-            NonBlockingConflictChecker());
+            NonBlockingConflictChecker(),
+            Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftVisibilityReader>());
 
     private static IPreCommitConflictChecker NonBlockingConflictChecker()
     {

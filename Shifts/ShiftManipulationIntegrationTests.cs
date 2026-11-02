@@ -168,6 +168,7 @@ public class ShiftManipulationIntegrationTests
             _unitOfWork,
             AllShiftsVisible(),
             new Klacks.Api.Infrastructure.Repositories.Schedules.ShiftExpensesRepository(_context, Substitute.For<ILogger<Klacks.Api.Domain.Models.Schedules.ShiftExpenses>>()),
+            Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(),
             facadeLogger);
 
         // Create handlers
@@ -175,10 +176,10 @@ public class ShiftManipulationIntegrationTests
         var defaultShiftMacroResolver = Substitute.For<IDefaultShiftMacroResolver>();
         var orderSealingService = Substitute.For<IOrderSealingService>();
         orderSealingService.CollectMissingRequirements(Arg.Any<Shift>()).Returns(Array.Empty<string>());
-        _postHandler = new PostCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, defaultShiftMacroResolver, orderSealingService, AllShiftsVisible(), Substitute.For<IClientReferenceGuard>(), postHandlerLogger);
+        _postHandler = new PostCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, defaultShiftMacroResolver, orderSealingService, AllShiftsVisible(), Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), postHandlerLogger);
 
         var putHandlerLogger = Substitute.For<ILogger<PutCommandHandler>>();
-        _putHandler = new PutCommandHandler(_shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, AllShiftsVisible(), Substitute.For<IClientReferenceGuard>(), putHandlerLogger);
+        _putHandler = new PutCommandHandler(_shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, AllShiftsVisible(), Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), putHandlerLogger);
         _familyDeletion = new SealedOrderFamilyDeletion(
             _shiftRepository, _unitOfWork, Substitute.For<ILogger<SealedOrderFamilyDeletion>>());
         _deleteHandler = DeleteHandlerFor(role: null);
@@ -1085,6 +1086,14 @@ public class ShiftManipulationIntegrationTests
             TestSkillContext() with { ConfirmedActionBinding = preview.Binding }, parameters, CancellationToken.None);
     }
 
+    private static IGroupScopeGuard UnrestrictedGroupScope()
+    {
+        var guard = Substitute.For<IGroupScopeGuard>();
+        guard.GetAccessAsync(Arg.Any<SkillExecutionContext>(), Arg.Any<CancellationToken>())
+            .Returns(Klacks.Api.Domain.Models.Associations.GroupScopeAccess.Unrestricted());
+        return guard;
+    }
+
     private static SkillExecutionContext TestSkillContext() => new()
     {
         UserId = Guid.Empty,
@@ -1222,7 +1231,7 @@ public class ShiftManipulationIntegrationTests
 
         // Act - the disambiguation skill (exercises group resolution + GroupItems.Any + ILike + GetQuery).
         var skill = new FindSplitShiftCandidatesSkill(
-            new ShiftReader(_context), new GroupSearchRepository(_context), Substitute.For<IMediator>());
+            new ShiftReader(_context), new GroupSearchRepository(_context), Substitute.For<IMediator>(), UnrestrictedGroupScope());
         var result = await skill.ExecuteAsync(
             TestSkillContext(),
             new Dictionary<string, object> { ["groupName"] = $"{TestShiftPrefix}Biel/Bienne" },
@@ -2571,7 +2580,7 @@ public class ShiftManipulationIntegrationTests
 
         accessor.HttpContext.Returns(httpContext);
         return new DeleteCommandHandler(
-            _shiftRepository, _scheduleMapper, _unitOfWork, _familyDeletion, accessor, AllShiftsVisible(), Substitute.For<ILogger<DeleteCommandHandler>>());
+            _shiftRepository, _scheduleMapper, _unitOfWork, _familyDeletion, accessor, AllShiftsVisible(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<DeleteCommandHandler>>());
     }
 
     private async Task AddWorkAsync(Guid shiftId, Guid? analyseToken = null, bool deleted = false)

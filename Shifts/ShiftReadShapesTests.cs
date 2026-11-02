@@ -326,6 +326,26 @@ public class ShiftReadShapesTests
     }
 
     [Test]
+    public async Task OrderFamilyInGroup_LeavesOutKeyShiftsScenarioCopiesAndTokenedLinks()
+    {
+        var family = new DateOnly(2031, 2, 3);
+        var keyShift = NewShift($"Biel Order {_token} Key", ShiftStatus.SealedOrder, family, new TimeOnly(6, 0), _groupId);
+        keyShift.AnalyseToken = Guid.NewGuid();
+        var scenarioCopy = NewShift($"Biel Order {_token} Copy", ShiftStatus.SealedOrder, family, new TimeOnly(6, 0), _groupId);
+        scenarioCopy.AnalyseToken = Guid.NewGuid();
+        scenarioCopy.ScenarioSourceShiftId = _order.Id;
+        var tokenedLink = NewShift($"Biel Order {_token} Link", ShiftStatus.SealedOrder, family, new TimeOnly(6, 0), _groupId);
+        tokenedLink.GroupItems.Single().AnalyseToken = Guid.NewGuid();
+        _context.Shift.AddRange(keyShift, scenarioCopy, tokenedLink);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var rows = await _shiftReader.GetOrderFamilyShiftsInGroupAsync(_groupId, null);
+
+        rows.Select(s => s.Id).ShouldBe([_partDay.Id, _partNight.Id, _planEarly.Id, _planLate.Id, _order.Id]);
+    }
+
+    [Test]
     public async Task VisibleRealPlanWithClientByIds_EqualsTheFormerComposition()
     {
         var ids = new List<Guid> { _order.Id, _planLate.Id, _partNight.Id, _planEarly.Id, _partDay.Id, _openToday.Id, _openTokenCopy.Id };
@@ -408,10 +428,13 @@ public class ShiftReadShapesTests
     private async Task<List<JsonElement>> FindSplitCandidatesAsync(string searchString)
     {
         var groupSearch = Substitute.For<IGroupSearchRepository>();
-        groupSearch.SearchAsync(Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        groupSearch.SearchWithinRootsAsync(Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<IReadOnlyCollection<Guid>?>(), Arg.Any<CancellationToken>())
             .Returns(new GroupSearchResult { Items = [new GroupSearchItem { Id = _groupId, Name = Prefix + "Group" }], TotalCount = 1 });
+        var groupScopeGuard = Substitute.For<IGroupScopeGuard>();
+        groupScopeGuard.GetAccessAsync(Arg.Any<SkillExecutionContext>(), Arg.Any<CancellationToken>())
+            .Returns(GroupScopeAccess.Unrestricted());
         var skill = new FindSplitShiftCandidatesSkill(
-            _shiftReader, groupSearch, Substitute.For<Klacks.Api.Infrastructure.Mediator.IMediator>());
+            _shiftReader, groupSearch, Substitute.For<Klacks.Api.Infrastructure.Mediator.IMediator>(), groupScopeGuard);
 
         var result = await skill.ExecuteAsync(
             new SkillExecutionContext { UserId = Guid.NewGuid(), TenantId = Guid.NewGuid(), UserName = "planner", UserPermissions = [] },

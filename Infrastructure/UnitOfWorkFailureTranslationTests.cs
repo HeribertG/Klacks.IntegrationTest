@@ -117,7 +117,8 @@ public class UnitOfWorkFailureTranslationTests
         var visibility = Substitute.For<IClientVisibilityGuard>();
         visibility.IsVisibleAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
         var handler = new SetShiftPreferenceCommandHandler(
-            new ClientShiftPreferenceRepository(_context, Substitute.For<ILogger<ClientShiftPreference>>()), visibility, _unitOfWork);
+            new ClientShiftPreferenceRepository(_context, Substitute.For<ILogger<ClientShiftPreference>>()), visibility,
+            Substitute.For<IShiftVisibilityGuard>(), _unitOfWork);
         var mediator = Substitute.For<IMediator>();
         mediator.Send(Arg.Any<SetShiftPreferenceCommand>(), Arg.Any<CancellationToken>())
             .Returns(call => handler.Handle(call.Arg<SetShiftPreferenceCommand>(), CancellationToken.None));

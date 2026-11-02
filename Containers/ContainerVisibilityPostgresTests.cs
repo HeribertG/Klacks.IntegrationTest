@@ -8,7 +8,8 @@
 /// container is answered exactly like a missing one on every endpoint and nothing is written; a container mixing
 /// groups stays saveable for the Supervisor while a new hidden task is refused; an item of another template cannot be
 /// overwritten; an override addressed through the wrong container is treated as missing; a lock on a hidden container
-/// is refused before a lock row is written. Every row carries the INTEGRATION_TEST_CONTAINERVIS_ prefix (shifts, groups,
+/// is refused before a lock row is written; a container of a variant (key) answers every template and override write like a
+/// missing one, for an admin too, also a write without any task shift, while it stays readable. Every row carries the INTEGRATION_TEST_CONTAINERVIS_ prefix (shifts, groups,
 /// users) and the cleanup deletes exactly those rows and the container rows hanging off them.
 /// </summary>
 
@@ -158,6 +159,65 @@ public class ContainerVisibilityPostgresTests
 
         AssertAlike(hidden, _hiddenTask.Id, missing, missingId);
         (await StoredTemplatesAsync(_visibleContainer.Id)).ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task PostTemplates_Admin_ContainerOfAKey_IsAnsweredLikeAMissingOne_NothingWritten()
+    {
+        var keyContainer = await SeedKeyContainerAsync();
+        await SeedLockAsync(ContainerLockResourceTypes.ContainerTemplate, keyContainer.Id, _admin);
+
+        var ex = await Should.ThrowAsync<KeyNotFoundException>(() => AsAsync(_admin, () => PostTemplatesHandler()
+            .Handle(new PostContainerTemplatesCommand(keyContainer.Id, [NewTemplate(keyContainer.Id, _visibleTask.Id)]),
+                CancellationToken.None)));
+
+        ex.Message.ShouldBe(string.Format(ShiftVisibilityMessages.ShiftNotFound, keyContainer.Id));
+        (await StoredTemplatesAsync(keyContainer.Id)).ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task PutTemplates_Admin_ContainerOfAKey_IsRefused_AlsoWithoutAnyTaskShift()
+    {
+        var keyContainer = await SeedKeyContainerAsync();
+        await SeedTemplateAsync(keyContainer.Id, Monday, _visibleTask.Id);
+        await SeedLockAsync(ContainerLockResourceTypes.ContainerTemplate, keyContainer.Id, _admin);
+
+        var ex = await Should.ThrowAsync<KeyNotFoundException>(() => AsAsync(_admin, () => PutTemplatesHandler()
+            .Handle(new PutContainerTemplatesCommand(keyContainer.Id, [NewTemplate(keyContainer.Id)]), CancellationToken.None)));
+
+        ex.Message.ShouldBe(string.Format(ShiftVisibilityMessages.ShiftNotFound, keyContainer.Id));
+        (await StoredTemplatesAsync(keyContainer.Id)).Single().ContainerTemplateItems.Count.ShouldBe(1);
+    }
+
+    [Test]
+    public async Task PostAndPutOverride_Admin_ContainerOfAKey_AreAnsweredLikeAMissingOne()
+    {
+        var keyContainer = await SeedKeyContainerAsync();
+        var stored = await SeedOverrideAsync(keyContainer.Id, _visibleTask.Id);
+        await SeedLockAsync(ContainerLockResourceTypes.ContainerShiftOverride, keyContainer.Id, _admin);
+        var expected = string.Format(ShiftVisibilityMessages.ShiftNotFound, keyContainer.Id);
+
+        var posted = await Should.ThrowAsync<KeyNotFoundException>(() => AsAsync(_admin, () => PostOverrideHandler()
+            .Handle(new PostContainerShiftOverrideCommand(keyContainer.Id, OverrideResource(keyContainer.Id, _visibleTask.Id)),
+                CancellationToken.None)));
+        var put = await Should.ThrowAsync<KeyNotFoundException>(() => AsAsync(_admin, () => PutOverrideHandler()
+            .Handle(new PutContainerShiftOverrideCommand(keyContainer.Id, stored.Id, OverrideResource(keyContainer.Id)),
+                CancellationToken.None)));
+
+        posted.Message.ShouldBe(expected);
+        put.Message.ShouldBe(expected);
+        (await StoredOverrideAsync(stored.Id)).ShouldNotBeNull().ContainerShiftOverrideItems.Count.ShouldBe(1);
+    }
+
+    [Test]
+    public async Task GetTemplates_Admin_ContainerOfAKey_StaysReadable()
+    {
+        var keyContainer = await SeedKeyContainerAsync();
+
+        var templates = await AsAsync(_admin, () => GetTemplatesHandler()
+            .Handle(new GetContainerTemplatesQuery(keyContainer.Id), CancellationToken.None));
+
+        templates.ShouldBeEmpty();
     }
 
     [Test]
@@ -476,6 +536,35 @@ public class ContainerVisibilityPostgresTests
         ContainerShiftOverrideItems = shiftIds.Select(id => new ContainerShiftOverrideItemResource { ShiftId = id }).ToList()
     };
 
+    private async Task<Shift> SeedKeyContainerAsync()
+    {
+        var key = new AnalyseScenario
+        {
+            Id = Guid.NewGuid(),
+            Name = Prefix + "KEY",
+            GroupId = _visibleRootId,
+            Token = Guid.NewGuid(),
+            FromDate = Day,
+            UntilDate = Day.AddDays(27),
+            Status = AnalyseScenarioStatus.Active,
+            Kind = AnalyseScenarioKind.Variant,
+            CreatedByUser = Prefix + "USER"
+        };
+        var container = NewShift("KEY_CONTAINER", ShiftType.IsContainer, _visibleRootId);
+        container.Status = ShiftStatus.SealedOrder;
+        container.AnalyseToken = key.Token;
+        foreach (var item in container.GroupItems)
+        {
+            item.AnalyseToken = key.Token;
+        }
+
+        _context.Set<AnalyseScenario>().Add(key);
+        _context.Shift.Add(container);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return container;
+    }
+
     private async Task<ContainerTemplate> SeedTemplateAsync(Guid containerId, int weekday, params Guid[] shiftIds)
     {
         var templateId = Guid.NewGuid();
@@ -679,6 +768,7 @@ public class ContainerVisibilityPostgresTests
             DELETE FROM group_item WHERE shift_id IN ({shifts});
             DELETE FROM group_item WHERE group_id IN (SELECT id FROM ""group"" WHERE starts_with(name, '{Prefix}'));
             DELETE FROM shift WHERE starts_with(name, '{Prefix}');
+            DELETE FROM analyse_scenarios WHERE starts_with(name, '{Prefix}');
             DELETE FROM group_visibility WHERE group_id IN (SELECT id FROM ""group"" WHERE starts_with(name, '{Prefix}'));
             DELETE FROM group_visibility WHERE app_user_id IN (SELECT id FROM ""AspNetUsers"" WHERE starts_with(email, '{Prefix}'));
             DELETE FROM ""group"" WHERE starts_with(name, '{Prefix}');

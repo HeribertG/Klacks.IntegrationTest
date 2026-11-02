@@ -392,7 +392,8 @@ public class EligibilityGuardrailTests
         var guard = new WorkWriteGuardService(
             Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftRepository>(),
             Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>(),
-            _checker);
+            _checker,
+            Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftVisibilityReader>());
         var work = new Klacks.Api.Domain.Models.Schedules.Work
         {
             ClientId = clientId,
