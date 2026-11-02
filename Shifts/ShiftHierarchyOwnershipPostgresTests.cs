@@ -663,7 +663,7 @@ public class ShiftHierarchyOwnershipPostgresTests
             sealing, _allVisible, Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<ShiftPostHandler>>());
         _putHandler = new ShiftPutHandler(
             _shiftRepository, requirementRepository, _scheduleMapper, unitOfWork, _allVisible,
-            Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<ShiftPutHandler>>());
+            Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IShiftFamilyEndService>(), Substitute.For<ILogger<ShiftPutHandler>>());
     }
 
     private async Task CleanupAsync()
