@@ -41,6 +41,8 @@ public class PeriodHoursReplacementPostgresTests
     private const string TestPrefix = "INTEGRATION_TEST_PERIODHOURSREPLACEMENT_";
     private const decimal WorkHours = 8m;
     private const decimal HandedOverHours = 6m;
+    private const decimal WorkSurcharges = 2m;
+    private const decimal HandedOverSurcharges = 1.5m;
     private static readonly DateOnly PeriodFrom = new(2098, 8, 1);
     private static readonly DateOnly PeriodUntil = new(2098, 8, 31);
     private static readonly DateOnly WorkDate = new(2098, 8, 5);
@@ -83,6 +85,7 @@ public class PeriodHoursReplacementPostgresTests
             StartTime = new TimeOnly(8, 0),
             EndTime = new TimeOnly(16, 0),
             WorkTime = WorkHours,
+            Surcharges = WorkSurcharges,
         };
         await _context.Work.AddAsync(work);
         await _context.WorkChange.AddAsync(new WorkChange
@@ -91,6 +94,8 @@ public class PeriodHoursReplacementPostgresTests
             WorkId = work.Id,
             Type = WorkChangeType.ReplacementWithin,
             ChangeTime = HandedOverHours,
+            Surcharges = HandedOverSurcharges,
+            ToInvoice = true,
             StartTime = new TimeOnly(9, 0),
             EndTime = new TimeOnly(15, 0),
             ReplaceClientId = substitute.Id,
@@ -124,6 +129,10 @@ public class PeriodHoursReplacementPostgresTests
         calculated[substitute.Id].Hours.ShouldBe(HandedOverHours);
         fallback[original.Id].Hours.ShouldBe(WorkHours - HandedOverHours);
         fallback[substitute.Id].Hours.ShouldBe(HandedOverHours);
+        calculated[original.Id].Surcharges.ShouldBe(WorkSurcharges - HandedOverSurcharges);
+        calculated[substitute.Id].Surcharges.ShouldBe(HandedOverSurcharges);
+        fallback[original.Id].Surcharges.ShouldBe(WorkSurcharges - HandedOverSurcharges);
+        fallback[substitute.Id].Surcharges.ShouldBe(HandedOverSurcharges);
 
         var fallbackForSubstituteAlone = await repository.GetPeriodHoursForClients([substitute.Id], PeriodFrom, PeriodUntil);
         fallbackForSubstituteAlone[substitute.Id].Hours.ShouldBe(HandedOverHours);
