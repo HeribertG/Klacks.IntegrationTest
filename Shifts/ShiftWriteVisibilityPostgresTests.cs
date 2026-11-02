@@ -14,6 +14,7 @@ using Klacks.Api.Application.Commands.Qualifications;
 using Klacks.Api.Application.Commands.Shifts;
 using Klacks.Api.Application.DTOs.Associations;
 using Klacks.Api.Application.DTOs.Schedules;
+using Klacks.Api.Application.Exceptions;
 using Klacks.Api.Application.Handlers.Qualifications;
 using Klacks.Api.Application.Handlers.Shifts;
 using Klacks.Api.Application.Interfaces;
@@ -358,11 +359,72 @@ public class ShiftWriteVisibilityPostgresTests
         (await _context.GroupItem.AnyAsync(gi => gi.ShiftId == _hiddenShift.Id && gi.GroupId == _visibleRootId)).ShouldBeFalse();
     }
 
+    private async Task<(Shift Order, Shift Plannable, Shift Cut)> AddFamilyAsync(string suffix, Guid cutGroupId)
+    {
+        var order = NewShift($"{suffix}_ORDER", _visibleChildId);
+        order.Status = ShiftStatus.SealedOrder;
+        var plannable = NewShift($"{suffix}_PLAN", _visibleChildId);
+        plannable.OriginalId = order.Id;
+        var cut = NewShift($"{suffix}_CUT", cutGroupId);
+        cut.Status = ShiftStatus.SplitShift;
+        cut.OriginalId = order.Id;
+        _context.Shift.AddRange(order, plannable, cut);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return (order, plannable, cut);
+    }
+
+    private async Task<ShiftResource> ResourceWithEndAsync(Guid shiftId, DateOnly untilDate)
+    {
+        var shift = await _shiftRepository.Get(shiftId);
+        var resource = _scheduleMapper.ToShiftResource(shift!);
+        resource.UntilDate = untilDate;
+        _context.ChangeTracker.Clear();
+        return resource;
+    }
+
+    [Test]
+    public async Task EndDate_SupervisorWhoDoesNotSeeEveryRowOfTheFamily_IsRefused_AndNoRowChanges()
+    {
+        var family = await AddFamilyAsync("END_HIDDEN", _hiddenRootId);
+        var day = new DateOnly(2026, 3, 31);
+        var resource = await ResourceWithEndAsync(family.Plannable.Id, day);
+
+        var thrown = await Should.ThrowAsync<ShiftEndDateRefusedException>(() => PutAsAsync(_supervisor, resource));
+
+        thrown.ConflictCode.ShouldBe(ShiftEndDateRefusedException.ErrorCode);
+        thrown.ConflictDetails!.Keys.ShouldBe([ShiftEndDateRefusedException.ReasonKey]);
+        thrown.ConflictDetails![ShiftEndDateRefusedException.ReasonKey].ShouldBe(ShiftEndDateRefusedException.HiddenRowsReason);
+        (await ReloadAsync(family.Order.Id)).UntilDate.ShouldBeNull();
+        (await ReloadAsync(family.Plannable.Id)).UntilDate.ShouldBeNull();
+        (await ReloadAsync(family.Cut.Id)).UntilDate.ShouldBeNull();
+    }
+
+    [Test]
+    public async Task EndDate_SupervisorWhoSeesEveryRowOfTheFamily_EndsIt()
+    {
+        var family = await AddFamilyAsync("END_VISIBLE", _visibleChildId);
+        var day = new DateOnly(2026, 3, 31);
+
+        await PutAsAsync(_supervisor, await ResourceWithEndAsync(family.Plannable.Id, day));
+
+        (await ReloadAsync(family.Order.Id)).UntilDate.ShouldBe(day);
+        (await ReloadAsync(family.Cut.Id)).UntilDate.ShouldBe(day);
+    }
+
     private async Task<ShiftResource?> PutAsAsync(AppUser caller, ShiftResource resource)
     {
         var handler = new ShiftPutHandler(
             _shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, _shiftGuard,
-            Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<ShiftPutHandler>>());
+            Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(),
+            new ShiftFamilyEndService(
+                _shiftRepository,
+                new OrderFamilyEndRepository(_context),
+                new ShiftTreeService(_context, Substitute.For<ILogger<ShiftTreeService>>()),
+                _shiftGuard,
+                _unitOfWork,
+                Substitute.For<ILogger<ShiftFamilyEndService>>()),
+            Substitute.For<ILogger<ShiftPutHandler>>());
         try
         {
             using (ExecutionPrincipal.Begin(Guid.Parse(caller.Id)))

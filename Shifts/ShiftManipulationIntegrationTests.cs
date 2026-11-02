@@ -19,7 +19,9 @@ using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Infrastructure.Repositories.Staffs;
 using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Domain.Interfaces.Staffs;
+using Klacks.Api.Application.Exceptions;
 using Klacks.Api.Application.Services.Schedules;
+using Klacks.Api.Application.Services.Shifts;
 using System.Security.Claims;
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Application.Interfaces.Schedules;
@@ -65,6 +67,8 @@ public class ShiftManipulationIntegrationTests
     // Services
     private IShiftRepository _shiftRepository = null!;
     private ShiftRequiredQualificationRepository _requirementRepository = null!;
+    private OrderFamilyEndRepository _orderFamilyEndRepository = null!;
+    private ShiftFamilyEndService _shiftFamilyEndService = null!;
     private IUnitOfWork _unitOfWork = null!;
     private IShiftCutFacade _shiftCutFacade = null!;
     private ScheduleMapper _scheduleMapper = null!;
@@ -178,8 +182,11 @@ public class ShiftManipulationIntegrationTests
         orderSealingService.CollectMissingRequirements(Arg.Any<Shift>()).Returns(Array.Empty<string>());
         _postHandler = new PostCommandHandler(_shiftRepository, _scheduleMapper, _unitOfWork, defaultShiftMacroResolver, orderSealingService, AllShiftsVisible(), Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), postHandlerLogger);
 
+        _orderFamilyEndRepository = new OrderFamilyEndRepository(_context);
+        _shiftFamilyEndService = new ShiftFamilyEndService(
+            _shiftRepository, _orderFamilyEndRepository, shiftTreeService, AllShiftsVisible(), _unitOfWork, Substitute.For<ILogger<ShiftFamilyEndService>>());
         var putHandlerLogger = Substitute.For<ILogger<PutCommandHandler>>();
-        _putHandler = new PutCommandHandler(_shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, AllShiftsVisible(), Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), putHandlerLogger);
+        _putHandler = new PutCommandHandler(_shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, AllShiftsVisible(), Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), _shiftFamilyEndService, putHandlerLogger);
         _familyDeletion = new SealedOrderFamilyDeletion(
             _shiftRepository, _unitOfWork, Substitute.For<ILogger<SealedOrderFamilyDeletion>>());
         _deleteHandler = DeleteHandlerFor(role: null);
@@ -2565,7 +2572,7 @@ public class ShiftManipulationIntegrationTests
         await _unitOfWork.CompleteAsync();
 
         var stored = await StoredAsync(family.SealedOrder);
-        stored.UntilDate.ShouldBe(new DateOnly(2026, 10, 15), "supersession and the set-end-date skill write through the repository and set the end date again");
+        stored.UntilDate.ShouldBe(new DateOnly(2026, 10, 15), "supersession writes through the repository and sets the end date again");
         stored.Name.ShouldBe($"{TestShiftPrefix}Lock_Direct_Superseded");
     }
 
@@ -2751,6 +2758,393 @@ public class ShiftManipulationIntegrationTests
         result.Success.ShouldBeTrue();
         (await FamilyRowsAsync(supervisorSkillFamily.SealedOrder)).ShouldAllBe(row => !row.IsDeleted);
         (await FamilyRowsAsync(adminFamily.SealedOrder)).ShouldAllBe(row => row.IsDeleted);
+    }
+
+    private static readonly DateOnly FamilyEndDay = new(2026, 3, 31);
+
+    private async Task AddWorkOnAsync(Guid shiftId, DateOnly day)
+    {
+        _context.Work.Add(new Work
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _employeeId,
+            ShiftId = shiftId,
+            CurrentDate = day,
+            StartTime = new TimeOnly(8, 0),
+            EndTime = new TimeOnly(16, 0),
+            WorkTime = 8m
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    private async Task<(Guid SealedOrder, Guid Plannable, Guid FirstCut, Guid LaterCut)> CreateCutFamilyAsync(string suffix)
+    {
+        var created = await _postHandler.Handle(
+            new PostCommand<ShiftResource>(CreateTestShiftResource(suffix, ShiftStatus.SealedOrder, fromDate: new DateOnly(2026, 1, 1))),
+            CancellationToken.None);
+        var plannable = created!.Id;
+        var sealedOrder = created.OriginalId!.Value;
+
+        var firstCut = CreateTestShiftResource($"{suffix}_First", ShiftStatus.SplitShift,
+            fromDate: new DateOnly(2026, 1, 1), originalId: sealedOrder);
+        var laterCut = CreateTestShiftResource($"{suffix}_Later", ShiftStatus.SplitShift,
+            fromDate: new DateOnly(2026, 7, 1), originalId: sealedOrder);
+        var cuts = await _batchCutsHandler.Handle(
+            new PostBatchCutsCommand(
+            [
+                new CutOperation { Type = "CREATE", ParentId = plannable.ToString(), Data = firstCut },
+                new CutOperation { Type = "CREATE", ParentId = plannable.ToString(), Data = laterCut }
+            ]),
+            CancellationToken.None);
+        _context.ChangeTracker.Clear();
+        return (sealedOrder, plannable, cuts.Single(c => c.Id == firstCut.Id).Id, cuts.Single(c => c.Id == laterCut.Id).Id);
+    }
+
+    private async Task PutFamilyEndAsync(Guid shiftId, DateOnly day)
+    {
+        var resource = await LoadThroughTheWireAsync(shiftId);
+        resource.UntilDate = day;
+        await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
+        _context.ChangeTracker.Clear();
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    public async Task FamilyEnd_Put_TrimsTheFamily_WhenEnteredFromTheOrderOrThePlanRow(int selector)
+    {
+        var family = await CreateLockedFamilyAsync($"End_Trim{selector}");
+
+        await PutFamilyEndAsync(selector == 0 ? family.SealedOrder : family.Plannable, FamilyEndDay);
+
+        (await StoredAsync(family.SealedOrder)).UntilDate.ShouldBe(FamilyEndDay);
+        (await StoredAsync(family.Plannable)).UntilDate.ShouldBe(FamilyEndDay);
+        (await StoredAsync(family.Piece)).UntilDate.ShouldBe(FamilyEndDay, "a later stored end of a part is pulled back");
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_FromACutPiece_EndsTheFamily_AndKeepsARowThatEndsEarlier()
+    {
+        var family = await CreateCutFamilyAsync("End_FromCut");
+        _context.Shift.Single(s => s.Id == family.FirstCut).UntilDate = new DateOnly(2026, 6, 30);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await PutFamilyEndAsync(family.LaterCut, new DateOnly(2026, 8, 31));
+
+        (await StoredAsync(family.SealedOrder)).UntilDate.ShouldBe(new DateOnly(2026, 8, 31));
+        (await StoredAsync(family.Plannable)).UntilDate.ShouldBe(new DateOnly(2026, 8, 31));
+        (await StoredAsync(family.LaterCut)).UntilDate.ShouldBe(new DateOnly(2026, 8, 31));
+        (await StoredAsync(family.FirstCut)).UntilDate.ShouldBe(new DateOnly(2026, 6, 30), "a row ending earlier stays");
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_RemovesAPartThatStartsAfterTheDay_WithItsSatellites_AndKeepsTheTreeConsistent()
+    {
+        var family = await CreateCutFamilyAsync("End_Remove");
+        var sub = CreateTestShiftResource("End_Remove_Sub", ShiftStatus.SplitShift,
+            fromDate: new DateOnly(2026, 8, 1), originalId: family.SealedOrder);
+        await _batchCutsHandler.Handle(
+            new PostBatchCutsCommand([new CutOperation { Type = "CREATE", ParentId = family.LaterCut.ToString(), Data = sub }]),
+            CancellationToken.None);
+        _context.ChangeTracker.Clear();
+        _context.GroupItem.Add(new Klacks.Api.Domain.Models.Associations.GroupItem { Id = Guid.NewGuid(), GroupId = _groupAId, ShiftId = family.LaterCut });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await PutFamilyEndAsync(family.SealedOrder, FamilyEndDay);
+
+        var removed = await _context.Shift.IgnoreQueryFilters().AsNoTracking()
+            .Where(s => s.Id == family.LaterCut || s.Id == sub.Id).ToListAsync();
+        removed.Count.ShouldBe(2);
+        removed.ShouldAllBe(row => row.IsDeleted, "the part goes with its subtree");
+        (await _context.GroupItem.IgnoreQueryFilters().AsNoTracking().Where(g => g.ShiftId == family.LaterCut).ToListAsync())
+            .ShouldAllBe(link => link.IsDeleted);
+
+        var live = await _shiftRepository.CutList(family.SealedOrder);
+        live.Select(row => row.Id).ShouldBe(new[] { family.Plannable, family.FirstCut }, ignoreOrder: true);
+        live.ShouldAllBe(row => row.UntilDate == FamilyEndDay);
+        var first = await StoredAsync(family.FirstCut);
+        (first.Rgt - first.Lft).ShouldBe(1, "the nested set of the remaining tree is whole again");
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_RenumbersASurvivingTreeThatLostAChild()
+    {
+        var family = await CreateCutFamilyAsync("End_Renumber");
+        await _batchCutsHandler.Handle(
+            new PostBatchCutsCommand(
+            [
+                new CutOperation
+                {
+                    Type = "CREATE",
+                    ParentId = family.FirstCut.ToString(),
+                    Data = CreateTestShiftResource("End_Renumber_Sub", ShiftStatus.SplitShift, fromDate: new DateOnly(2026, 8, 1), originalId: family.SealedOrder)
+                }
+            ]),
+            CancellationToken.None);
+        _context.ChangeTracker.Clear();
+        var before = await StoredAsync(family.FirstCut);
+        (before.Lft, before.Rgt).ShouldBe((1, 4), "precondition: the first part has a child in its tree");
+
+        await PutFamilyEndAsync(family.SealedOrder, FamilyEndDay);
+
+        var after = await StoredAsync(family.FirstCut);
+        (after.Lft, after.Rgt).ShouldBe((1, 2));
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_RenumbersATreeRootedAtTheOrder_LikeTheSeededParts()
+    {
+        var family = await CreateCutFamilyAsync("End_OrderRoot");
+        foreach (var row in _context.Shift.Where(s => s.Id == family.FirstCut || s.Id == family.LaterCut).ToList())
+        {
+            row.RootId = family.SealedOrder;
+            row.Lft = row.Id == family.FirstCut ? 3 : 1;
+            row.Rgt = row.Id == family.FirstCut ? 4 : 2;
+        }
+
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await PutFamilyEndAsync(family.SealedOrder, FamilyEndDay);
+
+        var first = await StoredAsync(family.FirstCut);
+        (first.Lft, first.Rgt).ShouldBe((1, 2));
+        first.RootId.ShouldBe(family.SealedOrder);
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_AWorkOnTheDayPasses_AWorkTheDayAfterIsRefused_AndNothingIsWritten()
+    {
+        var family = await CreateCutFamilyAsync("End_Works");
+        await AddWorkOnAsync(family.FirstCut, FamilyEndDay);
+
+        await PutFamilyEndAsync(family.FirstCut, FamilyEndDay);
+        (await StoredAsync(family.SealedOrder)).UntilDate.ShouldBe(FamilyEndDay);
+
+        var refused = await CreateCutFamilyAsync("End_WorksRefused");
+        await AddWorkOnAsync(refused.FirstCut, FamilyEndDay.AddDays(1));
+
+        var thrown = await Should.ThrowAsync<ShiftEndDateRefusedException>(() => PutFamilyEndAsync(refused.SealedOrder, FamilyEndDay));
+
+        thrown.ConflictCode.ShouldBe(ShiftEndDateRefusedException.ErrorCode);
+        thrown.ConflictDetails![ShiftEndDateRefusedException.LastWorkDateKey].ShouldBe("2026-04-01");
+        (await StoredAsync(refused.SealedOrder)).UntilDate.ShouldBeNull();
+        (await StoredAsync(refused.FirstCut)).UntilDate.ShouldBeNull();
+    }
+
+    [Test]
+    public async Task FamilyEnd_FindLastWorkDateAfter_IsStrictlyAfterTheDay_AndIgnoresScenarioAndDeletedWorks()
+    {
+        var family = await CreateLockedFamilyAsync("End_LastWork");
+        await AddWorkAsync(family.Piece, analyseToken: Guid.NewGuid());
+        await AddWorkAsync(family.Piece, deleted: true);
+        await AddWorkOnAsync(family.Piece, new DateOnly(2026, 3, 31));
+
+        (await _orderFamilyEndRepository.FindLastWorkDateAfterAsync(family.SealedOrder, new DateOnly(2026, 3, 31))).ShouldBeNull();
+
+        await AddWorkOnAsync(family.Plannable, new DateOnly(2026, 4, 1));
+        await AddWorkOnAsync(family.Piece, new DateOnly(2026, 4, 15));
+
+        (await _orderFamilyEndRepository.FindLastWorkDateAfterAsync(family.SealedOrder, new DateOnly(2026, 3, 31)))
+            .ShouldBe(new DateOnly(2026, 4, 15));
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_RefusedWhileAScenarioHoldsACloneOfAPartThatMustGo()
+    {
+        var family = await CreateCutFamilyAsync("End_Clone");
+        await AnalyseScenarioTestServiceFactory.Create(_context).CloneScenarioDataAsync(
+            null, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 31), Guid.NewGuid(), new[] { family.LaterCut }, null, CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var thrown = await Should.ThrowAsync<ShiftEndDateRefusedException>(() => PutFamilyEndAsync(family.SealedOrder, FamilyEndDay));
+
+        thrown.ConflictDetails![ShiftEndDateRefusedException.ReasonKey].ShouldBe(ShiftEndDateRefusedException.RowsInUseReason);
+        (await StoredAsync(family.LaterCut)).IsDeleted.ShouldBeFalse();
+        (await StoredAsync(family.SealedOrder)).UntilDate.ShouldBeNull();
+    }
+
+    private async Task<(Guid CloneId, Guid Token)> CloneIntoScenarioAsync(Guid shiftId)
+    {
+        var token = Guid.NewGuid();
+        var idMap = await AnalyseScenarioTestServiceFactory.Create(_context).CloneScenarioDataAsync(
+            null, new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31), token, new[] { shiftId }, null, CancellationToken.None);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return (idMap[shiftId], token);
+    }
+
+    private async Task AddScenarioWorkAsync(Guid cloneId, Guid token, DateOnly day, bool deleted = false)
+    {
+        _context.Work.Add(new Work
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _employeeId,
+            ShiftId = cloneId,
+            CurrentDate = day,
+            StartTime = new TimeOnly(8, 0),
+            EndTime = new TimeOnly(16, 0),
+            WorkTime = 8m,
+            AnalyseToken = token,
+            IsDeleted = deleted
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    public async Task FamilyEnd_Put_RefusedByAScenarioWorkAfterTheDay_OnACloneOfAnyFamilyRow_AndNothingIsWritten(int selector)
+    {
+        var family = await CreateLockedFamilyAsync($"End_ScenarioWork{selector}");
+        var clone = await CloneIntoScenarioAsync(selector == 0 ? family.SealedOrder : family.Piece);
+        await AddScenarioWorkAsync(clone.CloneId, clone.Token, new DateOnly(2026, 5, 4));
+
+        var thrown = await Should.ThrowAsync<ShiftEndDateRefusedException>(() => PutFamilyEndAsync(family.Plannable, FamilyEndDay));
+
+        thrown.ConflictCode.ShouldBe(ShiftEndDateRefusedException.ErrorCode);
+        thrown.ConflictDetails![ShiftEndDateRefusedException.ReasonKey].ShouldBe(ShiftEndDateRefusedException.ScenarioWorksAfterReason);
+        thrown.ConflictDetails!.ContainsKey(ShiftEndDateRefusedException.LastWorkDateKey).ShouldBeFalse();
+        thrown.Message.ShouldNotContain("2026-05-04");
+        (await StoredAsync(family.SealedOrder)).UntilDate.ShouldBeNull();
+        (await StoredAsync(family.Plannable)).UntilDate.ShouldBeNull();
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_ACloneWithoutAWorkAfterTheDay_DoesNotBlock_AndKeepsItsOldEnd()
+    {
+        var family = await CreateLockedFamilyAsync("End_ScenarioFree");
+        var clone = await CloneIntoScenarioAsync(family.Plannable);
+        await AddScenarioWorkAsync(clone.CloneId, clone.Token, FamilyEndDay);
+        await AddScenarioWorkAsync(clone.CloneId, clone.Token, new DateOnly(2026, 5, 4), deleted: true);
+
+        await PutFamilyEndAsync(family.SealedOrder, FamilyEndDay);
+
+        (await StoredAsync(family.Plannable)).UntilDate.ShouldBe(FamilyEndDay);
+    }
+
+    [Test]
+    public async Task FamilyEnd_FindLastScenarioWorkDateAfter_SeesOnlyLiveCloneWorks_StrictlyAfterTheDay()
+    {
+        var family = await CreateLockedFamilyAsync("End_ScenarioQuery");
+        var live = await CloneIntoScenarioAsync(family.Plannable);
+        var discarded = await CloneIntoScenarioAsync(family.Piece);
+        await AddWorkOnAsync(family.Plannable, new DateOnly(2026, 7, 1));
+        await AddScenarioWorkAsync(live.CloneId, live.Token, FamilyEndDay);
+        await AddScenarioWorkAsync(discarded.CloneId, discarded.Token, new DateOnly(2026, 6, 15));
+        var discardedClone = await _context.Shift.IgnoreQueryFilters().SingleAsync(s => s.Id == discarded.CloneId);
+        discardedClone.IsDeleted = true;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        (await _orderFamilyEndRepository.FindLastScenarioWorkDateAfterAsync(family.SealedOrder, FamilyEndDay))
+            .ShouldBeNull("the real work, a work on the day and a work on a deleted clone do not count");
+
+        await AddScenarioWorkAsync(live.CloneId, live.Token, new DateOnly(2026, 4, 1));
+        await AddScenarioWorkAsync(live.CloneId, live.Token, new DateOnly(2026, 4, 20));
+
+        (await _orderFamilyEndRepository.FindLastScenarioWorkDateAfterAsync(family.SealedOrder, FamilyEndDay))
+            .ShouldBe(new DateOnly(2026, 4, 20));
+        (await _orderFamilyEndRepository.FindLastWorkDateAfterAsync(family.SealedOrder, new DateOnly(2026, 7, 1)))
+            .ShouldBeNull("a scenario work never counts as a real work");
+    }
+
+    private async Task<Guid> AddContainerWithoutOrderAsync(string suffix)
+    {
+        var container = _scheduleMapper.ToShiftEntity(
+            CreateTestShiftResource(suffix, ShiftStatus.OriginalShift, fromDate: new DateOnly(2026, 1, 1)));
+        container.ShiftType = ShiftType.IsContainer;
+        _context.Shift.Add(container);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return container.Id;
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_AContainerWithoutAnOrder_SavesTheEndDate_AndAWorkOnTheDayPasses()
+    {
+        var containerId = await AddContainerWithoutOrderAsync("End_Container");
+        await AddWorkOnAsync(containerId, FamilyEndDay);
+
+        await PutFamilyEndAsync(containerId, FamilyEndDay);
+
+        var stored = await StoredAsync(containerId);
+        stored.UntilDate.ShouldBe(FamilyEndDay);
+        stored.IsDeleted.ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_AContainerWithoutAnOrder_WithAWorkAfterTheDay_IsRefused()
+    {
+        var containerId = await AddContainerWithoutOrderAsync("End_ContainerWork");
+        await AddWorkOnAsync(containerId, FamilyEndDay.AddDays(1));
+
+        var thrown = await Should.ThrowAsync<ShiftEndDateRefusedException>(() => PutFamilyEndAsync(containerId, FamilyEndDay));
+
+        thrown.ConflictCode.ShouldBe(ShiftEndDateRefusedException.ErrorCode);
+        thrown.ConflictDetails![ShiftEndDateRefusedException.ReasonKey].ShouldBe(ShiftEndDateRefusedException.WorksAfterReason);
+        thrown.ConflictDetails![ShiftEndDateRefusedException.LastWorkDateKey].ShouldBe("2026-04-01");
+        (await StoredAsync(containerId)).UntilDate.ShouldBeNull();
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_ARowPointingAtADeletedOrder_IsRefused()
+    {
+        var family = await CreateLockedFamilyAsync("End_DanglingOrder");
+        (await _context.Shift.SingleAsync(s => s.Id == family.SealedOrder)).IsDeleted = true;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var thrown = await Should.ThrowAsync<ShiftEndDateRefusedException>(() => PutFamilyEndAsync(family.Plannable, FamilyEndDay));
+
+        thrown.ConflictDetails![ShiftEndDateRefusedException.ReasonKey].ShouldBe(ShiftEndDateRefusedException.OrderMissingReason);
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_ADayBeforeTheStartOfTheAddressedPart_IsRefused()
+    {
+        var family = await CreateCutFamilyAsync("End_BeforePart");
+
+        var thrown = await Should.ThrowAsync<ShiftEndDateRefusedException>(() => PutFamilyEndAsync(family.LaterCut, FamilyEndDay));
+
+        thrown.ConflictDetails![ShiftEndDateRefusedException.ReasonKey].ShouldBe(ShiftEndDateRefusedException.BeforeStartReason);
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_ALaterDayThanTheStoredOrderEnd_IsRefused_ButTheSameDayIsApplied()
+    {
+        var family = await CreateLockedFamilyAsync("End_Stored");
+        _context.Shift.Single(s => s.Id == family.SealedOrder).UntilDate = FamilyEndDay;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var thrown = await Should.ThrowAsync<ShiftEndDateRefusedException>(() => PutFamilyEndAsync(family.Plannable, FamilyEndDay.AddDays(1)));
+        thrown.ConflictDetails![ShiftEndDateRefusedException.ReasonKey].ShouldBe(ShiftEndDateRefusedException.StoredEndReason);
+
+        await PutFamilyEndAsync(family.Plannable, FamilyEndDay);
+
+        (await StoredAsync(family.Plannable)).UntilDate.ShouldBe(FamilyEndDay);
+        (await StoredAsync(family.Piece)).UntilDate.ShouldBe(FamilyEndDay);
+    }
+
+    [Test]
+    public async Task FamilyEnd_Put_KeepsTheOtherContentOfTheAddressedRow()
+    {
+        var family = await CreateLockedFamilyAsync("End_Content");
+        var macroId = (await StoredAsync(family.Plannable)).MacroId;
+        var resource = await LoadThroughTheWireAsync(family.Plannable);
+        resource.UntilDate = FamilyEndDay;
+        resource.Groups = [new SimpleGroupResource { Id = _groupBId }];
+
+        var saved = await _putHandler.Handle(new PutCommand<ShiftResource>(resource), CancellationToken.None);
+
+        saved!.UntilDate.ShouldBe(FamilyEndDay);
+        var stored = await StoredAsync(family.Plannable);
+        stored.GroupItems.Count(g => !g.IsDeleted && g.GroupId == _groupBId).ShouldBe(1);
+        stored.MacroId.ShouldBe(macroId);
     }
 
     [Test]

@@ -245,7 +245,7 @@ public class ShiftClientVisibilityPostgresTests
 
         var handler = new ShiftPutHandler(
             _shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, _shiftGuard, _clientReferenceGuard,
-            Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<ShiftPutHandler>>());
+            Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IShiftFamilyEndService>(), Substitute.For<ILogger<ShiftPutHandler>>());
         try
         {
             using (ExecutionPrincipal.Begin(Guid.Parse(caller.Id)))

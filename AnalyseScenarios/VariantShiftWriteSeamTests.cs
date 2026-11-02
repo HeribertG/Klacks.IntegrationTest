@@ -578,6 +578,7 @@ public class VariantShiftWriteSeamTests
             visibility,
             Substitute.For<IClientReferenceGuard>(),
             _writeGuard,
+            Substitute.For<Klacks.Api.Application.Interfaces.IShiftFamilyEndService>(),
             Substitute.For<ILogger<PutCommandHandler>>());
     }
 
