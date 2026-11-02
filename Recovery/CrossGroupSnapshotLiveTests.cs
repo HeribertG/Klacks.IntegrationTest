@@ -52,7 +52,7 @@ public sealed class CrossGroupSnapshotLiveTests : WizardHarnessTestBase
 
         foreach (var (subgroupId, clientId, date) in await SubgroupFixturesAsync())
         {
-            var snapshot = await builder.BuildAsync(subgroupId, clientId, [date], null, new HashSet<Guid>(), CancellationToken.None);
+            var snapshot = await builder.BuildAsync(subgroupId, clientId, [date], null, new HashSet<Guid>(), new HashSet<Guid>(), CancellationToken.None);
             if (snapshot.GetWorks(clientId, date).Count == 0)
             {
                 continue;

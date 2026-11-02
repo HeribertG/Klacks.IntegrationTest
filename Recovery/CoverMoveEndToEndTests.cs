@@ -10,9 +10,12 @@
 /// prefix only.
 /// </summary>
 
+using Klacks.Api.Application.Commands.AnalyseScenarios;
 using Klacks.Api.Application.Commands.Schedules;
 using Klacks.Api.Application.DTOs.Notifications;
 using Klacks.Api.Application.Interfaces;
+using Klacks.Api.Application.Interfaces.Schedules;
+using Klacks.Api.Application.Services.Schedules;
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
@@ -63,6 +66,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
     private Guid _absentId;
     private Guid _standInId;
     private Guid _recipientId;
+    private Guid _shiftId;
     private Guid _workId;
     private Guid _subWorkId;
     private Guid _subBreakId;
@@ -135,6 +139,58 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         var bookRow = await Context.ReplacementRequests.AsNoTracking().SingleAsync(r => r.AnalyseToken == token);
         bookRow.Kind.ShouldBe(ReplacementRequestKind.Move);
         bookRow.WorkId.ShouldBe(work.Id);
+    }
+
+    [Test]
+    public async Task AnOpenPlace_IsRemovedOnAccept_WithItsChildrenAndExpenses_TheCreditStays()
+    {
+        await SeedAsync(WorkingMacro);
+        await BlacklistAsync(_standInId, _shiftId);
+
+        var outcome = await CoverAsync();
+
+        outcome.Covered.ShouldBeEmpty();
+        outcome.Uncovered.ShouldNotBeEmpty();
+        (await Context.Work.AsNoTracking().CountAsync(w => w.Id == _workId)).ShouldBe(1, "the real plan changes only on accept");
+
+        using (var scope = CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IMediator>()
+                .Send(new AcceptAnalyseScenarioCommand(outcome.ScenarioId), CancellationToken.None);
+        }
+
+        (await Context.Work.AsNoTracking().CountAsync(w =>
+            w.CurrentDate == Day && (w.ClientId == _absentId || w.ClientId == _standInId))).ShouldBe(0, "nothing of the service stands");
+        (await Context.Expenses.AsNoTracking().CountAsync(e => e.Description == Prefix)).ShouldBe(0, "not billed, so no expense stands");
+        var absence = await Context.Break.AsNoTracking().SingleAsync(b =>
+            b.ClientId == _absentId && b.CurrentDate == Day && b.AnalyseToken == null && b.ParentWorkId == null);
+        absence.WorkTime.ShouldBe(8m, "the credit was calculated before the service went");
+        using var hoursScope = CreateScope();
+        var periodHours = hoursScope.ServiceProvider.GetRequiredService<Klacks.Api.Domain.Interfaces.Schedules.IPeriodHoursService>();
+        var (periodStart, periodEnd) = await periodHours.GetPeriodBoundariesAsync(Day);
+        (await periodHours.CalculatePeriodHoursAsync(_absentId, periodStart, periodEnd, null)).Hours.ShouldBe(8m);
+    }
+
+    [Test]
+    public async Task ADirectAbsence_TakesTheWorkAway_AnOnCallOneDoesNot()
+    {
+        await SeedAsync(WorkingMacro);
+        using var scope = CreateScope();
+        var groups = Substitute.For<ISelectedGroupContextResolver>();
+        groups.ResolveVisibleGroupIdsAsync().Returns(new List<Guid> { _groupId });
+        var removal = ActivatorUtilities.CreateInstance<AbsenceWorkRemovalService>(scope.ServiceProvider, groups);
+        var onCallId = Guid.Parse(UnpaidAbsenceGuid);
+        await Context.Absence.Where(a => a.Id == onCallId).ExecuteUpdateAsync(s => s.SetProperty(a => a.IsOnCall, true));
+        var day = new AbsenceSpan(_absentId, onCallId, Day, new TimeOnly(0, 0), new TimeOnly(23, 59));
+
+        (await removal.FindAsync([day], null, CancellationToken.None)).ShouldBeEmpty();
+        var sick = day with { AbsenceId = Guid.Parse(AbsenceGuid) };
+        (await removal.FindAsync([sick], null, CancellationToken.None)).ShouldHaveSingleItem().WorkId.ShouldBe(_workId);
+
+        var taken = await removal.FindAsync([sick], null, CancellationToken.None);
+        await removal.WriteAndRemoveAsync(taken, () => Task.CompletedTask, CancellationToken.None);
+
+        (await Context.Work.AsNoTracking().CountAsync(w => w.Id == _workId || w.Id == _subWorkId)).ShouldBe(0);
     }
 
     [Test]
@@ -327,7 +383,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         return outcome;
     }
 
-    private async Task<ClientPeriodHours> PeriodHoursAsync(Guid clientId, Guid token)
+    private async Task<ClientPeriodHours> PeriodHoursAsync(Guid clientId, Guid? token)
         => await Context.ClientPeriodHours.AsNoTracking().SingleAsync(p => p.ClientId == clientId && p.AnalyseToken == token);
 
     private async Task SeedAsync(string macroContent)
@@ -336,6 +392,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         _absentId = Guid.NewGuid();
         _standInId = Guid.NewGuid();
         var shiftId = Guid.NewGuid();
+        _shiftId = shiftId;
         var macroId = Guid.NewGuid();
         var ruleId = Guid.NewGuid();
         _workId = Guid.NewGuid();
