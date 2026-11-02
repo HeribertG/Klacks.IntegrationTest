@@ -218,7 +218,7 @@ public class ReplacementRequestPostgresTests
         var token = Guid.NewGuid();
         var substitute = await AddClientAsync("ZeroSubstitute");
         var owner = await AddClientAsync("ZeroOwner");
-        await AddCoverAsync(token, owner, substitute, Day, new TimeOnly(8, 0), new TimeOnly(16, 0), 0m);
+        await AddCoverAsync(token, owner, substitute, Day, new TimeOnly(8, 0), new TimeOnly(8, 0), 0m);
 
         var overlaps = await NewWorkChangeRepository().HasOverlappingScenarioReplacementAsync(
             token, substitute, Day, new TimeOnly(8, 0), new TimeOnly(8, 0), new TimeOnly(16, 0));

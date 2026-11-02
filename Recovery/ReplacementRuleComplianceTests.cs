@@ -7,8 +7,8 @@
 /// SchedulingRule min-pause threshold and re-admits him when the rule is loosened; a Block-mode
 /// RestrictedTimeWindowRule hard-excludes the candidate and deleting the rule re-admits him; and
 /// cover_absence refuses to materialise a recovery delta that violates a Block-mode restricted time
-/// window (reported as uncovered/"blocked") while Warn mode materialises it as a Replacement
-/// WorkChange and surfaces the violation in the outcome's ComplianceWarnings. All seeded rows carry the INTEGRATION_TEST_RRC_ marker and are cleaned up
+/// window (reported as uncovered/"blocked") while Warn mode moves the whole work to the candidate
+/// and surfaces the violation in the outcome's ComplianceWarnings. All seeded rows carry the INTEGRATION_TEST_RRC_ marker and are cleaned up
 /// prefix-scoped; the restricted-time-window rule is scoped to the seeded group's name tag so it can
 /// never affect real data; the single flipped global setting is captured in SetUp and ALWAYS
 /// restored in TearDown.
@@ -200,6 +200,7 @@ public sealed class ReplacementRuleComplianceTests : WizardHarnessTestBase
             "the blocked delta must be reported as uncovered with the 'blocked' reason");
         (await ReplacementWorkChangeCountAsync(blockedOutcome.Token)).ShouldBe(0,
             "no Replacement WorkChange may be materialised for a blocked delta");
+        (await MovedWorkCountAsync(blockedOutcome.Token)).ShouldBe(0, "a blocked delta must not move the work either");
 
         await UpsertRtwEnforcementAsync(WarnValue);
         var warnOutcome = await SendAsync(
@@ -215,8 +216,14 @@ public sealed class ReplacementRuleComplianceTests : WizardHarnessTestBase
             w => w.Comment == ScheduleValidationKeys.RestrictedTimeWindow && w.ClientId == _candidateId,
             "the Warn-mode restricted-time-window violation must be surfaced in the outcome, "
             + "not only in the logs");
-        (await ReplacementWorkChangeCountAsync(warnOutcome.Token)).ShouldBe(1,
-            "the Warn-mode delta must exist as a Replacement WorkChange in the scenario");
+        covered.Kind.ShouldBe(ReplacementRequestKind.Move);
+        (await ReplacementWorkChangeCountAsync(warnOutcome.Token)).ShouldBe(0,
+            "a whole cover of a service that has not started moves the work instead");
+        (await MovedWorkCountAsync(warnOutcome.Token)).ShouldBe(1,
+            "the Warn-mode delta must exist as a moved work of the candidate in the scenario");
+        var bookRow = await Context.ReplacementRequests.AsNoTracking().SingleAsync(r => r.AnalyseToken == warnOutcome.Token);
+        bookRow.Kind.ShouldBe(ReplacementRequestKind.Move);
+        bookRow.WorkId.ShouldBe(covered.WorkId);
     }
 
     [Test]
@@ -263,6 +270,7 @@ public sealed class ReplacementRuleComplianceTests : WizardHarnessTestBase
             services.GetRequiredService<Klacks.Api.Application.Interfaces.IGroupVisibilityGuard>(),
             services.GetRequiredService<Klacks.Api.Application.Interfaces.Schedules.IScenarioNameGenerator>(),
             failingRecorder,
+            services.GetRequiredService<Klacks.Api.Application.Interfaces.Schedules.IAbsenceCoverMaterializer>(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<Klacks.Api.Application.Handlers.Schedules.CoverAbsenceCommandHandler>.Instance);
 
         try
@@ -271,14 +279,14 @@ public sealed class ReplacementRuleComplianceTests : WizardHarnessTestBase
                 new CoverAbsenceCommand(_absentId, AbsenceDay, _groupId, Guid.Parse(AbsenceGuid)),
                 CancellationToken.None));
 
-            coveredBeforeFailure.ShouldBe(1, "the replacement WorkChange must have been posted before the injected failure");
+            coveredBeforeFailure.ShouldBe(1, "the move must have been written before the injected failure");
             (await Context.AnalyseScenarios.AsNoTracking().CountAsync(s => s.GroupId == _groupId)).ShouldBe(0,
                 "the scenario row must be rolled back with everything else");
             (await Context.Work.AsNoTracking().CountAsync(w =>
                     w.AnalyseToken != null && (w.ClientId == _absentId || w.ClientId == _candidateId))).ShouldBe(0,
                 "no cloned scenario Work may survive the rollback");
             (await Context.WorkChange.AsNoTracking().CountAsync(wc => wc.ReplaceClientId == _candidateId)).ShouldBe(0,
-                "the replacement WorkChange posted before the failure must be rolled back");
+                "no replacement WorkChange may survive the rollback");
             (await Context.Break.AsNoTracking().CountAsync(b => b.ClientId == _absentId && b.AnalyseToken != null)).ShouldBe(0,
                 "the scenario absence break must be rolled back");
             await escalation.DidNotReceiveWithAnyArgs().StartChainAsync(default!, default);
@@ -312,6 +320,10 @@ public sealed class ReplacementRuleComplianceTests : WizardHarnessTestBase
             .Where(c => c.Comment == ScheduleValidationKeys.RestrictedTimeWindow)
             .ToList();
     }
+
+    private async Task<int> MovedWorkCountAsync(Guid token)
+        => await Context.Work.AsNoTracking().CountAsync(w =>
+            w.AnalyseToken == token && w.ClientId == _candidateId && w.MovedFromClientId == _absentId);
 
     private async Task<int> ReplacementWorkChangeCountAsync(Guid token)
     {
