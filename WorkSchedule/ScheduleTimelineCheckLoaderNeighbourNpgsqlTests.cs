@@ -2,7 +2,7 @@
 
 /// <summary>
 /// Real-database proof for the neighbour-day queries of the live single check: the works of the day before and the
-/// breaks of the day before and after the checked day, with the changes of those works, are loaded for the same client
+/// breaks of the two days before and the day after the checked day, with the changes of those works, are loaded for the same client
 /// and scenario only;
 /// deleted rows, container children and rows two days away stay out. The unit tests run on the in-memory provider only.
 /// Every row carries an INTEGRATION_TEST_ prefixed key, the cleanup deletes nothing else.
@@ -132,18 +132,87 @@ public class ScheduleTimelineCheckLoaderNeighbourNpgsqlTests
     }
 
     [Test]
-    public async Task Neighbourhood_LeavesOutRowsTwoDaysAwayAndWorksOfTheDayAfter()
+    public async Task Neighbourhood_AddsTheBreakTwoDaysBefore()
+    {
+        var date = new DateOnly(2099, 8, 12);
+        var breakTwoDaysBefore = await AddBreakAsync(_clientId, date.AddDays(-2));
+
+        var rows = await LoadAsync(date, null);
+
+        rows.Breaks.Select(b => b.Id).ShouldBe([breakTwoDaysBefore]);
+    }
+
+    [Test]
+    public async Task Neighbourhood_LeavesOutRowsFurtherAwayAndWorksOfTheDayAfterAndTwoDaysBefore()
     {
         var date = new DateOnly(2099, 8, 12);
         await AddWorkAsync(_clientId, date.AddDays(-2));
         await AddWorkAsync(_clientId, date.AddDays(1));
         await AddBreakAsync(_clientId, date.AddDays(2));
-        await AddBreakAsync(_clientId, date.AddDays(-2));
+        await AddBreakAsync(_clientId, date.AddDays(-3));
 
         var rows = await LoadAsync(date, null);
 
         rows.Works.ShouldBeEmpty();
         rows.Breaks.ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task Neighbourhood_DoesNotLoadTheCheckedDayTwice()
+    {
+        var date = new DateOnly(2099, 8, 12);
+        var ownBreak = await AddBreakAsync(_clientId, date);
+
+        var rows = await LoadAsync(date, null);
+
+        rows.Breaks.Select(b => b.Id).ShouldBe([ownBreak]);
+    }
+
+    [Test]
+    public async Task Neighbourhood_AddsTheWorkOfTheDayBeforeTheClientReplacesOn()
+    {
+        var date = new DateOnly(2099, 8, 12);
+        var replacedWork = await AddWorkAsync(_otherClientId, date.AddDays(-1));
+        var replacement = await AddChangeAsync(replacedWork, replaceClientId: _clientId);
+
+        var rows = await LoadAsync(date, null);
+
+        rows.Works.Select(w => w.Id).ShouldBe([replacedWork]);
+        rows.WorkChanges.Select(c => c.Id).ShouldBe([replacement]);
+        rows.OwnWorks.ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task Neighbourhood_LeavesOutWorksReplacedByAnotherClientAndDeletedOrScenarioReplacements()
+    {
+        var date = new DateOnly(2099, 8, 12);
+        var thirdClient = Guid.NewGuid();
+        _context.Client.Add(new Client { Id = thirdClient, Name = TestPrefix + "C", FirstName = "Test", Company = string.Empty });
+        await _context.SaveChangesAsync();
+        var replacedByThird = await AddWorkAsync(_otherClientId, date.AddDays(-1));
+        await AddChangeAsync(replacedByThird, replaceClientId: thirdClient);
+        var deletedReplacement = await AddWorkAsync(_otherClientId, date.AddDays(-1));
+        await AddChangeAsync(deletedReplacement, replaceClientId: _clientId, isDeleted: true);
+        var scenarioWork = await AddWorkAsync(_otherClientId, date.AddDays(-1), analyseToken: _scenarioToken);
+        await AddChangeAsync(scenarioWork, replaceClientId: _clientId);
+        var dayTwoBefore = await AddWorkAsync(_otherClientId, date.AddDays(-2));
+        await AddChangeAsync(dayTwoBefore, replaceClientId: _clientId);
+
+        var rows = await LoadAsync(date, null);
+
+        rows.Works.ShouldBeEmpty();
+    }
+
+    [Test]
+    public async Task Neighbourhood_ListsAWorkOnceThatTheClientOwnsAndReplacesOn()
+    {
+        var date = new DateOnly(2099, 8, 12);
+        var work = await AddWorkAsync(_clientId, date.AddDays(-1));
+        await AddChangeAsync(work, replaceClientId: _clientId);
+
+        var rows = await LoadAsync(date, null);
+
+        rows.Works.Select(w => w.Id).ShouldBe([work]);
     }
 
     [Test]
@@ -212,7 +281,7 @@ public class ScheduleTimelineCheckLoaderNeighbourNpgsqlTests
     private async Task<TimelineCheckRows> LoadAsync(DateOnly date, Guid? analyseToken)
     {
         var dayRows = await _loader.LoadDayAsync(_clientId, date, analyseToken, CancellationToken.None);
-        return await _loader.LoadAbsenceNeighbourhoodAsync(_clientId, date, dayRows, analyseToken, CancellationToken.None);
+        return await _loader.LoadNeighbourhoodAsync(_clientId, date, dayRows, analyseToken, CancellationToken.None);
     }
 
     private async Task<Guid> AddWorkAsync(
@@ -259,13 +328,16 @@ public class ScheduleTimelineCheckLoaderNeighbourNpgsqlTests
         return entry.Id;
     }
 
-    private async Task<Guid> AddChangeAsync(Guid workId, bool isDeleted = false)
+    private async Task<Guid> AddChangeAsync(Guid workId, bool isDeleted = false, Guid? replaceClientId = null)
     {
         var change = new WorkChange
         {
             Id = Guid.NewGuid(),
             WorkId = workId,
-            Type = WorkChangeType.Debriefing,
+            Type = replaceClientId.HasValue ? WorkChangeType.ReplacementWithin : WorkChangeType.Debriefing,
+            ReplaceClientId = replaceClientId,
+            StartTime = new TimeOnly(22, 0),
+            EndTime = new TimeOnly(6, 0),
             ChangeTime = CorrectionHours,
             Description = TestPrefix + "CHANGE",
             IsDeleted = isDeleted,
