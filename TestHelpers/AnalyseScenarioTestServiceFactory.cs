@@ -4,6 +4,7 @@ using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Interfaces;
 using Klacks.Api.Domain.Interfaces.Schedules;
+using Klacks.Api.Domain.Interfaces.Settings;
 using Klacks.Api.Infrastructure.Extensions;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Services.AnalyseScenarios;
@@ -24,6 +25,8 @@ namespace Klacks.IntegrationTest.TestHelpers;
 /// </summary>
 internal static class AnalyseScenarioTestServiceFactory
 {
+    private static readonly DateTimeOffset BeforeEveryTestPlan = new(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
     public static AnalyseScenarioService Create(DataBaseContext context, IReadOnlyList<string>? rights = null)
     {
         return (AnalyseScenarioService)CreateProvider(context, rights).GetRequiredService<IAnalyseScenarioService>();
@@ -39,6 +42,7 @@ internal static class AnalyseScenarioTestServiceFactory
         services.AddLogging();
         services.AddSingleton(context);
         services.AddSingleton(CreateUserService(rights));
+        services.AddSingleton(CreateCompanyClock());
         services.AddSingleton(groupVisibilityGuard ?? UnrestrictedGroupVisibility.Create());
         if (shiftTreeService is null)
         {
@@ -51,6 +55,14 @@ internal static class AnalyseScenarioTestServiceFactory
 
         services.AddAnalyseScenarioServices();
         return services.BuildServiceProvider();
+    }
+
+    private static ICompanyClock CreateCompanyClock()
+    {
+        var clock = Substitute.For<ICompanyClock>();
+        clock.GetNowAsync(Arg.Any<CancellationToken>()).Returns(BeforeEveryTestPlan);
+        clock.GetTimeZoneAsync(Arg.Any<CancellationToken>()).Returns(TimeZoneInfo.Utc);
+        return clock;
     }
 
     private static IUserService CreateUserService(IReadOnlyList<string>? rights)

@@ -130,6 +130,20 @@ public class ScenarioWorkQueriesNpgsqlTests
     }
 
     [Test]
+    public async Task MovedWorks_AreLoadedWithZeroHours_OfTheirPlanOnly()
+    {
+        var moved = await _context.Work.SingleAsync(w => w.Id == _scenarioReassignedId);
+        moved.MovedFromClientId = _clientA;
+        await _context.SaveChangesAsync();
+
+        var inScenario = await CorrectedWorkQuery.LoadAsync(_context, _token, From, Until, [_clientB], CancellationToken.None);
+        var inRealPlan = await CorrectedWorkQuery.LoadAsync(_context, null, From, Until, [_clientB], CancellationToken.None);
+
+        inScenario.ShouldContainKeyAndValue(_scenarioReassignedId, 0m);
+        inRealPlan.ShouldNotContainKey(_scenarioReassignedId);
+    }
+
+    [Test]
     public async Task FixedWorks_OfAScenario_AreReplacementCoversPlusCorrectedWorks()
     {
         var fixedIds = await CorrectedWorkQuery.LoadFixedWorkIdsAsync(_context, _token, From, Until, CancellationToken.None);

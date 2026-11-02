@@ -59,7 +59,7 @@ public sealed class RecoverySnapshotBuilderLiveTests : WizardHarnessTestBase
         foreach (var fixture in await CandidateFixturesAsync())
         {
             var snapshot = await builder.BuildAsync(
-                fixture.GroupId, fixture.ClientId, [fixture.Date], null, new HashSet<Guid>(), new HashSet<Guid>(), CancellationToken.None);
+                fixture.GroupId, fixture.ClientId, [fixture.Date], null, new HashSet<Guid>(), new HashSet<Guid>(), new HashSet<Guid>(), CancellationToken.None);
             if (snapshot.Agents.Count > 0 && snapshot.GetWorks(fixture.ClientId, fixture.Date).Count > 0)
             {
                 return (fixture, snapshot);
@@ -162,7 +162,7 @@ public sealed class RecoverySnapshotBuilderLiveTests : WizardHarnessTestBase
 
             using var scope = CreateScope();
             var builder = scope.ServiceProvider.GetRequiredService<IRecoverySnapshotBuilder>();
-            var snapshot = await builder.BuildAsync(group.Id, absent.Id, [day], null, new HashSet<Guid>(), new HashSet<Guid>(), CancellationToken.None);
+            var snapshot = await builder.BuildAsync(group.Id, absent.Id, [day], null, new HashSet<Guid>(), new HashSet<Guid>(), new HashSet<Guid>(), CancellationToken.None);
 
             var night = snapshot.GetWorks(absent.Id, day).ShouldHaveSingleItem();
             night.StartAt.ShouldBe(day.ToDateTime(new TimeOnly(22, 0)));
@@ -222,7 +222,7 @@ public sealed class RecoverySnapshotBuilderLiveTests : WizardHarnessTestBase
         var fixture = resolved.Value.Fixture;
         var first = resolved.Value.Snapshot;
         var second = await builder.BuildAsync(
-            fixture.GroupId, fixture.ClientId, [fixture.Date], null, new HashSet<Guid>(), new HashSet<Guid>(), CancellationToken.None);
+            fixture.GroupId, fixture.ClientId, [fixture.Date], null, new HashSet<Guid>(), new HashSet<Guid>(), new HashSet<Guid>(), CancellationToken.None);
 
         first.Agents.Select(a => a.Id).ShouldBe(second.Agents.Select(a => a.Id).ToList());
         first.GetWorks(fixture.ClientId, fixture.Date).Select(w => w.ShiftId)

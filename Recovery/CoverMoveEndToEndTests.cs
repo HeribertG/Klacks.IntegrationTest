@@ -60,6 +60,8 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
 
     private static readonly DateOnly Day = new(2090, 9, 12);
     private static readonly DateOnly SecondDay = new(2090, 11, 14);
+    private static readonly DateOnly StartedDay = new(2026, 9, 8);
+    private DateOnly _seedDay = Day;
     private static readonly DateTime ValidFrom = new(2090, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private Guid _groupId;
@@ -170,6 +172,63 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         var (periodStart, periodEnd) = await periodHours.GetPeriodBoundariesAsync(Day);
         (await periodHours.CalculatePeriodHoursAsync(_absentId, periodStart, periodEnd, null)).Hours.ShouldBe(8m);
     }
+
+    [Test]
+    public async Task AStartedWorkNobodyCovers_StandsAfterADialogAccept_WithTheRedNotice()
+    {
+        await SeedAsync(WorkingMacro, StartedDay);
+        await BlacklistAsync(_standInId, _shiftId);
+
+        var outcome = await CoverAsync(StartedDay, ReplacementRequestSource.PlannerDialog);
+        outcome.Covered.ShouldBeEmpty();
+
+        using (var scope = CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IMediator>()
+                .Send(new AcceptAnalyseScenarioCommand(outcome.ScenarioId), CancellationToken.None);
+        }
+
+        (await Context.Work.AsNoTracking().CountAsync(w => w.AnalyseToken == null && w.CurrentDate == StartedDay
+            && w.ClientId == _absentId && w.ParentWorkId == null)).ShouldBe(1, "a started work never falls on its own");
+        (await FindingsAsync(StartedDay, null)).ShouldContain(ScheduleValidationKeys.UncoveredAbsence);
+    }
+
+    [Test]
+    public async Task AMovedWork_StaysFixed_ThroughAFollowUpScenario_AndAfterAccept()
+    {
+        await SeedAsync(WorkingMacro);
+        var outcome = await CoverAsync();
+        var moved = await Context.Work.AsNoTracking().SingleAsync(w => w.AnalyseToken == outcome.Token && w.ClonedFromWorkId == _workId);
+        (await FixedWorksAsync(outcome.Token)).ShouldContain(moved.Id);
+
+        var followUp = Guid.NewGuid();
+        _scenarioTokens.Add(followUp);
+        using (var scope = CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<Klacks.Api.Application.Interfaces.IAnalyseScenarioService>()
+                .CloneScenarioDataWithMapsAsync(_groupId, Day, Day, followUp, null, outcome.Token, CancellationToken.None);
+            await scope.ServiceProvider.GetRequiredService<Klacks.Api.Domain.Interfaces.IUnitOfWork>().CompleteAsync();
+        }
+
+        var clone = await Context.Work.AsNoTracking().SingleAsync(w => w.AnalyseToken == followUp && w.ClientId == _standInId && w.ParentWorkId == null);
+        clone.MovedFromClientId.ShouldBe(_absentId);
+        (await FixedWorksAsync(followUp)).ShouldContain(clone.Id);
+
+        using (var scope = CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IMediator>()
+                .Send(new AcceptAnalyseScenarioCommand(outcome.ScenarioId), CancellationToken.None);
+        }
+
+        var real = await Context.Work.AsNoTracking().SingleAsync(w =>
+            w.AnalyseToken == null && w.CurrentDate == Day && w.ClientId == _standInId && w.ParentWorkId == null);
+        real.MovedFromClientId.ShouldBe(_absentId);
+        (await FixedWorksAsync(null)).ShouldContain(real.Id);
+    }
+
+    private Task<HashSet<Guid>> FixedWorksAsync(Guid? token)
+        => Klacks.Api.Infrastructure.Services.Schedules.CorrectedWorkQuery.LoadFixedWorkIdsAsync(
+            Context, token, Day, Day, CancellationToken.None);
 
     [Test]
     public async Task ADirectAbsence_TakesTheWorkAway_AnOnCallOneDoesNot()
@@ -283,7 +342,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
     /// The live single check of the three people on the scenario day, as the planner's error list receives it. A collision
     /// counts as a finding of its own.
     /// </summary>
-    private async Task<List<string>> FindingsAsync(DateOnly day, Guid token)
+    private async Task<List<string>> FindingsAsync(DateOnly day, Guid? token)
     {
         var findings = new List<string>();
         foreach (var person in new[] { _absentId, _standInId, _recipientId })
@@ -373,12 +432,13 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
 
     private Task<Klacks.Api.Application.DTOs.Schedules.CoverAbsenceOutcome> CoverAsync() => CoverAsync(Day);
 
-    private async Task<Klacks.Api.Application.DTOs.Schedules.CoverAbsenceOutcome> CoverAsync(DateOnly day)
+    private async Task<Klacks.Api.Application.DTOs.Schedules.CoverAbsenceOutcome> CoverAsync(
+        DateOnly day, ReplacementRequestSource source = ReplacementRequestSource.RecoveryEngine)
     {
         using var scope = CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
         var outcome = await mediator.Send(
-            new CoverAbsenceCommand(_absentId, day, _groupId, Guid.Parse(AbsenceGuid)), CancellationToken.None);
+            new CoverAbsenceCommand(_absentId, day, _groupId, Guid.Parse(AbsenceGuid), Source: source), CancellationToken.None);
         _scenarioTokens.Add(outcome.Token);
         return outcome;
     }
@@ -386,8 +446,9 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
     private async Task<ClientPeriodHours> PeriodHoursAsync(Guid clientId, Guid? token)
         => await Context.ClientPeriodHours.AsNoTracking().SingleAsync(p => p.ClientId == clientId && p.AnalyseToken == token);
 
-    private async Task SeedAsync(string macroContent)
+    private async Task SeedAsync(string macroContent, DateOnly? day = null)
     {
+        _seedDay = day ?? Day;
         _groupId = Guid.NewGuid();
         _absentId = Guid.NewGuid();
         _standInId = Guid.NewGuid();
@@ -417,7 +478,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
             Id = _workId,
             ClientId = _absentId,
             ShiftId = shiftId,
-            CurrentDate = Day,
+            CurrentDate = _seedDay,
             StartTime = new TimeOnly(8, 0),
             EndTime = new TimeOnly(16, 0),
             WorkTime = 8m,
@@ -429,7 +490,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
             ParentWorkId = _workId,
             ClientId = _absentId,
             ShiftId = shiftId,
-            CurrentDate = Day,
+            CurrentDate = _seedDay,
             StartTime = new TimeOnly(9, 0),
             EndTime = new TimeOnly(10, 0),
             WorkTime = 1m,
@@ -441,7 +502,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
             ParentWorkId = _workId,
             ClientId = _absentId,
             AbsenceId = Guid.Parse(UnpaidAbsenceGuid),
-            CurrentDate = Day,
+            CurrentDate = _seedDay,
             StartTime = new TimeOnly(12, 0),
             EndTime = new TimeOnly(13, 0),
             WorkTime = -1m,
