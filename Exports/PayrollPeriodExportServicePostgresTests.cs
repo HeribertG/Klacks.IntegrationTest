@@ -17,6 +17,7 @@ using Klacks.Api.Application.Services.Exports;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Exceptions;
 using Klacks.Api.Domain.Interfaces.Exports;
+using Klacks.Api.Domain.Models.Exports;
 using Klacks.Api.Domain.Models.Exports.Payroll;
 using Klacks.Api.Domain.Services.Exports;
 using Klacks.Api.Infrastructure.Persistence;
@@ -67,7 +68,15 @@ public class PayrollPeriodExportServicePostgresTests : PayrollPostgresFixtureBas
             overrideApplier,
             _storage,
             new UnitOfWork(Context, Substitute.For<ILogger<UnitOfWork>>()),
-            Substitute.For<ILogger<PayrollPeriodExportService>>());
+            Substitute.For<ILogger<PayrollPeriodExportService>>(),
+            CompanyInfoLoaderStub());
+    }
+
+    private static ICompanyInfoLoader CompanyInfoLoaderStub()
+    {
+        var loader = Substitute.For<ICompanyInfoLoader>();
+        loader.LoadAsync(Arg.Any<CancellationToken>()).Returns(new CompanyInfo());
+        return loader;
     }
 
     [TearDown]
@@ -89,7 +98,7 @@ public class PayrollPeriodExportServicePostgresTests : PayrollPostgresFixtureBas
 
         outcome.PersonCount.ShouldBe(2);
         outcome.IsSupplementary.ShouldBeFalse();
-        outcome.FileName.ShouldBe("payroll-export_2037-03-02_2037-03-04.csv");
+        outcome.FileName.ShouldBe("payroll-export_2037-03-02_2037-03-04.txt");
         outcome.FileContent.Length.ShouldBeGreaterThan(0);
 
         Context.ChangeTracker.Clear();
@@ -141,7 +150,7 @@ public class PayrollPeriodExportServicePostgresTests : PayrollPostgresFixtureBas
 
         supplement.PersonCount.ShouldBe(1);
         supplement.IsSupplementary.ShouldBeTrue();
-        supplement.FileName.ShouldBe("payroll-export_2037-03-02_2037-03-04_supplement.csv");
+        supplement.FileName.ShouldBe("payroll-export_2037-03-02_2037-03-04_supplement.txt");
 
         Context.ChangeTracker.Clear();
         var revisions = await Context.ExportLogItem.AsNoTracking()
