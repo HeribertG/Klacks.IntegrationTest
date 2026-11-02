@@ -162,7 +162,7 @@ public sealed class RecoverySnapshotBuilderLiveTests : WizardHarnessTestBase
 
             using var scope = CreateScope();
             var builder = scope.ServiceProvider.GetRequiredService<IRecoverySnapshotBuilder>();
-            var snapshot = await builder.BuildAsync(group.Id, absent.Id, [day], null, CancellationToken.None);
+            var snapshot = await builder.BuildAsync(group.Id, absent.Id, [day], null, new HashSet<Guid>(), CancellationToken.None);
 
             var night = snapshot.GetWorks(absent.Id, day).ShouldHaveSingleItem();
             night.StartAt.ShouldBe(day.ToDateTime(new TimeOnly(22, 0)));
