@@ -257,6 +257,39 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
     }
 
     [Test]
+    public async Task AMovedWork_ShowsItsOriginInTheSchedule_AndGoesBackByItsWork()
+    {
+        await SeedAsync(WorkingMacro);
+        var (row, workId) = await AcceptTheMoveAsync();
+
+        using (var scope = CreateScope())
+        {
+            var cells = await scope.ServiceProvider.GetRequiredService<Klacks.Api.Domain.Interfaces.Schedules.IScheduleEntriesService>()
+                .GetScheduleEntriesAsync(new Klacks.Api.Domain.Models.Schedules.ScheduleEntriesCriteria(Day, Day, null, null), CancellationToken.None);
+            cells.Single(c => c.SourceId == workId && c.EntryType == 0).MovedFromClientId.ShouldBe(_absentId);
+            cells.Where(c => c.SourceId != workId).ShouldAllBe(c => c.MovedFromClientId == null);
+        }
+
+        using (var scope = CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IMediator>()
+                .Send(new ReverseMovedWorkCommand(workId), CancellationToken.None);
+        }
+
+        var back = await Context.Work.AsNoTracking().SingleAsync(w => w.Id == workId);
+        back.ClientId.ShouldBe(_absentId);
+        back.MovedFromClientId.ShouldBeNull();
+        (await Context.ReplacementRequests.AsNoTracking().SingleAsync(r => r.Id == row)).ReversedAtUtc.ShouldNotBeNull();
+
+        using (var scope = CreateScope())
+        {
+            var refused = await Should.ThrowAsync<Klacks.Api.Domain.Exceptions.MoveReversalRefusedException>(() =>
+                scope.ServiceProvider.GetRequiredService<IMediator>().Send(new ReverseMovedWorkCommand(workId), CancellationToken.None));
+            refused.ErrorCode.ShouldBe(Klacks.Api.Domain.Constants.MoveReversalRefusalCodes.AlreadyBack);
+        }
+    }
+
+    [Test]
     public async Task AReassignToTheOrigin_CountsAsTheReversal()
     {
         await SeedAsync(WorkingMacro);
