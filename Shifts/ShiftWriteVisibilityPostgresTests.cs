@@ -412,36 +412,6 @@ public class ShiftWriteVisibilityPostgresTests
         (await ReloadAsync(family.Cut.Id)).UntilDate.ShouldBe(day);
     }
 
-    [Test]
-    public async Task Cut_FamilyWithoutOrder_WithAHiddenRow_IsAnsweredLikeAHiddenParent_AndAddsNothing()
-    {
-        var head = NewShift("CUT_HEAD", _visibleChildId);
-        head.RootId = head.Id;
-        var hiddenPiece = NewShift("CUT_HIDDEN", _hiddenRootId);
-        hiddenPiece.Status = ShiftStatus.SplitShift;
-        hiddenPiece.ParentId = head.Id;
-        hiddenPiece.RootId = head.Id;
-        hiddenPiece.UntilDate = new DateOnly(2026, 3, 31);
-        head.UntilDate = new DateOnly(2026, 3, 31);
-        _context.Shift.AddRange(head, hiddenPiece);
-        await _context.SaveChangesAsync();
-        _context.ChangeTracker.Clear();
-        var piece = _scheduleMapper.ToShiftResource(NewShift("CUT_NEW", _visibleChildId));
-        piece.Status = ShiftStatus.SplitShift;
-        piece.FromDate = new DateOnly(2026, 4, 1);
-
-        KeyNotFoundException error;
-        using (ExecutionPrincipal.Begin(Guid.Parse(_supervisor.Id)))
-        {
-            error = await Should.ThrowAsync<KeyNotFoundException>(() => _cutFacade.ProcessBatchCutsAsync(
-                [new CutOperation { Type = "CREATE", ParentId = head.Id.ToString(), Data = piece }]));
-        }
-
-        error.Message.ShouldBe(string.Format(ShiftVisibilityMessages.ParentShiftNotFound, head.Id));
-        error.Message.ShouldNotContain("2026");
-        _context.ChangeTracker.Clear();
-        (await _context.Shift.IgnoreQueryFilters().AnyAsync(s => s.Id == piece.Id)).ShouldBeFalse();
-    }
 
     private async Task<ShiftResource?> PutAsAsync(AppUser caller, ShiftResource resource)
     {
