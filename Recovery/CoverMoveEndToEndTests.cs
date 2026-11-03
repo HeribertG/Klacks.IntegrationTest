@@ -243,6 +243,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
     {
         await SeedAsync(WorkingMacro);
         var (row, workId) = await AcceptTheMoveAsync();
+        await EndTheAbsenceAsync();
         var moved = await Context.Work.AsNoTracking().SingleAsync(w => w.Id == workId);
 
         await ReverseAsync(row);
@@ -261,6 +262,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
     {
         await SeedAsync(WorkingMacro);
         var (row, workId) = await AcceptTheMoveAsync();
+        await EndTheAbsenceAsync();
 
         using (var scope = CreateScope())
         {
@@ -323,6 +325,26 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         refused.Message.ShouldContain("moved on");
         (await Context.Work.AsNoTracking().SingleAsync(w => w.Id == workId)).ClientId.ShouldBe(third);
     }
+
+    [Test]
+    public async Task AMoveIsRefused_WhileItsOriginIsStillAbsent()
+    {
+        await SeedAsync(WorkingMacro);
+        var (row, workId) = await AcceptTheMoveAsync();
+
+        using var scope = CreateScope();
+        var refused = await Should.ThrowAsync<Klacks.Api.Domain.Exceptions.MoveReversalRefusedException>(() =>
+            scope.ServiceProvider.GetRequiredService<IMediator>().Send(new ReverseMovedWorkCommand(workId), CancellationToken.None));
+
+        refused.ErrorCode.ShouldBe(Klacks.Api.Domain.Constants.MoveReversalRefusalCodes.OriginBusy);
+        (await Context.Work.AsNoTracking().SingleAsync(w => w.Id == workId)).MovedFromClientId.ShouldBe(_absentId);
+        (await Context.ReplacementRequests.AsNoTracking().SingleAsync(r => r.Id == row)).ReversedAtUtc.ShouldBeNull();
+    }
+
+    private Task EndTheAbsenceAsync()
+        => Context.Break
+            .Where(b => b.ClientId == _absentId && b.AnalyseToken == null && b.ParentWorkId == null)
+            .ExecuteUpdateAsync(set => set.SetProperty(b => b.IsDeleted, true));
 
     private async Task<(Guid Row, Guid WorkId)> AcceptTheMoveAsync()
     {

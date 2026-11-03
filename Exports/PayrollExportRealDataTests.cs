@@ -161,11 +161,13 @@ public class PayrollExportRealDataTests
         var text = Encoding.GetEncoding(PayrollExportConstants.Windows1252CodePage).GetString(result.Content);
         var lines = text.Split(PayrollExportConstants.LineEnding, StringSplitOptions.RemoveEmptyEntries);
 
-        lines.Length.ShouldBe(result.RecordCount);
-        lines.ShouldAllBe(line =>
+        lines.Length.ShouldBe(result.RecordCount + 1);
+        lines[0].Split(PayrollExportConstants.DefaultDelimiter).Length.ShouldBe(3);
+        var records = lines.Skip(1).ToArray();
+        records.ShouldAllBe(line =>
             line.Split(PayrollExportConstants.DefaultDelimiter).Length == PayrollExportConstants.DatevLugFieldCount);
 
-        var baseRows = lines.Count(line =>
+        var baseRows = records.Count(line =>
             line.Split(PayrollExportConstants.DefaultDelimiter)[3] == BaseWageType);
         baseRows.ShouldBeGreaterThan(0);
     }
