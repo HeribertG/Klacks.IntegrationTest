@@ -219,6 +219,116 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
             r.AnalyseToken == outcome.Token && r.CandidateClientId == proposal.ReplacementClientId)).ShouldBe(0);
     }
 
+    [Test]
+    public async Task AnAcceptanceInAFollowUpScenario_SwitchesTheMovedWorkOfTheOpenSource()
+    {
+        var day = NextTuesdayInTheRecordableWindow();
+        await SeedAsync(WorkingMacro, day);
+        var alternative = await AddAlternativeAsync();
+
+        var source = await CoverAsync(day);
+        var proposal = source.Covered.ShouldHaveSingleItem();
+        var other = proposal.ReplacementClientId == _standInId ? alternative : _standInId;
+
+        var followUp = await CoverOnScenarioAsync(day.AddDays(1), source.Token);
+        await AcceptAlternativeAsync(followUp.Token, proposal, other, day);
+
+        var switched = await Context.Work.AsNoTracking().SingleAsync(w =>
+            w.AnalyseToken == followUp.Token && w.CurrentDate == day && w.MovedFromClientId == _absentId);
+        switched.ClientId.ShouldBe(other);
+    }
+
+    [Test]
+    public async Task AnAppliedMove_GoesBack_WithItsMarkerClearedAndNewMacros()
+    {
+        await SeedAsync(WorkingMacro);
+        var (row, workId) = await AcceptTheMoveAsync();
+        var moved = await Context.Work.AsNoTracking().SingleAsync(w => w.Id == workId);
+
+        await ReverseAsync(row);
+
+        var back = await Context.Work.AsNoTracking().SingleAsync(w => w.Id == workId);
+        back.ClientId.ShouldBe(_absentId);
+        back.MovedFromClientId.ShouldBeNull();
+        back.Surcharges.ShouldBe(moved.Surcharges / StandInRate * AbsentRate, "the macro ran for the person it went back to");
+        var stamped = await Context.ReplacementRequests.AsNoTracking().SingleAsync(r => r.Id == row);
+        stamped.ReversedAtUtc.ShouldNotBeNull();
+        stamped.Outcome.ShouldBe(ReplacementRequestOutcome.Proposed, "the recorded answer stays");
+    }
+
+    [Test]
+    public async Task AReassignToTheOrigin_CountsAsTheReversal()
+    {
+        await SeedAsync(WorkingMacro);
+        var (row, workId) = await AcceptTheMoveAsync();
+
+        using (var scope = CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IMediator>()
+                .Send(new Klacks.Api.Application.Commands.Works.ReassignWorkClientCommand(workId, _absentId), CancellationToken.None);
+        }
+
+        (await Context.Work.AsNoTracking().SingleAsync(w => w.Id == workId)).MovedFromClientId.ShouldBeNull();
+        (await Context.ReplacementRequests.AsNoTracking().SingleAsync(r => r.Id == row)).ReversedAtUtc.ShouldNotBeNull();
+        await Should.ThrowAsync<Klacks.Api.Domain.Exceptions.InvalidRequestException>(() => ReverseAsync(row));
+    }
+
+    [Test]
+    public async Task AMoveIsRefused_WhenTheWorkMovedOn()
+    {
+        await SeedAsync(WorkingMacro);
+        var (row, workId) = await AcceptTheMoveAsync();
+        var third = await AddAlternativeAsync();
+        using (var scope = CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IMediator>()
+                .Send(new Klacks.Api.Application.Commands.Works.ReassignWorkClientCommand(workId, third), CancellationToken.None);
+        }
+
+        var refused = await Should.ThrowAsync<Klacks.Api.Domain.Exceptions.InvalidRequestException>(() => ReverseAsync(row));
+
+        refused.Message.ShouldContain("moved on");
+        (await Context.Work.AsNoTracking().SingleAsync(w => w.Id == workId)).ClientId.ShouldBe(third);
+    }
+
+    private async Task<(Guid Row, Guid WorkId)> AcceptTheMoveAsync()
+    {
+        var outcome = await CoverAsync();
+        outcome.Covered.ShouldHaveSingleItem().Kind.ShouldBe(ReplacementRequestKind.Move);
+        using (var scope = CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IMediator>()
+                .Send(new AcceptAnalyseScenarioCommand(outcome.ScenarioId), CancellationToken.None);
+        }
+
+        var row = await Context.ReplacementRequests.AsNoTracking().SingleAsync(r => r.AnalyseToken == outcome.Token);
+        return (row.Id, row.WorkId!.Value);
+    }
+
+    private async Task ReverseAsync(Guid row)
+    {
+        using var scope = CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IMediator>().Send(new ReverseMoveCommand(row), CancellationToken.None);
+    }
+
+    private async Task<Guid> AddAlternativeAsync()
+    {
+        var alternative = Guid.NewGuid();
+        var rule = await Context.SchedulingRules.AsNoTracking().FirstAsync(r => r.Name == Prefix + "RULE");
+        AddEmployee(alternative, "Alternative", rule.Id, AbsentRate);
+        await Context.SaveChangesAsync();
+        return alternative;
+    }
+
+    private async Task<Klacks.Api.Application.DTOs.Schedules.CoverAbsenceOutcome> CoverOnScenarioAsync(DateOnly day, Guid sourceToken)
+    {
+        using var scope = CreateScope();
+        var outcome = await scope.ServiceProvider.GetRequiredService<IMediator>().Send(
+            new CoverAbsenceCommand(_absentId, day, _groupId, Guid.Parse(AbsenceGuid), AnalyseToken: sourceToken), CancellationToken.None);
+        _scenarioTokens.Add(outcome.Token);
+        return outcome;
+    }
+
     [TestCase(false, true)]
     [TestCase(true, false)]
     public async Task AHop_ReturnsToTheOldStandIn_OnlyWhenThatPersonIsFree(bool holdsASecondService, bool returns)
@@ -262,22 +372,73 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
     }
 
     [Test]
+    public async Task AMarkerOfAnEarlierAccept_ThroughAScenarioChain_IsNotAMoveOfThisScenario()
+    {
+        await SeedAsync(WorkingMacro);
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        _scenarioTokens.Add(first);
+        _scenarioTokens.Add(second);
+        var accepted = NewMovedWork(null, null);
+        var inFirst = NewMovedWork(first, accepted.Id);
+        var inSecond = NewMovedWork(second, inFirst.Id);
+        var unsettled = NewMovedWork(second, null);
+        Context.Work.AddRange(accepted, inFirst, inSecond, unsettled);
+        await Context.SaveChangesAsync();
+
+        using var scope = CreateScope();
+        var moved = await scope.ServiceProvider.GetRequiredService<IWorkRepository>()
+            .ListMovedByScenarioAsync(second, _absentId, Day, CancellationToken.None);
+
+        moved.ShouldHaveSingleItem().Id.ShouldBe(unsettled.Id);
+    }
+
+    [Test]
+    public async Task AReplacementOfAnEarlierAccept_ThroughAScenarioChain_IsNotARelocationOfThisScenario()
+    {
+        await SeedAsync(WorkingMacro);
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        _scenarioTokens.Add(first);
+        _scenarioTokens.Add(second);
+        var accepted = NewOwnedWork(null, null);
+        var inFirst = NewOwnedWork(first, accepted.Id);
+        var inSecond = NewOwnedWork(second, inFirst.Id);
+        var unsettled = NewOwnedWork(second, null);
+        Context.Work.AddRange(accepted, inFirst, inSecond, unsettled);
+        Context.WorkChange.AddRange(
+            NewRelocation(accepted.Id, null), NewRelocation(inFirst.Id, first),
+            NewRelocation(inSecond.Id, second), NewRelocation(unsettled.Id, second));
+        await Context.SaveChangesAsync();
+
+        using var scope = CreateScope();
+        var written = await scope.ServiceProvider.GetRequiredService<IWorkChangeRepository>()
+            .ListReplacementsWrittenByScenarioAsync(second, _standInId, Day, CancellationToken.None);
+
+        written.ShouldHaveSingleItem().WorkId.ShouldBe(unsettled.Id);
+    }
+
+    [Test]
     public async Task AMarkerOfAnEarlierAccept_IsNotAMoveOfThisScenario()
     {
         await SeedAsync(WorkingMacro);
         var token = Guid.NewGuid();
         _scenarioTokens.Add(token);
+        var openSource = Guid.NewGuid();
+        _scenarioTokens.Add(openSource);
         var accepted = NewMovedWork(null, null);
         var inherited = NewMovedWork(token, accepted.Id);
         var own = NewMovedWork(token, null);
-        Context.Work.AddRange(accepted, inherited, own);
+        var sourceMove = NewMovedWork(openSource, null);
+        var followUp = NewMovedWork(token, sourceMove.Id);
+        Context.Work.AddRange(accepted, inherited, own, sourceMove, followUp);
         await Context.SaveChangesAsync();
 
         using var scope = CreateScope();
         var moved = await scope.ServiceProvider.GetRequiredService<IWorkRepository>()
             .ListMovedByScenarioAsync(token, _absentId, Day, CancellationToken.None);
 
-        moved.ShouldHaveSingleItem().Id.ShouldBe(own.Id);
+        moved.Select(work => work.Id).ShouldBe(new[] { own.Id, followUp.Id }, ignoreOrder: true);
     }
 
     [Test]
@@ -286,19 +447,24 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         await SeedAsync(WorkingMacro);
         var token = Guid.NewGuid();
         _scenarioTokens.Add(token);
+        var openSource = Guid.NewGuid();
+        _scenarioTokens.Add(openSource);
         var accepted = NewOwnedWork(null, null);
         var inherited = NewOwnedWork(token, accepted.Id);
         var own = NewOwnedWork(token, null);
-        Context.Work.AddRange(accepted, inherited, own);
+        var sourceWork = NewOwnedWork(openSource, null);
+        var followUp = NewOwnedWork(token, sourceWork.Id);
+        Context.Work.AddRange(accepted, inherited, own, sourceWork, followUp);
         Context.WorkChange.AddRange(
-            NewRelocation(accepted.Id, null), NewRelocation(inherited.Id, token), NewRelocation(own.Id, token));
+            NewRelocation(accepted.Id, null), NewRelocation(inherited.Id, token), NewRelocation(own.Id, token),
+            NewRelocation(sourceWork.Id, openSource), NewRelocation(followUp.Id, token));
         await Context.SaveChangesAsync();
 
         using var scope = CreateScope();
         var written = await scope.ServiceProvider.GetRequiredService<IWorkChangeRepository>()
             .ListReplacementsWrittenByScenarioAsync(token, _standInId, Day, CancellationToken.None);
 
-        written.ShouldHaveSingleItem().WorkId.ShouldBe(own.Id);
+        written.Select(change => change.WorkId).ShouldBe(new[] { own.Id, followUp.Id }, ignoreOrder: true);
     }
 
     [TestCase(8, 16, 12, 18, false)]
@@ -317,6 +483,48 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         var windowDay = workEnd < workStart ? Day.AddDays(1) : Day;
 
         (await IsFreeAsync(token, windowDay, windowStart, windowEnd)).ShouldBe(free);
+    }
+
+    [TestCase(WorkChangeType.CorrectionEnd, 16, 17, 16, 18, false)]
+    [TestCase(WorkChangeType.CorrectionStart, 7, 8, 5, 8, false)]
+    [TestCase(WorkChangeType.CorrectionEnd, 16, 17, 17, 18, true)]
+    public async Task IsFree_CountsTheLeadAndTrailOfAHeldWork(
+        WorkChangeType padding, int paddingStart, int paddingEnd, int windowStart, int windowEnd, bool free)
+    {
+        await SeedAsync(WorkingMacro);
+        var token = Guid.NewGuid();
+        _scenarioTokens.Add(token);
+        var held = NewOwnedWork(token, null);
+        Context.Work.Add(held);
+        Context.WorkChange.Add(NewPadding(held.Id, padding, paddingStart, paddingEnd, token));
+        await Context.SaveChangesAsync();
+
+        (await IsFreeAsync(token, Day, windowStart, windowEnd)).ShouldBe(free);
+    }
+
+    [TestCase(WorkChangeType.CorrectionEnd, 18, 19, false)]
+    [TestCase(WorkChangeType.CorrectionStart, 15, 17, false)]
+    public async Task IsFree_CountsTheLeadAndTrailOfTheWorkItTakes(
+        WorkChangeType padding, int paddingStart, int paddingEnd, bool free)
+    {
+        await SeedAsync(WorkingMacro);
+        var token = Guid.NewGuid();
+        _scenarioTokens.Add(token);
+        var held = NewOwnedWork(token, null);
+        held.StartTime = new TimeOnly(8, 0);
+        held.EndTime = new TimeOnly(16, 0);
+        var late = NewProbe(token, 17, 18);
+        var early = NewOwnedWork(token, null);
+        early.StartTime = new TimeOnly(18, 30);
+        early.EndTime = new TimeOnly(20, 0);
+        Context.Work.AddRange(padding == WorkChangeType.CorrectionEnd ? early : held, late);
+        Context.WorkChange.Add(NewPadding(late.Id, padding, paddingStart, paddingEnd, token));
+        await Context.SaveChangesAsync();
+
+        using var scope = CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<ICoverMoveFactsReader>()
+                .IsFreeAsync(token, _standInId, late.Id, CancellationToken.None))
+            .ShouldBe(free);
     }
 
     [Test]
@@ -364,10 +572,35 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
 
     private async Task<bool> IsFreeAsync(Guid token, DateOnly day, int startHour, int endHour)
     {
+        var probe = NewProbe(token, startHour, endHour);
+        probe.CurrentDate = day;
+        Context.Work.Add(probe);
+        await Context.SaveChangesAsync();
+
         using var scope = CreateScope();
-        return await scope.ServiceProvider.GetRequiredService<ICoverMoveFactsReader>().IsFreeAsync(
-            token, _standInId, day.ToDateTime(new TimeOnly(startHour, 0)), day.ToDateTime(new TimeOnly(endHour, 0)), CancellationToken.None);
+        return await scope.ServiceProvider.GetRequiredService<ICoverMoveFactsReader>()
+            .IsFreeAsync(token, _standInId, probe.Id, CancellationToken.None);
     }
+
+    private Work NewProbe(Guid token, int startHour, int endHour)
+    {
+        var probe = NewOwnedWork(token, null);
+        probe.ClientId = _absentId;
+        probe.StartTime = new TimeOnly(startHour, 0);
+        probe.EndTime = new TimeOnly(endHour, 0);
+        return probe;
+    }
+
+    private static WorkChange NewPadding(Guid workId, WorkChangeType type, int startHour, int endHour, Guid token) => new()
+    {
+        Id = Guid.NewGuid(),
+        WorkId = workId,
+        Type = type,
+        StartTime = new TimeOnly(startHour, 0),
+        EndTime = new TimeOnly(endHour, 0),
+        ChangeTime = endHour - startHour,
+        AnalyseToken = token,
+    };
 
     private Work NewMovedWork(Guid? token, Guid? clonedFrom)
     {

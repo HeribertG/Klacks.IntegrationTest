@@ -66,6 +66,7 @@ public class GridIntentSkillsIntegrationTests
 
     private Guid _sourceClientId;
     private Guid _targetClientId;
+    private Guid _customerClientId;
     private Guid _shiftId;
     private Guid _contractId;
     private DateOnly _date;
@@ -148,6 +149,9 @@ public class GridIntentSkillsIntegrationTests
     public async Task TearDown()
     {
         var clients = new[] { _sourceClientId, _targetClientId };
+        await _context.Database.ExecuteSqlRawAsync("DELETE FROM work WHERE client_id = {0}", _customerClientId);
+        await _context.Database.ExecuteSqlRawAsync("DELETE FROM client_period_hours WHERE client_id = {0}", _customerClientId);
+        await _context.Database.ExecuteSqlRawAsync("DELETE FROM client WHERE id = {0}", _customerClientId);
         await _context.Database.ExecuteSqlRawAsync("DELETE FROM pending_confirmations WHERE user_id = {0}", _confirmingUserId);
         foreach (var breakId in _breakIds)
         {
@@ -269,13 +273,20 @@ public class GridIntentSkillsIntegrationTests
     }
 
     [Test]
-    public async Task Reassign_MovesTheWorkAndItsContainerChildToTheTarget_AndTheHoursFollow()
+    public async Task Reassign_MovesTheWork_TheChildOfTheCustomerStays_AndTheSumOfAllHoursHolds_ThereAndBack()
     {
         var (parentId, childId) = await SeedContainerWorkAsync(_sourceClientId, _date);
+        _customerClientId = Guid.NewGuid();
+        _context.Client.Add(new Client { Id = _customerClientId, Name = SeedPrefix + "Customer", FirstName = "Integration" });
+        await _context.SaveChangesAsync();
+        await _context.Work.Where(w => w.Id == childId).ExecuteUpdateAsync(s => s
+            .SetProperty(w => w.ClientId, _customerClientId)
+            .SetProperty(w => w.WorkTime, SeedWorkTime));
         using var scope = _factory.Services.CreateScope();
         ActAs(scope, "planner-1");
         var sourceBefore = await HoursAsync(scope, _sourceClientId);
         var targetBefore = await HoursAsync(scope, _targetClientId);
+        var customerBefore = await HoursAsync(scope, _customerClientId);
 
         var result = await Skill<ReassignWorkSkill>(scope).ExecuteAsync(Ctx(), new Dictionary<string, object>
         {
@@ -285,10 +296,22 @@ public class GridIntentSkillsIntegrationTests
 
         result.Success.ShouldBeTrue(result.Message);
         (await StoredAsync(parentId)).ClientId.ShouldBe(_targetClientId);
-        (await StoredAsync(childId)).ClientId.ShouldBe(_targetClientId, "container children travel with the parent");
+        (await StoredAsync(childId)).ClientId.ShouldBe(_customerClientId, "the service of a customer stays with the customer");
         System.Text.Json.JsonSerializer.Serialize(result.Data).ShouldContain(_sourceClientId.ToString());
         (await HoursAsync(scope, _sourceClientId)).ShouldBe(sourceBefore - SeedWorkTime);
         (await HoursAsync(scope, _targetClientId)).ShouldBe(targetBefore + SeedWorkTime);
+        (await HoursAsync(scope, _customerClientId)).ShouldBe(customerBefore);
+
+        var back = await Skill<ReassignWorkSkill>(scope).ExecuteAsync(Ctx(), new Dictionary<string, object>
+        {
+            ["workId"] = parentId.ToString(),
+            ["targetClientId"] = _sourceClientId.ToString()
+        });
+
+        back.Success.ShouldBeTrue(back.Message);
+        (await HoursAsync(scope, _sourceClientId)).ShouldBe(sourceBefore);
+        (await HoursAsync(scope, _targetClientId)).ShouldBe(targetBefore);
+        (await HoursAsync(scope, _customerClientId)).ShouldBe(customerBefore);
     }
 
     [Test]

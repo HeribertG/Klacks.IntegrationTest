@@ -21,6 +21,10 @@ public sealed class FirstLookupMissesRepository : IReplacementRequestRepository
         _inner = inner;
     }
 
+    public Task<ReplacementRequest?> FindAppliedMoveAsync(
+        Guid workId, Guid absentClientId, Guid candidateClientId, CancellationToken cancellationToken)
+        => _inner.FindAppliedMoveAsync(workId, absentClientId, candidateClientId, cancellationToken);
+
     public Task<ReplacementRequest?> FindLiveAsync(
         Guid? analyseToken, Guid candidateClientId, Guid shiftId, DateOnly date, CancellationToken cancellationToken = default)
     {
