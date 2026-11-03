@@ -111,7 +111,8 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         var work = await Context.Work.AsNoTracking().SingleAsync(w => w.AnalyseToken == token && w.ClonedFromWorkId == _workId);
         work.ClientId.ShouldBe(_standInId);
         work.MovedFromClientId.ShouldBe(_absentId);
-        work.Surcharges.ShouldBe((8m - 1m) * StandInRate, "the whole span less the unpaid sub-break, at the stand-in's rate");
+        work.WorkTime.ShouldBe(8m, "the whole span; the unpaid sub-break carries its own deduction");
+        work.Surcharges.ShouldBe(8m * StandInRate, "the whole span at the stand-in's rate; the unpaid sub-break carries its own deduction");
 
         var subWork = await Context.Work.AsNoTracking().SingleAsync(w => w.AnalyseToken == token && w.ClonedFromWorkId == _subWorkId);
         subWork.ClientId.ShouldBe(_standInId);
@@ -129,8 +130,8 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         (await Context.Expenses.AsNoTracking().CountAsync(e => e.AnalyseToken == token && e.WorkId == work.Id)).ShouldBe(1);
 
         var standInHours = await PeriodHoursAsync(_standInId, token);
-        standInHours.Hours.ShouldBe(8m + 1m - 1m + 1m, "work, sub-work, unpaid sub-break, correction");
-        standInHours.Surcharges.ShouldBe(((8m - 1m) + 1m - 1m + 1m) * StandInRate);
+        standInHours.Hours.ShouldBe(8m - 1m + 1m, "work, unpaid sub-break, correction; the own sub-work lies inside the work");
+        standInHours.Surcharges.ShouldBe((8m - 1m + 1m) * StandInRate);
         var absentHours = await PeriodHoursAsync(_absentId, token);
         absentHours.Hours.ShouldBe(8m, "only the absence stays with the absent person");
         absentHours.Surcharges.ShouldBe(0m);
