@@ -545,7 +545,7 @@ public class ExpenseWorkChangeScopeIntegrationTests
             BuildPeriodHoursService(), BuildSavingCompletionService(), Substitute.For<IWorkChangeResultService>(),
             Substitute.For<IWorkNotificationFacade>(), Substitute.For<IDayLockService>(),
             Substitute.For<IReplacementRequestRecorder>(), BuildHttpContextAccessor(), NewLockGuard(),
-            Substitute.For<IReplacementWriteGuard>(), Substitute.For<ILogger<WorkChangeHandlers.PutCommandHandler>>());
+            Substitute.For<IReplacementWriteGuard>(), Substitute.For<IContainerWorkChangeGuard>(), Substitute.For<ILogger<WorkChangeHandlers.PutCommandHandler>>());
 
     private WorkChangeHandlers.DeleteCommandHandler BuildWorkChangeDeleteHandler()
         => new(

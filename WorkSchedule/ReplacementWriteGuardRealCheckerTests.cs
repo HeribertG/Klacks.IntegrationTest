@@ -235,7 +235,7 @@ public class ReplacementWriteGuardRealCheckerTests
         clientRepository.GetTypeAndDisplayNameAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(new ClientTypeAndDisplayName(EntityTypeEnum.Employee, "Substitute"));
 
-        return new ReplacementWriteGuard(clientRepository, checker, Substitute.For<ISupervisorOverrideAuthorizer>());
+        return new ReplacementWriteGuard(clientRepository, checker, Substitute.For<ISupervisorOverrideAuthorizer>(), Substitute.For<IContainerWorkChangeGuard>());
     }
 
     private DataBaseContext NewContext()

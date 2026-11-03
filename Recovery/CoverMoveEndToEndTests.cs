@@ -66,6 +66,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
     private static readonly DateTime ValidFrom = new(2090, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private Guid _groupId;
+    private ShiftType _seedShiftType = ShiftType.IsTask;
     private Guid _absentId;
     private Guid _standInId;
     private Guid _recipientId;
@@ -82,6 +83,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
     {
         await PurgeAsync();
         _scenarioTokens.Clear();
+        _seedShiftType = ShiftType.IsTask;
     }
 
     [TearDown]
@@ -708,6 +710,21 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
     }
 
     [Test]
+    public async Task AContainerReportedAfterItStarted_IsLeftUncovered_AndTheRunStillYieldsItsScenario()
+    {
+        _seedShiftType = ShiftType.IsContainer;
+        await SeedAsync(WorkingMacro, StartedDay);
+
+        var outcome = await CoverAsync(StartedDay);
+
+        outcome.Covered.ShouldBeEmpty("a container moves only as a whole; after its start it cannot be covered");
+        outcome.Uncovered.ShouldNotBeEmpty();
+        (await Context.AnalyseScenarios.AsNoTracking().AnyAsync(s => s.Id == outcome.ScenarioId)).ShouldBeTrue();
+        (await Context.WorkChange.AsNoTracking().CountAsync(wc =>
+            wc.AnalyseToken == outcome.Token && wc.ReplaceClientId != null)).ShouldBe(0);
+    }
+
+    [Test]
     public async Task AStartedWorkNobodyCovers_StandsAfterADialogAccept_WithTheRedNotice()
     {
         await SeedAsync(WorkingMacro, StartedDay);
@@ -1056,9 +1073,10 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         await Context.SaveChangesAsync();
     }
 
-    private static Shift NewShift(Guid shiftId, Guid macroId, TimeOnly start, TimeOnly end) => new()
+    private Shift NewShift(Guid shiftId, Guid macroId, TimeOnly start, TimeOnly end) => new()
     {
         Id = shiftId,
+        ShiftType = _seedShiftType,
         Name = Prefix + "SHIFT",
         Abbreviation = "ITCME",
         StartShift = start,
