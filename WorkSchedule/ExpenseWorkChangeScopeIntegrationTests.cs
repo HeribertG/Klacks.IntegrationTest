@@ -455,7 +455,16 @@ public class ExpenseWorkChangeScopeIntegrationTests
             TimeProvider.System,
             BuildHttpContextAccessor(),
             new ScenarioReplacementSwitcher(
-                BuildWorkChangeRepository(), requestRepository, scenarioRepository, scenarioService, mediator));
+                BuildWorkChangeRepository(), BuildNoMovedWorks(), Substitute.For<IAbsenceCoverMaterializer>(),
+                requestRepository, scenarioRepository, scenarioService, mediator));
+    }
+
+    private static IWorkRepository BuildNoMovedWorks()
+    {
+        var workRepository = Substitute.For<IWorkRepository>();
+        workRepository.ListMovedByScenarioAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Klacks.Api.Domain.Models.Schedules.Work>());
+        return workRepository;
     }
 
     private Task<Guid> SeedScenarioExpenseAsync() => SeedExpenseAsync(_scenarioWorkId, _scenarioToken);

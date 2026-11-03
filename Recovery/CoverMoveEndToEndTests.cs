@@ -13,6 +13,7 @@
 using Klacks.Api.Application.Commands.AnalyseScenarios;
 using Klacks.Api.Application.Commands.Schedules;
 using Klacks.Api.Application.DTOs.Notifications;
+using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Application.Services.Schedules;
@@ -171,6 +172,250 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         var periodHours = hoursScope.ServiceProvider.GetRequiredService<Klacks.Api.Domain.Interfaces.Schedules.IPeriodHoursService>();
         var (periodStart, periodEnd) = await periodHours.GetPeriodBoundariesAsync(Day);
         (await periodHours.CalculatePeriodHoursAsync(_absentId, periodStart, periodEnd, null)).Hours.ShouldBe(8m);
+    }
+
+    [Test]
+    public async Task AnAcceptedAlternative_TakesTheMovedWork_AndTheAcceptStampsItsRow()
+    {
+        var day = NextTuesdayInTheRecordableWindow();
+        await SeedAsync(WorkingMacro, day);
+        _recipientId = Guid.NewGuid();
+        var rule = await Context.SchedulingRules.AsNoTracking().FirstAsync(r => r.Name == Prefix + "RULE");
+        AddEmployee(_recipientId, "Recipient", rule.Id, AbsentRate);
+        await Context.SaveChangesAsync();
+
+        var outcome = await CoverAsync(day);
+        var proposal = outcome.Covered.ShouldHaveSingleItem();
+        proposal.Kind.ShouldBe(ReplacementRequestKind.Move);
+        var alternative = proposal.ReplacementClientId == _standInId ? _recipientId : _standInId;
+
+        using (var scope = CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IMediator>().Send(
+                new RecordReplacementContactCommand(new RecordReplacementContactRequest(
+                    _absentId, alternative, proposal.ShiftId, day, proposal.StartTime!.Value, proposal.EndTime!.Value,
+                    _groupId, Guid.Parse(AbsenceGuid), outcome.Token, ReplacementRequestOutcome.Accepted)),
+                CancellationToken.None);
+        }
+
+        var clone = await Context.Work.AsNoTracking().SingleAsync(w => w.AnalyseToken == outcome.Token && w.ClonedFromWorkId == _workId);
+        clone.ClientId.ShouldBe(alternative);
+        clone.MovedFromClientId.ShouldBe(_absentId);
+        (await Context.WorkChange.AsNoTracking().CountAsync(wc =>
+            wc.AnalyseToken == outcome.Token && wc.WorkId == clone.Id && wc.ReplaceClientId != null)).ShouldBe(0);
+
+        using (var scope = CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IMediator>()
+                .Send(new AcceptAnalyseScenarioCommand(outcome.ScenarioId), CancellationToken.None);
+        }
+
+        var row = await Context.ReplacementRequests.AsNoTracking().SingleAsync(r =>
+            r.AnalyseToken == outcome.Token && r.CandidateClientId == alternative);
+        row.Kind.ShouldBe(ReplacementRequestKind.Move);
+        row.WorkId.ShouldBe(clone.Id);
+        row.AppliedAtUtc.ShouldNotBeNull();
+        (await Context.ReplacementRequests.AsNoTracking().CountAsync(r =>
+            r.AnalyseToken == outcome.Token && r.CandidateClientId == proposal.ReplacementClientId)).ShouldBe(0);
+    }
+
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    public async Task AHop_ReturnsToTheOldStandIn_OnlyWhenThatPersonIsFree(bool holdsASecondService, bool returns)
+    {
+        var day = NextTuesdayInTheRecordableWindow();
+        await SeedSwapPeopleAsync();
+        var coverShiftId = await AddSwapShiftAsync(WorkingMacro, new TimeOnly(8, 0), new TimeOnly(16, 0));
+        var hopShiftId = await AddSwapShiftAsync(WorkingMacro, new TimeOnly(14, 0), new TimeOnly(22, 0));
+        var secondShiftId = await AddSwapShiftAsync(WorkingMacro, new TimeOnly(17, 0), new TimeOnly(20, 0));
+        await BlacklistAsync(_recipientId, coverShiftId);
+        await AddSwapWorksAsync(day, coverShiftId, hopShiftId);
+
+        var outcome = await CoverAsync(day);
+        var proposal = outcome.Covered.ShouldHaveSingleItem();
+        (await SwapWorkAsync(outcome.Token, hopShiftId, day)).ClientId.ShouldBe(_recipientId);
+
+        var alternative = Guid.NewGuid();
+        var rule = await Context.SchedulingRules.AsNoTracking().FirstAsync(r => r.Name == Prefix + "RULE");
+        AddEmployee(alternative, "Alternative", rule.Id, AbsentRate);
+        if (holdsASecondService)
+        {
+            Context.Work.Add(new Work
+            {
+                Id = Guid.NewGuid(),
+                ClientId = _standInId,
+                ShiftId = secondShiftId,
+                CurrentDate = day,
+                StartTime = new TimeOnly(17, 0),
+                EndTime = new TimeOnly(20, 0),
+                WorkTime = 3m,
+                AnalyseToken = outcome.Token,
+            });
+        }
+
+        await Context.SaveChangesAsync();
+        await AcceptAlternativeAsync(outcome.Token, proposal, alternative, day);
+
+        var hop = await SwapWorkAsync(outcome.Token, hopShiftId, day);
+        hop.ClientId.ShouldBe(returns ? _standInId : _recipientId);
+        hop.MovedFromClientId.ShouldBe(returns ? (Guid?)null : _standInId);
+    }
+
+    [Test]
+    public async Task AMarkerOfAnEarlierAccept_IsNotAMoveOfThisScenario()
+    {
+        await SeedAsync(WorkingMacro);
+        var token = Guid.NewGuid();
+        _scenarioTokens.Add(token);
+        var accepted = NewMovedWork(null, null);
+        var inherited = NewMovedWork(token, accepted.Id);
+        var own = NewMovedWork(token, null);
+        Context.Work.AddRange(accepted, inherited, own);
+        await Context.SaveChangesAsync();
+
+        using var scope = CreateScope();
+        var moved = await scope.ServiceProvider.GetRequiredService<IWorkRepository>()
+            .ListMovedByScenarioAsync(token, _absentId, Day, CancellationToken.None);
+
+        moved.ShouldHaveSingleItem().Id.ShouldBe(own.Id);
+    }
+
+    [Test]
+    public async Task AnInheritedReplacement_IsNotARelocationOfThisScenario()
+    {
+        await SeedAsync(WorkingMacro);
+        var token = Guid.NewGuid();
+        _scenarioTokens.Add(token);
+        var accepted = NewOwnedWork(null, null);
+        var inherited = NewOwnedWork(token, accepted.Id);
+        var own = NewOwnedWork(token, null);
+        Context.Work.AddRange(accepted, inherited, own);
+        Context.WorkChange.AddRange(
+            NewRelocation(accepted.Id, null), NewRelocation(inherited.Id, token), NewRelocation(own.Id, token));
+        await Context.SaveChangesAsync();
+
+        using var scope = CreateScope();
+        var written = await scope.ServiceProvider.GetRequiredService<IWorkChangeRepository>()
+            .ListReplacementsWrittenByScenarioAsync(token, _standInId, Day, CancellationToken.None);
+
+        written.ShouldHaveSingleItem().WorkId.ShouldBe(own.Id);
+    }
+
+    [TestCase(8, 16, 12, 18, false)]
+    [TestCase(8, 16, 16, 18, true)]
+    [TestCase(22, 6, 1, 3, false)]
+    public async Task IsFree_SeesEveryWorkOfThePerson(int workStart, int workEnd, int windowStart, int windowEnd, bool free)
+    {
+        await SeedAsync(WorkingMacro);
+        var token = Guid.NewGuid();
+        _scenarioTokens.Add(token);
+        var work = NewOwnedWork(token, null);
+        work.StartTime = new TimeOnly(workStart, 0);
+        work.EndTime = new TimeOnly(workEnd, 0);
+        Context.Work.Add(work);
+        await Context.SaveChangesAsync();
+        var windowDay = workEnd < workStart ? Day.AddDays(1) : Day;
+
+        (await IsFreeAsync(token, windowDay, windowStart, windowEnd)).ShouldBe(free);
+    }
+
+    [Test]
+    public async Task IsFree_SeesARealWorkWithoutAClone_NotOneTheScenarioMovedAway()
+    {
+        await SeedAsync(WorkingMacro);
+        var token = Guid.NewGuid();
+        _scenarioTokens.Add(token);
+        var cloned = NewOwnedWork(null, null);
+        var clone = NewOwnedWork(token, cloned.Id);
+        clone.ClientId = _absentId;
+        Context.Work.AddRange(cloned, clone);
+        await Context.SaveChangesAsync();
+        (await IsFreeAsync(token, Day, 8, 16)).ShouldBeTrue();
+
+        Context.Work.Add(NewOwnedWork(null, null));
+        await Context.SaveChangesAsync();
+
+        (await IsFreeAsync(token, Day, 8, 16)).ShouldBeFalse();
+    }
+
+    [TestCase(false, false)]
+    [TestCase(true, true)]
+    public async Task IsFree_ABlockingAbsenceBlocks_AnOnCallOneDoesNot(bool onCall, bool free)
+    {
+        await SeedAsync(WorkingMacro);
+        var token = Guid.NewGuid();
+        _scenarioTokens.Add(token);
+        var absence = await Context.Absence.SingleAsync(a => a.Id == Guid.Parse(AbsenceGuid));
+        absence.IsOnCall = onCall;
+        Context.Break.Add(new Break
+        {
+            Id = Guid.NewGuid(),
+            ClientId = _standInId,
+            AbsenceId = absence.Id,
+            CurrentDate = Day,
+            StartTime = new TimeOnly(0, 0),
+            EndTime = new TimeOnly(0, 0),
+            AnalyseToken = token,
+        });
+        await Context.SaveChangesAsync();
+
+        (await IsFreeAsync(token, Day, 8, 16)).ShouldBe(free);
+    }
+
+    private async Task<bool> IsFreeAsync(Guid token, DateOnly day, int startHour, int endHour)
+    {
+        using var scope = CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<ICoverMoveFactsReader>().IsFreeAsync(
+            token, _standInId, day.ToDateTime(new TimeOnly(startHour, 0)), day.ToDateTime(new TimeOnly(endHour, 0)), CancellationToken.None);
+    }
+
+    private Work NewMovedWork(Guid? token, Guid? clonedFrom)
+    {
+        var work = NewOwnedWork(token, clonedFrom);
+        work.MovedFromClientId = _absentId;
+        return work;
+    }
+
+    private Work NewOwnedWork(Guid? token, Guid? clonedFrom) => new()
+    {
+        Id = Guid.NewGuid(),
+        ClientId = _standInId,
+        ShiftId = _shiftId,
+        CurrentDate = Day,
+        StartTime = new TimeOnly(8, 0),
+        EndTime = new TimeOnly(16, 0),
+        WorkTime = 8m,
+        AnalyseToken = token,
+        ClonedFromWorkId = clonedFrom,
+    };
+
+    private WorkChange NewRelocation(Guid workId, Guid? token) => new()
+    {
+        Id = Guid.NewGuid(),
+        WorkId = workId,
+        Type = WorkChangeType.ReplacementWithin,
+        ReplaceClientId = _absentId,
+        StartTime = new TimeOnly(8, 0),
+        EndTime = new TimeOnly(16, 0),
+        Description = RecoveryMarkers.WorkChangeSource,
+        AnalyseToken = token,
+    };
+
+    private async Task AcceptAlternativeAsync(
+        Guid token, Klacks.Api.Application.DTOs.Schedules.CoveredSlot proposal, Guid alternative, DateOnly day)
+    {
+        using var scope = CreateScope();
+        await scope.ServiceProvider.GetRequiredService<IMediator>().Send(
+            new RecordReplacementContactCommand(new RecordReplacementContactRequest(
+                _absentId, alternative, proposal.ShiftId, day, proposal.StartTime!.Value, proposal.EndTime!.Value,
+                _groupId, Guid.Parse(AbsenceGuid), token, ReplacementRequestOutcome.Accepted)),
+            CancellationToken.None);
+    }
+
+    private static DateOnly NextTuesdayInTheRecordableWindow()
+    {
+        var day = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
+        return day.AddDays(((int)DayOfWeek.Tuesday - (int)day.DayOfWeek + 7) % 7);
     }
 
     [Test]
