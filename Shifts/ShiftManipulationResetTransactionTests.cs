@@ -4,7 +4,8 @@
 /// ShiftFamilyReset under a real transaction against PostgreSQL: the real UnitOfWork, DataBaseContext and repositories on a
 /// context with EnableRetryOnFailure, like production. A failure after the first save leaves every row as it was; a transient
 /// failure of the first run replays the transaction with exactly one result; two concurrent resets of a family are ordered
-/// by the head lock, the second answers nothingToReset. All state is compared in a fresh context.
+/// by the head lock, the first keeps the piece before the day, the second answers nothingToReset. All state is compared in a
+/// fresh context.
 /// </summary>
 
 using Klacks.Api.Application.Exceptions;
@@ -221,9 +222,13 @@ public partial class ShiftManipulationIntegrationTests
 
         secondWasBlocked.ShouldBeTrue("the second reset has to wait for the first one, or the test proves no overlap");
         refused.ConflictDetails![ShiftResetRefusedException.ReasonKey].ShouldBe(ShiftResetRefusedException.NothingToResetReason);
-        firstResult.ShouldHaveSingleItem().Status.ShouldBe(ShiftStatus.OriginalShift);
+        firstResult.Count.ShouldBe(2);
+        firstResult.Single(row => row.Status == ShiftStatus.OriginalShift).FromDate.ShouldBe(ResetDay);
         var after = await FreshFamilyStateAsync(family.SealedOrder);
-        after.Shifts.Where(s => s.Id != family.SealedOrder && !s.Deleted).ShouldHaveSingleItem().Status.ShouldBe(ShiftStatus.OriginalShift);
+        var live = after.Shifts.Where(s => s.Id != family.SealedOrder && !s.Deleted).ToList();
+        live.Single(s => s.Status == ShiftStatus.OriginalShift).From.ShouldBe(ResetDay);
+        live.Single(s => s.Status == ShiftStatus.SplitShift).Id.ShouldBe(family.First, "the piece before the day stays, without work too");
+        live.Count.ShouldBe(2);
         after.Shifts.Count(s => s.Status == ShiftStatus.OriginalShift).ShouldBe(1, "no second plannable row, not even a deleted one");
     }
 }

@@ -237,7 +237,7 @@ public class VariantShiftCutSeamTests
     }
 
     [Test]
-    public async Task KeyReset_RemovesThePiecesOfTheKeyOnly_AndTheNewPlannableCopyKeepsTheTokenFromTheStartOfTheKey()
+    public async Task KeyReset_FromTheFirstDay_RemovesThePiecesOfTheKeyOnly_AndTheNewPlannableCopyKeepsTheTokenFromTheStartOfTheKey()
     {
         var variant = await CreateVariantAsync("VARIANT");
         var (keyOrder, keyPlannable) = await CreateOrderAsync("KEY", variant.Token);
@@ -245,7 +245,7 @@ public class VariantShiftCutSeamTests
         await _facade.ProcessBatchCutsAsync(await TwoPieceBatchAsync(keyOrder, keyPlannable));
         _context.ChangeTracker.Clear();
 
-        var result = await _facade.ResetCutsAsync(keyOrder.Id, ResetFrom);
+        var result = await _facade.ResetCutsAsync(keyOrder.Id, PeriodFrom);
 
         _context.ChangeTracker.Clear();
         var rows = await LoadRowsAsync(keyOrder.Id);

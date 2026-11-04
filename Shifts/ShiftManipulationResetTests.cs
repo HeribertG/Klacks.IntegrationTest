@@ -2,10 +2,10 @@
 
 /// <summary>
 /// The reset of a cut family and the billing rule for shifts without a customer, against PostgreSQL through the real facade
-/// and loaders: without work the family goes back to one plannable shift from the start of the order, with the content of the
-/// sealed row; a piece with work before the date stays closed and the later pieces go; every refusal leaves all rows as they
-/// were, a scenario refusal included; a container cannot be cut or reset; the billing export leaves a shift without a
-/// customer out.
+/// and loaders: from the first day the family goes back to one plannable shift with the content of the sealed row; from a
+/// later day every piece that begins before it stays, with or without work, and ends the day before, the pieces from the day
+/// on go, and the plannable shift starts on the day; every refusal leaves all rows as they were, a scenario refusal included;
+/// a container cannot be cut or reset; the billing export leaves a shift without a customer out.
 /// </summary>
 
 using Klacks.Api.Application.Commands;
@@ -99,7 +99,7 @@ public partial class ShiftManipulationIntegrationTests
         Substitute.For<ILogger<GetResetDateRangeQueryHandler>>());
 
     [Test]
-    public async Task Reset_WithoutCustomerAndWork_EndsAsOnePlannableRow_FromTheOrderStart_WithTheContentOfTheSealedRow()
+    public async Task Reset_FromTheFirstDay_WithoutCustomerAndWork_EndsAsOnePlannableRow_WithTheContentOfTheSealedRow()
     {
         var family = await CreateUiCutFamilyAsync("Reset_Origin", order =>
         {
@@ -120,13 +120,13 @@ public partial class ShiftManipulationIntegrationTests
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
 
-        var result = await _resetCutsHandler.Handle(new PostResetCutsCommand(family.SealedOrder, ResetDay), CancellationToken.None);
+        var result = await _resetCutsHandler.Handle(new PostResetCutsCommand(family.SealedOrder, ResetOrderFrom), CancellationToken.None);
 
         var plannable = await StoredAsync(result.ShouldHaveSingleItem().Id);
         var order = await StoredAsync(family.SealedOrder);
         plannable.Status.ShouldBe(ShiftStatus.OriginalShift);
         plannable.ClientId.ShouldBeNull();
-        plannable.FromDate.ShouldBe(ResetOrderFrom, "without work the origin is back, whatever day was asked for");
+        plannable.FromDate.ShouldBe(ResetOrderFrom, "from the first day the whole origin is back");
         plannable.UntilDate.ShouldBeNull();
         (plannable.StartShift, plannable.EndShift, plannable.Description, plannable.Abbreviation, plannable.Quantity)
             .ShouldBe((order.StartShift, order.EndShift, order.Description, order.Abbreviation, order.Quantity));
@@ -142,6 +142,38 @@ public partial class ShiftManipulationIntegrationTests
             .Where(s => s.Id == family.First || s.Id == family.Later).ToListAsync();
         pieces.Count.ShouldBe(2);
         pieces.ShouldAllBe(piece => piece.IsDeleted);
+    }
+
+    [Test]
+    public async Task Reset_WithoutWork_KeepsThePieceBeforeTheDay_EndsItTheDayBefore_DropsTheLaterOne_AndStartsOnTheDay()
+    {
+        var family = await CreateUiCutFamilyAsync("Reset_KeepEarlier");
+
+        var result = await _resetCutsHandler.Handle(new PostResetCutsCommand(family.SealedOrder, ResetDay), CancellationToken.None);
+
+        result.Count.ShouldBe(2);
+        var kept = await StoredAsync(family.First);
+        kept.Status.ShouldBe(ShiftStatus.SplitShift);
+        kept.IsDeleted.ShouldBeFalse();
+        kept.FromDate.ShouldBe(ResetOrderFrom);
+        kept.UntilDate.ShouldBe(ResetDay.AddDays(-1), "the piece reached over the day and ends the day before");
+        var plannable = result.Single(row => row.Status == ShiftStatus.OriginalShift);
+        plannable.FromDate.ShouldBe(ResetDay, "the chosen day counts without work too");
+        plannable.UntilDate.ShouldBeNull();
+        (await _context.Shift.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == family.Later)).IsDeleted.ShouldBeTrue();
+    }
+
+    [Test]
+    public async Task Reset_WithoutWork_TheKeptPieceCanStillBePlannedUpToTheDayBefore()
+    {
+        var family = await CreateUiCutFamilyAsync("Reset_PlanKept");
+        await _resetCutsHandler.Handle(new PostResetCutsCommand(family.SealedOrder, ResetDay), CancellationToken.None);
+
+        await AddWorkOnAsync(family.First, ResetDay.AddDays(-1));
+
+        (await _context.Work.AsNoTracking().CountAsync(w => w.ShiftId == family.First && !w.IsDeleted)).ShouldBe(1);
+        (await ResetRangeHandler().Handle(new GetResetDateRangeQuery(family.SealedOrder), CancellationToken.None))
+            .EarliestResetDate.ShouldBe(ResetDay);
     }
 
     [Test]
@@ -184,7 +216,7 @@ public partial class ShiftManipulationIntegrationTests
     }
 
     [Test]
-    public async Task Reset_Twice_TheSecondIsRefused_AndOnePlannableShiftStays()
+    public async Task Reset_Twice_TheSecondIsRefused_AndThePieceBeforeAndOnePlannableShiftStay()
     {
         var family = await CreateUiCutFamilyAsync("Reset_Twice");
         await _resetCutsHandler.Handle(new PostResetCutsCommand(family.SealedOrder, ResetDay), CancellationToken.None);
@@ -192,7 +224,25 @@ public partial class ShiftManipulationIntegrationTests
         await ResetIsRefusedAsync(family.SealedOrder, ResetDay, ShiftResetRefusedException.NothingToResetReason);
 
         var live = (await FamilySnapshotAsync(family.SealedOrder)).Where(row => !row.Deleted && row.Id != family.SealedOrder).ToList();
-        live.ShouldHaveSingleItem().Status.ShouldBe(ShiftStatus.OriginalShift);
+        live.Count.ShouldBe(2);
+        live.Single(row => row.Status == ShiftStatus.OriginalShift).Until.ShouldBeNull();
+        live.Single(row => row.Status == ShiftStatus.SplitShift).Until.ShouldBe(ResetDay.AddDays(-1));
+    }
+
+    [Test]
+    public async Task Reset_AtAnEarlierDayThanAFormerReset_RemovesThePlannableShiftOfTheFormerReset_AndStartsOnTheEarlierDay()
+    {
+        var family = await CreateUiCutFamilyAsync("Reset_Earlier");
+        var first = await _resetCutsHandler.Handle(new PostResetCutsCommand(family.SealedOrder, ResetDay), CancellationToken.None);
+        var formerPlannable = first.Single(row => row.Status == ShiftStatus.OriginalShift).Id;
+        var earlierDay = ResetDay.AddDays(-31);
+
+        var result = await _resetCutsHandler.Handle(new PostResetCutsCommand(family.SealedOrder, earlierDay), CancellationToken.None);
+
+        result.Count.ShouldBe(2);
+        (await StoredAsync(family.First)).UntilDate.ShouldBe(earlierDay.AddDays(-1));
+        result.Single(row => row.Status == ShiftStatus.OriginalShift).FromDate.ShouldBe(earlierDay);
+        (await _context.Shift.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == formerPlannable)).IsDeleted.ShouldBeTrue();
     }
 
     [Test]
