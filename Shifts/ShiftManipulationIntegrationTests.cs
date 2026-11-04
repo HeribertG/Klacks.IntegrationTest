@@ -751,7 +751,7 @@ public partial class ShiftManipulationIntegrationTests
     #region Test 4: Reset cuts
 
     [Test]
-    public async Task PostResetCuts_WithoutWork_Should_Delete_The_Splits_And_Create_One_OriginalShift_From_The_Order_Start()
+    public async Task PostResetCuts_FromTheFirstDay_Should_Delete_The_Splits_And_Create_One_OriginalShift_From_The_Order_Start()
     {
         // Arrange - Create SealedOrder and splits
         var shiftResource = CreateTestShiftResource("Reset_Test", ShiftStatus.SealedOrder,
@@ -791,8 +791,8 @@ public partial class ShiftManipulationIntegrationTests
             Console.WriteLine($"  - {s.Name}: Status={s.Status}, FromDate={s.FromDate}, UntilDate={s.UntilDate}");
         }
 
-        // Act - Reset cuts from July 1st
-        var resetCommand = new PostResetCutsCommand(sealedOrderId, new DateOnly(2025, 7, 1));
+        // Act - Reset cuts from the first day of the sealed origin row
+        var resetCommand = new PostResetCutsCommand(sealedOrderId, new DateOnly(2025, 1, 1));
         var resetResults = await _resetCutsHandler.Handle(resetCommand, CancellationToken.None);
 
         // Assert
@@ -802,7 +802,7 @@ public partial class ShiftManipulationIntegrationTests
             Console.WriteLine($"  - {s.Name}: Status={s.Status}, FromDate={s.FromDate}, UntilDate={s.UntilDate}");
         }
 
-        // No work anywhere: the family is back to one plannable shift from the first day of the order
+        // Reset from the first day: every row begins on or after it, so the family is back to one plannable shift
         resetResults.ShouldHaveSingleItem();
         resetResults[0].Status.ShouldBe(ShiftStatus.OriginalShift);
         resetResults[0].FromDate.ShouldBe(new DateOnly(2025, 1, 1));
@@ -828,11 +828,11 @@ public partial class ShiftManipulationIntegrationTests
             new PostBatchCutsCommand([new CutOperation { Type = "CREATE", ParentId = created.Id.ToString(), Data = split }]),
             CancellationToken.None);
 
-        await _resetCutsHandler.Handle(new PostResetCutsCommand(sealedOrderId, new DateOnly(2025, 7, 1)), CancellationToken.None);
+        await _resetCutsHandler.Handle(new PostResetCutsCommand(sealedOrderId, new DateOnly(2025, 1, 1)), CancellationToken.None);
 
         try
         {
-            await _resetCutsHandler.Handle(new PostResetCutsCommand(sealedOrderId, new DateOnly(2025, 7, 1)), CancellationToken.None);
+            await _resetCutsHandler.Handle(new PostResetCutsCommand(sealedOrderId, new DateOnly(2025, 1, 1)), CancellationToken.None);
         }
         catch (ConflictException)
         {
