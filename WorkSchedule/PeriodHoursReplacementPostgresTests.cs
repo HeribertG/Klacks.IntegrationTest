@@ -1,8 +1,9 @@
 // Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
 
 /// <summary>
-/// Period-hours attribution of a ReplacementWithin against real PostgreSQL: the service calculation and the cache-miss
-/// fallback of the row header must translate their WorkChange queries and hand the hours from the employee who owns the
+/// Period-hours attribution against real PostgreSQL: the service calculation and the cache-miss fallback of the row
+/// header must translate their WorkChange queries; travel time on an inner service of a container counts for no one, and
+/// a ReplacementWithin hands the hours from the employee who owns the
 /// work to the substitute, also when the substitute is only reachable through ReplaceClientId. Far-future dates keep the
 /// rows away from other schedule data; every row hangs off an INTEGRATION_TEST_-prefixed client or shift and is removed by
 /// that prefix only.
@@ -136,6 +137,53 @@ public class PeriodHoursReplacementPostgresTests
 
         var fallbackForSubstituteAlone = await repository.GetPeriodHoursForClients([substitute.Id], PeriodFrom, PeriodUntil);
         fallbackForSubstituteAlone[substitute.Id].Hours.ShouldBe(HandedOverHours);
+    }
+
+    [Test]
+    public async Task TravelTimeOnAnInnerService_CountsForNoOne_OnServiceAndFallback()
+    {
+        const decimal childHours = 2m;
+        var employee = await CreateClientAsync("EMPLOYEE");
+        var customer = await CreateClientAsync("CUSTOMER");
+        var shift = await CreateShiftAsync();
+        var container = new Work
+        {
+            Id = Guid.NewGuid(), ClientId = employee.Id, ShiftId = shift.Id, CurrentDate = WorkDate,
+            StartTime = new TimeOnly(8, 0), EndTime = new TimeOnly(16, 0), WorkTime = WorkHours,
+        };
+        var customerChild = new Work
+        {
+            Id = Guid.NewGuid(), ClientId = customer.Id, ParentWorkId = container.Id, ShiftId = shift.Id, CurrentDate = WorkDate,
+            StartTime = new TimeOnly(9, 0), EndTime = new TimeOnly(11, 0), WorkTime = childHours,
+        };
+        await _context.Work.AddRangeAsync(container, customerChild);
+        await _context.WorkChange.AddAsync(new WorkChange
+        {
+            Id = Guid.NewGuid(), WorkId = customerChild.Id, Type = WorkChangeType.CorrectionStart, ChangeTime = 1m,
+            ToInvoice = true, StartTime = new TimeOnly(8, 0), EndTime = new TimeOnly(9, 0), Description = TestPrefix,
+        });
+        await _context.SaveChangesAsync();
+
+        var contractData = Substitute.For<IClientContractDataProvider>();
+        contractData
+            .GetEffectiveContractDataForClientsAsync(Arg.Any<List<Guid>>(), Arg.Any<DateOnly>(), Arg.Any<int?>())
+            .Returns(new Dictionary<Guid, EffectiveContractData>());
+        var service = new PeriodHoursService(
+            _context, Substitute.For<ILogger<PeriodHoursService>>(), Substitute.For<IWorkNotificationService>(),
+            Substitute.For<IClientGroupFilterService>(), contractData, Substitute.For<IWeekConfiguration>());
+        var repository = new WorkRepository(
+            _context, Substitute.For<ILogger<Work>>(), Substitute.For<IClientBaseQueryService>(),
+            Substitute.For<IWorkMacroService>(), contractData);
+        var clientIds = new List<Guid> { employee.Id, customer.Id };
+
+        var calculated = await service.GetPeriodHoursAsync(clientIds, PeriodFrom, PeriodUntil);
+        var fallback = await repository.GetPeriodHoursForClients(clientIds, PeriodFrom, PeriodUntil);
+
+        foreach (var result in new[] { calculated, fallback })
+        {
+            result[employee.Id].Hours.ShouldBe(WorkHours);
+            result[customer.Id].Hours.ShouldBe(childHours);
+        }
     }
 
     private DataBaseContext NewContext(bool ignorePendingModelChanges = false)
