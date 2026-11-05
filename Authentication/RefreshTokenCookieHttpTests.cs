@@ -448,7 +448,7 @@ public class RefreshTokenCookieHttpTests
 
         if (requestedWith)
         {
-            request.Headers.Add(RefreshTokenCookieConstants.RequestedWithHeader, RefreshTokenCookieConstants.RequestedWithValue);
+            request.Headers.Add(CsrfProofConstants.RequestedWithHeader, CsrfProofConstants.RequestedWithValue);
         }
 
         if (origin != null)
