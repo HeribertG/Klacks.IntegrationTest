@@ -16,8 +16,8 @@ namespace Klacks.IntegrationTest.Staffs;
 
 /// <summary>
 /// Integration tests for the client availability report data sources against a real Postgres database:
-/// the stored procedure get_client_availability_for_schedule (range aggregation, raw SQL bypasses the
-/// EF soft-delete query filter) and ClientAvailabilityRepository.GetTotalsByClientsAndDateRange
+/// the stored procedure get_client_availability_for_schedule (available and blocked range aggregation, raw SQL
+/// bypasses the EF soft-delete query filter), the three-state slot revive on the unique slot index and ClientAvailabilityRepository.GetTotalsByClientsAndDateRange
 /// (real Npgsql GroupBy translation incl. the global HasQueryFilter).
 ///
 /// Connection String: "Host=localhost;Port=5434;Database=klacks;Username=postgres;Password=admin"
@@ -170,6 +170,90 @@ public class ClientAvailabilityReportIntegrationTests
         entries[0].ClientId.ShouldBe(clientId);
         DateOnly.FromDateTime(entries[0].AvailabilityDate).ShouldBe(date);
         entries[0].AvailabilityRanges.ShouldBe("08:00-12:00", "Hours 8-11 must merge into one range; the unavailable hour 12 must not extend it");
+        entries[0].BlockedRanges.ShouldBe("00:00-08:00,12:00-24:00", "A day with available hours blocks every other hour (AvailabilityMatcher)");
+    }
+
+    [Test]
+    public async Task Blocked_DayWithOnlyUnavailableRows_Should_Block_Exactly_Those_Hours()
+    {
+        var clientId = await CreateTestClientAsync("BlockedNegativeOnly");
+        var date = new DateOnly(2030, 1, 18);
+
+        foreach (var hour in new[] { 14, 15, 22, 23 })
+        {
+            await AddAvailabilityAsync(clientId, date, hour, isAvailable: false);
+        }
+
+        var entries = await CreateScheduleService().GetClientAvailabilityAsync(date, date, new List<Guid> { clientId });
+
+        entries.Count.ShouldBe(1, "A day with only unavailable rows still returns a row");
+        entries[0].AvailabilityRanges.ShouldBe(string.Empty);
+        entries[0].BlockedRanges.ShouldBe("14:00-16:00,22:00-24:00", "Only the unavailable hours are blocked; 24:00 closes the last range");
+    }
+
+    [Test]
+    public async Task Blocked_DayWithoutRows_Or_Only_SoftDeleted_Rows_Should_Return_No_Row()
+    {
+        var clientId = await CreateTestClientAsync("BlockedNothing");
+        var date = new DateOnly(2030, 1, 19);
+        var softDeletedDate = date.AddDays(1);
+
+        var softDeletedId = await AddAvailabilityAsync(clientId, softDeletedDate, 9, isAvailable: false);
+        await SoftDeleteAvailabilityAsync(softDeletedId);
+
+        var entries = await CreateScheduleService()
+            .GetClientAvailabilityAsync(date, softDeletedDate, new List<Guid> { clientId });
+
+        entries.ShouldBeEmpty("A day without (live) rows is open and must not appear");
+    }
+
+    [Test]
+    public async Task Blocked_FullyAvailableDay_Should_Have_Empty_BlockedRanges()
+    {
+        var clientId = await CreateTestClientAsync("BlockedFullDay");
+        var date = new DateOnly(2030, 1, 21);
+
+        foreach (var hour in Enumerable.Range(0, 24))
+        {
+            await AddAvailabilityAsync(clientId, date, hour);
+        }
+
+        var entries = await CreateScheduleService().GetClientAvailabilityAsync(date, date, new List<Guid> { clientId });
+
+        entries.Count.ShouldBe(1);
+        entries[0].AvailabilityRanges.ShouldBe("00:00-24:00");
+        entries[0].BlockedRanges.ShouldBe(string.Empty);
+    }
+
+    [Test]
+    public async Task BulkUpsert_After_BulkRemove_Should_Revive_The_Row_Without_Unique_Index_Violation()
+    {
+        var clientId = await CreateTestClientAsync("ReviveSlot");
+        var date = new DateOnly(2030, 1, 23);
+        var repository = CreateRepository();
+
+        await repository.BulkUpsert([new ClientAvailability { ClientId = clientId, Date = date, Hour = 8, IsAvailable = true }]);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await repository.BulkRemove([new ClientAvailabilitySlot(clientId, date, 8)]);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await repository.BulkUpsert([new ClientAvailability { ClientId = clientId, Date = date, Hour = 8, IsAvailable = false }]);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var stored = await _context.ClientAvailability.IgnoreQueryFilters().AsNoTracking()
+            .Where(ca => ca.ClientId == clientId)
+            .ToListAsync();
+        stored.ShouldHaveSingleItem();
+        stored[0].IsDeleted.ShouldBeFalse();
+        stored[0].IsAvailable.ShouldBeFalse();
+
+        var entries = await CreateScheduleService().GetClientAvailabilityAsync(date, date, new List<Guid> { clientId });
+        entries.ShouldHaveSingleItem();
+        entries[0].BlockedRanges.ShouldBe("08:00-09:00");
     }
 
     [Test]
