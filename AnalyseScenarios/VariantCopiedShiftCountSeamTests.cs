@@ -10,6 +10,7 @@
 /// written and removed; all dates lie in 2099.
 /// </summary>
 
+using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Application.Commands.AnalyseScenarios;
 using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.DTOs.Schedules.Summary;
@@ -275,7 +276,7 @@ public class VariantCopiedShiftCountSeamTests
             _context,
             new AnalyseScenarioRepository(_context, Substitute.For<ILogger<AnalyseScenario>>()),
             _scenarioService,
-            contractProvider);
+            contractProvider, Substitute.For<IKeywordWishCountService>());
 
         var summary = await builder.BuildAsync(token, CancellationToken.None);
 

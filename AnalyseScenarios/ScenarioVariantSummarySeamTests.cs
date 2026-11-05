@@ -8,6 +8,7 @@
 /// written and removed; all dates lie in 2099.
 /// </summary>
 
+using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Application.DTOs.Schedules.Summary;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces.Associations;
@@ -249,7 +250,7 @@ public class ScenarioVariantSummarySeamTests
             _context,
             new AnalyseScenarioRepository(_context, Substitute.For<ILogger<AnalyseScenario>>()),
             AnalyseScenarioTestServiceFactory.Create(_context),
-            contractProvider);
+            contractProvider, Substitute.For<IKeywordWishCountService>());
 
         var summary = await builder.BuildAsync(_scenario.Token, CancellationToken.None);
 

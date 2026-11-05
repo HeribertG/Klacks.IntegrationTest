@@ -221,7 +221,8 @@ public class WizardApplyDoublePromotionTests
             NameGenerator(TestPrefix + "Scenario"),
             Klacks.IntegrationTest.TestHelpers.UnrestrictedGroupVisibility.CreateScenarioTokenAccess(),
             NoPlanningPeriodViolations(),
-            Substitute.For<ILogger<WizardApplyService>>());
+            Substitute.For<ILogger<WizardApplyService>>(),
+            Substitute.For<IKeywordWishCountService>());
     }
 
     private static Klacks.Api.Application.Interfaces.Schedules.IClientPlanningPeriodGuard NoPlanningPeriodViolations()

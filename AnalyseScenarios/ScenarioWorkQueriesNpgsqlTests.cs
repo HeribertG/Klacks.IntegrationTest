@@ -8,6 +8,7 @@
 /// nothing else.
 /// </summary>
 
+using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces.Associations;
@@ -161,7 +162,7 @@ public class ScenarioWorkQueriesNpgsqlTests
         contractProvider
             .GetEffectiveContractDataForClientsRangeAsync(Arg.Any<List<Guid>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<int?>())
             .Returns(new Dictionary<DateOnly, Dictionary<Guid, EffectiveContractData>>());
-        var builder = new ScenarioSummaryBuilder(_context, scenarioRepository, AnalyseScenarioTestServiceFactory.Create(_context), contractProvider);
+        var builder = new ScenarioSummaryBuilder(_context, scenarioRepository, AnalyseScenarioTestServiceFactory.Create(_context), contractProvider, Substitute.For<IKeywordWishCountService>());
 
         var summary = await builder.BuildAsync(_token, CancellationToken.None);
 
