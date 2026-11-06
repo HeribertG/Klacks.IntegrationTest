@@ -13,9 +13,11 @@ namespace Klacks.IntegrationTest.Wizard;
 
 /// <summary>
 /// The single reusable, parameterizable seeder. Seeds one Client + Contract + active
-/// ClientContract per client plus the shift pool (and an optional shared scheduling rule) using
-/// DETERMINISTIC index-derived GUIDs so the context builder's id-driven ordering is stable across
-/// runs. Cleanup hard-deletes the seeded rows (bypassing soft-delete) in FK-child-first order.
+/// ClientContract per client (or only the Client when the spec marks it contract-less) plus the
+/// shift pool (and an optional shared scheduling rule) using DETERMINISTIC index-derived GUIDs so
+/// the context builder's id-driven ordering is stable across runs. Optional membership rows bound
+/// the plannable days per client. Cleanup hard-deletes the seeded rows (bypassing soft-delete) in
+/// FK-child-first order.
 /// </summary>
 /// <param name="context">The DataBaseContext owned by the test base.</param>
 public sealed class WizardScenarioBuilder(DataBaseContext context)
@@ -33,6 +35,7 @@ public sealed class WizardScenarioBuilder(DataBaseContext context)
     private const string BreakGuidPrefix = "00000000-0000-0000-000b-";
     private const string AbsenceGuid = "00000000-0000-0000-000c-000000000001";
     private const string ClientAvailabilityGuidPrefix = "00000000-0000-0000-000d-";
+    private const string MembershipGuidPrefix = "00000000-0000-0000-000e-";
 
     private static readonly DateOnly ContractStart = new(2090, 1, 1);
     private static readonly DateTime ContractValidFrom = new(2090, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -77,8 +80,6 @@ public sealed class WizardScenarioBuilder(DataBaseContext context)
             var clientContractId = IndexedGuid(ClientContractGuidPrefix, i);
 
             _clientIds.Add(clientId);
-            _contractIds.Add(contractId);
-            _clientContractIds.Add(clientContractId);
 
             _context.Client.Add(new Client
             {
@@ -88,6 +89,14 @@ public sealed class WizardScenarioBuilder(DataBaseContext context)
                 Type = EntityTypeEnum.Employee,
                 IsDeleted = false,
             });
+
+            if (!spec.HasContract(i))
+            {
+                continue;
+            }
+
+            _contractIds.Add(contractId);
+            _clientContractIds.Add(clientContractId);
 
             _context.Contract.Add(new Contract
             {
@@ -330,6 +339,26 @@ public sealed class WizardScenarioBuilder(DataBaseContext context)
             });
         }
 
+        var memberships = spec.MembershipsOrEmpty;
+        for (var m = 0; m < memberships.Count; m++)
+        {
+            var membershipSpec = memberships[m];
+            if (membershipSpec.ClientIndex < 0 || membershipSpec.ClientIndex >= _clientIds.Count)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(spec),
+                    $"Membership {m} references client index {membershipSpec.ClientIndex}, outside 0..{_clientIds.Count - 1}.");
+            }
+
+            _context.Membership.Add(new Membership
+            {
+                Id = IndexedGuid(MembershipGuidPrefix, m),
+                ClientId = _clientIds[membershipSpec.ClientIndex],
+                ValidFrom = membershipSpec.ValidFrom.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                ValidUntil = membershipSpec.ValidUntil?.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+            });
+        }
+
         await _context.SaveChangesAsync();
 
         var request = new WizardContextRequest(
@@ -356,9 +385,9 @@ public sealed class WizardScenarioBuilder(DataBaseContext context)
     /// Hard-DELETEs all rows whose primary key (or, for junctions, foreign key) carries one of the
     /// builder's deterministic GUID prefixes, in FK-child-first order: client_availability, break,
     /// work, schedule_commands, client_qualification, shift_required_qualification, shift,
-    /// qualification, absence, client_contract, contract, scheduling_rules, client. Prefix-based (not list-based)
-    /// so a crashed prior run with skipped teardown cannot cause a primary-key violation on re-seed,
-    /// even though a fresh builder's id lists are empty.
+    /// qualification, absence, client_contract, contract, scheduling_rules, membership, client.
+    /// Prefix-based (not list-based) so a crashed prior run with skipped teardown cannot cause a
+    /// primary-key violation on re-seed, even though a fresh builder's id lists are empty.
     /// </summary>
     private async Task PurgeDeterministicAsync()
     {
@@ -374,6 +403,7 @@ public sealed class WizardScenarioBuilder(DataBaseContext context)
         await DeleteByPrefixAsync("client_contract", "id", ClientContractGuidPrefix);
         await DeleteByPrefixAsync("contract", "id", ContractGuidPrefix);
         await DeleteByPrefixAsync("scheduling_rules", "id", SchedulingRulePurgePrefix);
+        await DeleteByPrefixAsync("membership", "id", MembershipGuidPrefix);
         await DeleteByPrefixAsync("client", "id", ClientGuidPrefix);
     }
 

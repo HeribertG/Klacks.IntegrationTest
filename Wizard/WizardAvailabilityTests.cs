@@ -34,7 +34,7 @@ public class WizardAvailabilityTests : WizardHarnessTestBase
     private const int PopulationSize = 20;
     private const int MaxGenerations = 600;
     private const int EarlyStopGenerations = 600;
-    private const int RandomSeed = 42;
+    private static readonly int RandomSeed = WizardRunSeed.Resolve();
 
     private const decimal FlatGuaranteedHours = 180m;
     private const decimal ShiftWorkTime = 8m;

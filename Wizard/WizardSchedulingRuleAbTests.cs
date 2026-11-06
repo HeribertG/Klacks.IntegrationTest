@@ -28,7 +28,7 @@ public class WizardSchedulingRuleAbTests : WizardHarnessTestBase
 
     private const int PopulationSize = 20;
     private const int MaxGenerations = 100;
-    private const int RandomSeed = 42;
+    private static readonly int RandomSeed = WizardRunSeed.Resolve();
 
     private const int TightMaxConsecutiveDays = 3;
     private const int LooseMaxConsecutiveDays = 31;
