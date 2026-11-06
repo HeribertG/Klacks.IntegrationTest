@@ -2,9 +2,10 @@
 
 /// <summary>
 /// M6 (2026-10-08) on PostgreSQL: the wizards read the company membership window (Membership.ValidFrom / ValidUntil,
-/// inclusive) and close every day outside it. Runs the production membership query against the real provider (the
-/// in-memory provider cannot prove translation) and feeds it through the Wizard 1 agent snapshot. Every row is keyed
-/// by the INTEGRATION_TEST_ prefix and removed again.
+/// inclusive) and close every day outside it; a run for a group also closes the days outside the employee's period in
+/// that group (GroupItem validity), the same rule the apply's planning period filter uses. Runs the production queries
+/// against the real provider (the in-memory provider cannot prove translation) and feeds them through the Wizard 1 agent
+/// snapshot. Every row is keyed by the INTEGRATION_TEST_ prefix and removed again.
 /// </summary>
 
 using Klacks.Api.Application.Interfaces.Schedules;
@@ -56,6 +57,9 @@ public class MembershipWindowIntegrationTests
     private async Task CleanupAsync()
     {
         var sql = $@"
+            DELETE FROM group_item WHERE client_id IN (SELECT id FROM client WHERE name LIKE '{TestPrefix}%')
+                OR group_id IN (SELECT id FROM ""group"" WHERE name LIKE '{TestPrefix}%');
+            DELETE FROM ""group"" WHERE name LIKE '{TestPrefix}%';
             DELETE FROM membership WHERE client_id IN (SELECT id FROM client WHERE name LIKE '{TestPrefix}%');
             DELETE FROM client WHERE name LIKE '{TestPrefix}%';
         ";
@@ -92,10 +96,69 @@ public class MembershipWindowIntegrationTests
             });
 
         var snapshot = await new WizardAgentSnapshotBuilder(contractProvider, new MembershipWindowReader(_context))
-            .BuildAsync([member], PeriodFrom, PeriodUntil, PeriodFrom, PeriodUntil, new Dictionary<Guid, double>(), CancellationToken.None);
+            .BuildAsync([member], PeriodFrom, PeriodUntil, PeriodFrom, PeriodUntil, new Dictionary<Guid, double>(), groupId: null, CancellationToken.None);
 
         snapshot.ContractDays.Where(d => d.WorksOnDay).Select(d => d.Date)
             .ShouldBe([PeriodFrom, PeriodFrom.AddDays(1), LastMemberDay]);
+    }
+
+    [Test]
+    public async Task Wizard1Snapshot_ForAGroup_ClosesTheDaysOutsideTheGroupPeriod_AndIgnoresOtherGroups()
+    {
+        var (_, openMember) = await SeedAsync();
+        var fairGroup = await SeedGroupAsync("Fair");
+        var otherGroup = await SeedGroupAsync("Other");
+        _context.GroupItem.AddRange(
+            new GroupItem
+            {
+                Id = Guid.NewGuid(),
+                ClientId = openMember,
+                GroupId = fairGroup,
+                ValidFrom = PeriodFrom.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+                ValidUntil = PeriodFrom.AddDays(3).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+            },
+            new GroupItem { Id = Guid.NewGuid(), ClientId = openMember, GroupId = otherGroup });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var snapshot = await new WizardAgentSnapshotBuilder(AllWeekContractProvider(openMember), new MembershipWindowReader(_context))
+            .BuildAsync([openMember], PeriodFrom, PeriodUntil, PeriodFrom, PeriodUntil, new Dictionary<Guid, double>(), fairGroup, CancellationToken.None);
+
+        snapshot.ContractDays.Where(d => d.WorksOnDay).Select(d => d.Date)
+            .ShouldBe([PeriodFrom.AddDays(1), PeriodFrom.AddDays(2), PeriodFrom.AddDays(3)]);
+    }
+
+    private static IClientContractDataProvider AllWeekContractProvider(Guid clientId)
+    {
+        var contractProvider = Substitute.For<IClientContractDataProvider>();
+        contractProvider
+            .GetEffectiveContractDataForClientsRangeAsync(Arg.Any<List<Guid>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<int?>())
+            .Returns(ci =>
+            {
+                var result = new Dictionary<DateOnly, Dictionary<Guid, EffectiveContractData>>();
+                for (var date = ci.ArgAt<DateOnly>(1); date <= ci.ArgAt<DateOnly>(2); date = date.AddDays(1))
+                {
+                    result[date] = new Dictionary<Guid, EffectiveContractData> { [clientId] = AllWeekContract() };
+                }
+
+                return result;
+            });
+        return contractProvider;
+    }
+
+    private async Task<Guid> SeedGroupAsync(string suffix)
+    {
+        var group = new Group
+        {
+            Id = Guid.NewGuid(),
+            Name = TestPrefix + suffix,
+            Description = string.Empty,
+            ValidFrom = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            Parent = null,
+        };
+        _context.Group.Add(group);
+        await _context.SaveChangesAsync();
+        return group.Id;
     }
 
     private async Task<(Guid Member, Guid Outsider)> SeedAsync()
