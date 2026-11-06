@@ -58,6 +58,7 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
     private const decimal StaleSurcharges = 99m;
 
     private const string CollisionFinding = "collision";
+    private const int WeekOfCoverDays = 4;
 
     private static readonly DateOnly Day = new(2090, 9, 12);
     private static readonly DateOnly SecondDay = new(2090, 11, 14);
@@ -145,6 +146,99 @@ public sealed class CoverMoveEndToEndTests : WizardHarnessTestBase
         var bookRow = await Context.ReplacementRequests.AsNoTracking().SingleAsync(r => r.AnalyseToken == token);
         bookRow.Kind.ShouldBe(ReplacementRequestKind.Move);
         bookRow.WorkId.ShouldBe(work.Id);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task AWeekOfCovers_MarksEveryMovedWorkOfTheScenario_TheFirstDayIncluded(bool firstStandInOnCall)
+    {
+        await SeedAsync(WorkingMacro);
+        var standIns = new List<(DateOnly Day, Guid StandInId, Guid ShiftId)> { (Day, _standInId, _shiftId) };
+        var rule = await Context.SchedulingRules.AsNoTracking().FirstAsync(r => r.Name == Prefix + "RULE");
+        var macro = await Context.Set<Macro>().AsNoTracking().FirstAsync(m => m.Name == Prefix + "MACRO");
+        for (var offset = 1; offset < WeekOfCoverDays; offset++)
+        {
+            var day = Day.AddDays(offset);
+            var standInId = Guid.NewGuid();
+            var shiftId = Guid.NewGuid();
+            AddEmployee(standInId, "StandIn" + offset, rule.Id, StandInRate);
+            Context.Shift.Add(NewShift(shiftId, macro.Id, new TimeOnly(8, 0), new TimeOnly(16, 0)));
+            Context.GroupItem.Add(new GroupItem { Id = Guid.NewGuid(), ShiftId = shiftId, GroupId = _groupId, ValidFrom = ValidFrom });
+            Context.Work.Add(new Work
+            {
+                Id = Guid.NewGuid(),
+                ClientId = _absentId,
+                ShiftId = shiftId,
+                CurrentDate = day,
+                StartTime = new TimeOnly(8, 0),
+                EndTime = new TimeOnly(16, 0),
+                WorkTime = 8m,
+            });
+            standIns.Add((day, standInId, shiftId));
+        }
+
+        await Context.SaveChangesAsync();
+        foreach (var (_, standInId, _) in standIns)
+        {
+            foreach (var (_, _, shiftId) in standIns.Where(other => other.StandInId != standInId))
+            {
+                await BlacklistAsync(standInId, shiftId);
+            }
+        }
+
+        if (firstStandInOnCall)
+        {
+            await Context.Absence.Where(a => a.Id == Guid.Parse(UnpaidAbsenceGuid)).ExecuteUpdateAsync(s => s.SetProperty(a => a.IsOnCall, true));
+            Context.Break.Add(new Break
+            {
+                Id = Guid.NewGuid(),
+                ClientId = _standInId,
+                AbsenceId = Guid.Parse(UnpaidAbsenceGuid),
+                CurrentDate = Day,
+                StartTime = new TimeOnly(0, 0),
+                EndTime = new TimeOnly(0, 0),
+            });
+            await Context.SaveChangesAsync();
+        }
+
+        Klacks.Api.Application.DTOs.Schedules.CoverAbsenceOutcome outcome;
+        using (var scope = CreateScope())
+        {
+            outcome = await scope.ServiceProvider.GetRequiredService<IMediator>().Send(
+                new CoverAbsenceCommand(
+                    _absentId, Day, _groupId, Guid.Parse(AbsenceGuid), Day.AddDays(WeekOfCoverDays - 1),
+                    NotifyEscalationRoster: false, Source: ReplacementRequestSource.PlannerDialog),
+                CancellationToken.None);
+        }
+
+        _scenarioTokens.Add(outcome.Token);
+        var token = outcome.Token;
+        outcome.Uncovered.ShouldBeEmpty();
+        outcome.Covered.Count.ShouldBe(WeekOfCoverDays);
+        outcome.Covered.ShouldAllBe(slot => slot.Kind == ReplacementRequestKind.Move);
+
+        foreach (var (day, standInId, shiftId) in standIns)
+        {
+            var moved = await Context.Work.AsNoTracking()
+                .Where(w => w.AnalyseToken == token && w.CurrentDate == day && w.ParentWorkId == null && w.ClientId == standInId)
+                .ToListAsync();
+            var work = moved.ShouldHaveSingleItem($"the scenario holds one top-level work of the stand-in on {day}");
+            work.MovedFromClientId.ShouldBe(_absentId, $"the work the stand-in took on {day} carries its origin in the scenario");
+        }
+
+        using (var scope = CreateScope())
+        {
+            var cells = await scope.ServiceProvider.GetRequiredService<Klacks.Api.Domain.Interfaces.Schedules.IScheduleEntriesService>()
+                .GetScheduleEntriesAsync(
+                    new Klacks.Api.Domain.Models.Schedules.ScheduleEntriesCriteria(Day, Day.AddDays(WeekOfCoverDays - 1), [_groupId], token),
+                    CancellationToken.None);
+            foreach (var (day, standInId, _) in standIns)
+            {
+                var cell = cells.Where(c => c.ClientId == standInId && c.EntryType == 0 && DateOnly.FromDateTime(c.EntryDate) == day)
+                    .ShouldHaveSingleItem($"the scenario schedule shows one work of the stand-in on {day}");
+                cell.MovedFromClientId.ShouldBe(_absentId, $"the scenario schedule shows the origin of the work on {day}");
+            }
+        }
     }
 
     [Test]

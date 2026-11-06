@@ -30,7 +30,7 @@ public class WizardPartTimeTests : WizardHarnessTestBase
 
     private const int PopulationSize = 20;
     private const int MaxGenerations = 600;
-    private const int RandomSeed = 42;
+    private static readonly int RandomSeed = WizardRunSeed.Resolve();
 
     private const decimal FullTimeGuaranteedHours = 180m;
     private const decimal PartTimeGuaranteedHours = 90m;

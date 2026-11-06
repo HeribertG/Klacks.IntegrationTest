@@ -25,6 +25,8 @@ namespace Klacks.IntegrationTest.Wizard;
 /// <param name="LockedWorks">Optional locked-work axis (empty for the first test).</param>
 /// <param name="Breaks">Optional break/absence axis (empty for the first test).</param>
 /// <param name="Unavailabilities">Optional availability axis: each entry seeds an IsAvailable=false client_availability row at the shift's start hour, making that (client, shift, date) cell ineligible (empty/null for the first test).</param>
+/// <param name="HasContractPerClient">Optional per-client switch (index -> bool): false seeds the client WITHOUT Contract and ClientContract, so the planner falls back to the settings defaults. Null = every client gets a contract.</param>
+/// <param name="Memberships">Optional company-membership axis: each entry seeds one membership row (entry/exit, inclusive) for a client; a client without an entry stays unrestricted (no membership row).</param>
 public sealed record WizardScenarioSpec(
     string ScenarioName,
     int ClientCount,
@@ -42,8 +44,12 @@ public sealed record WizardScenarioSpec(
     IReadOnlyList<ScheduleCommandSpec>? ScheduleCommands = null,
     IReadOnlyList<LockedWorkSpec>? LockedWorks = null,
     IReadOnlyList<BreakSpec>? Breaks = null,
-    IReadOnlyList<UnavailabilitySpec>? Unavailabilities = null)
+    IReadOnlyList<UnavailabilitySpec>? Unavailabilities = null,
+    Func<int, bool>? HasContractPerClient = null,
+    IReadOnlyList<MembershipSpec>? Memberships = null)
 {
+    public bool HasContract(int clientIndex) => HasContractPerClient?.Invoke(clientIndex) ?? true;
+
     public Func<int, decimal> MaximumHoursOrZero => MaximumHoursPerClient ?? (_ => 0m);
 
     public IReadOnlyList<QualificationSpec> QualificationsOrEmpty => Qualifications ?? [];
@@ -55,6 +61,8 @@ public sealed record WizardScenarioSpec(
     public IReadOnlyList<BreakSpec> BreaksOrEmpty => Breaks ?? [];
 
     public IReadOnlyList<UnavailabilitySpec> UnavailabilitiesOrEmpty => Unavailabilities ?? [];
+
+    public IReadOnlyList<MembershipSpec> MembershipsOrEmpty => Memberships ?? [];
 
     /// <summary>
     /// Builds the FIRST coverage test spec: 5 clients, FD/SD/ND tiling 24h on ALL seven weekdays

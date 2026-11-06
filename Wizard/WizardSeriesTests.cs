@@ -24,7 +24,7 @@ public class WizardSeriesTests : WizardHarnessTestBase
     private static readonly DateOnly PeriodUntil = new(2099, 1, 31);
 
     private const int PopulationSize = 20;
-    private const int RandomSeed = 42;
+    private static readonly int RandomSeed = WizardRunSeed.Resolve();
     private const int EarlyStopGenerations = 20;
 
     private const decimal FlatGuaranteedHours = 180m;

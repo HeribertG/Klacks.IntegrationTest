@@ -44,7 +44,7 @@ public class WizardCoverageTests : WizardHarnessTestBase
             PopulationSize = 20,
             MaxGenerations = 600,
             EarlyStopNoImprovementGenerations = 600,
-            RandomSeed = 42,
+            RandomSeed = WizardRunSeed.Resolve(),
             MaxRuntime = null,
         };
 

@@ -270,7 +270,7 @@ public class WizardConstraintTests : WizardHarnessTestBase
         PopulationSize = 20,
         MaxGenerations = 100,
         EarlyStopNoImprovementGenerations = 20,
-        RandomSeed = 42,
+        RandomSeed = WizardRunSeed.Resolve(),
         MaxRuntime = null,
     };
 
