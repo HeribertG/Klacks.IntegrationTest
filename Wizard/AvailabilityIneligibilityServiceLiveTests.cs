@@ -3,8 +3,8 @@
 /// <summary>
 /// Read-only live verification of the C2 availability-ineligibility service against the real test
 /// database (port 5434): a real explicit-unavailable record, paired with a shift slot covering that
-/// hour, must yield the (agent, shift, date) ineligible triple. Exercises the real load path + the
-/// overlap match. Writes nothing.
+/// hour, must yield the (agent, shift, date) ineligible triple, also when the hour is the morning after a night shift
+/// that starts the day before. Exercises the real load path + the overlap match. Writes nothing.
 /// </summary>
 
 using Klacks.Api.Application.Services.Schedules;
@@ -73,4 +73,40 @@ public class AvailabilityIneligibilityServiceLiveTests
 
         result.ShouldContain((unavailable.ClientId.ToString(), shiftId, unavailable.Date));
     }
+
+    [Test, Explicit("Read-only C2 availability service against the real test DB (port 5434).")]
+    public async Task GetAsync_BlocksANightShiftWhoseMorningHourIsUnavailable()
+    {
+        var unavailableMorning = await _context.ClientAvailability
+            .AsNoTracking()
+            .Where(a => !a.IsAvailable && a.Hour >= 0 && a.Hour <= NightShiftLastMorningHour)
+            .Where(a => !_context.ClientAvailability.Any(previous =>
+                previous.ClientId == a.ClientId && previous.Date == a.Date.AddDays(-1)))
+            .OrderBy(a => a.Date)
+            .FirstOrDefaultAsync();
+
+        if (unavailableMorning is null)
+        {
+            Assert.Ignore("No explicit-unavailable morning availability row without rows on the previous day in the test DB.");
+        }
+
+        var shiftId = Guid.NewGuid();
+        var nightDate = unavailableMorning!.Date.AddDays(-1);
+        var slot = new AvailabilityShiftSlot(
+            shiftId,
+            nightDate,
+            NightShiftStart,
+            new TimeOnly(unavailableMorning.Hour, 0).AddHours(1));
+
+        var service = new AvailabilityIneligibilityService(
+            new ClientAvailabilityRepository(_context, Substitute.For<ILogger<ClientAvailability>>()));
+
+        var result = await service.GetAsync([unavailableMorning.ClientId], [slot], CancellationToken.None);
+        TestContext.Out.WriteLine($"agent {unavailableMorning.ClientId} unavailable {unavailableMorning.Date} hour {unavailableMorning.Hour}, night from {nightDate} -> {result.Count} ineligible triple(s)");
+
+        result.ShouldContain((unavailableMorning.ClientId.ToString(), shiftId, nightDate));
+    }
+
+    private const int NightShiftLastMorningHour = 6;
+    private static readonly TimeOnly NightShiftStart = new(22, 0);
 }
