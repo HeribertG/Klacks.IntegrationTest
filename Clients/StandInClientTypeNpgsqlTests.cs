@@ -3,14 +3,19 @@
 /// <summary>
 /// Stand-in clients against PostgreSQL (port 5434): the schedule scope and the Wizard-4 agent resolver plan them, the replacement person
 /// list leaves them out like the replacement write guard, and the contract data provider gives a contractless
-/// stand-in no target hours while a contractless employee keeps the settings defaults. Every row carries the prefix
+/// stand-in no target hours while a contractless employee keeps the settings defaults. Head counts (drift roster,
+/// resource monitor) and the broadcast audience by id number leave the stand-in out. Every row carries the prefix
 /// INTEGRATION_TEST_StandIn_ and only those rows are removed.
 /// </summary>
 
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Staffs;
+using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Infrastructure.Persistence;
+using Klacks.Api.Infrastructure.Plugins;
+using Klacks.Api.Infrastructure.Repositories.Dashboard;
+using Klacks.Api.Infrastructure.Services;
 using Klacks.Api.Infrastructure.Repositories.Staffs;
 using Klacks.Api.Infrastructure.Services.Associations;
 using Klacks.Api.Infrastructure.Services.Clients;
@@ -20,6 +25,7 @@ using Klacks.Api.Application.Interfaces;
 using Klacks.IntegrationTest.TestHelpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NUnit.Framework;
@@ -124,6 +130,28 @@ public class StandInClientTypeNpgsqlTests
             perDay[_standInId].MinimumHours.ShouldBe(0m);
             perDay[_employeeId].GuaranteedHours.ShouldBe(single[_employeeId].GuaranteedHours);
         }
+    }
+
+    [Test]
+    public async Task HeadcountAndBroadcastAudience_LeaveTheStandInOut_StandInIdsFindOnlyIt()
+    {
+        var ids = new[] { _employeeId, _standInId, _customerId };
+        var clientRepository = new ClientRepository(
+            _context,
+            Substitute.For<IMacroEngine>(),
+            Substitute.For<IClientChangeTrackingService>(),
+            Substitute.For<IClientEntityManagementService>(),
+            new EntityCollectionUpdateService(_context),
+            Substitute.For<IClientValidator>(),
+            Substitute.For<ILogger<ClientRepository>>());
+        var idNumbers = await _context.Client.Where(c => ids.Contains(c.Id)).Select(c => c.IdNumber).ToListAsync();
+
+        (await clientRepository.GetHeadcountClientIdsAsync()).Where(ids.Contains).ShouldBe([_employeeId]);
+        (await clientRepository.GetHeadcountClientNamesAsync()).Where(c => ids.Contains(c.Id)).Select(c => c.Id).ShouldBe([_employeeId]);
+        (await clientRepository.GetStandInIdsAsync(ids)).ShouldBe([_standInId]);
+        (await new ResourceMonitorReadRepository(_context).GetEmployeeClientIds(ids, CancellationToken.None)).ShouldBe([_employeeId]);
+        (await new ClientIdNumberReaderBridge(_context).GetClientIdsByIdNumbersAsync(idNumbers))
+            .ShouldBe([_employeeId, _customerId], ignoreOrder: true);
     }
 
     private async Task SeedTestDataAsync()

@@ -278,15 +278,16 @@ public class ClientListReadShapesTests
             new EntityCollectionUpdateService(_context),
             Substitute.For<IClientValidator>(),
             Substitute.For<ILogger<ClientRepository>>());
+        var headcountTypes = ClientTypeRules.HeadcountTypes.ToList();
         var legacyRoster = await _context.Client.AsNoTracking()
-            .Where(c => !c.IsDeleted && c.Type != EntityTypeEnum.Customer)
+            .Where(c => !c.IsDeleted && headcountTypes.Contains(c.Type))
             .Where(c => _seeded.Contains(c.Id))
             .Select(c => new { c.Id, c.FirstName, c.Name })
             .ToListAsync();
-        (await clientRepository.GetNonCustomerClientNamesAsync()).Where(c => _seeded.Contains(c.Id))
+        (await clientRepository.GetHeadcountClientNamesAsync()).Where(c => _seeded.Contains(c.Id))
             .Select(c => (c.Id, c.FirstName, c.Name))
             .ShouldBe(legacyRoster.Select(c => (c.Id, c.FirstName, (string?)c.Name)), ignoreOrder: true);
-        (await clientRepository.GetNonCustomerClientIdsAsync()).Where(_seeded.Contains)
+        (await clientRepository.GetHeadcountClientIdsAsync()).Where(_seeded.Contains)
             .ShouldBe(legacyRoster.Select(c => c.Id), ignoreOrder: true);
     }
 
