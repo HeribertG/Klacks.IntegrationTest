@@ -4,11 +4,15 @@
 /// Stand-in clients against PostgreSQL (port 5434): the schedule scope and the Wizard-4 agent resolver plan them, the replacement person
 /// list leaves them out like the replacement write guard, and the contract data provider gives a contractless
 /// stand-in no target hours while a contractless employee keeps the settings defaults. Head counts (drift roster,
-/// resource monitor) and the broadcast audience by id number leave the stand-in out. Every row carries the prefix
+/// resource monitor) and the broadcast audience by id number leave the stand-in out. The schedule base query and the
+/// client list show the stand-in exactly when their stand-in flag is set. Every row carries the prefix
 /// INTEGRATION_TEST_StandIn_ and only those rows are removed.
 /// </summary>
 
+using Klacks.Api.Application.Mappers;
+using Klacks.Api.Domain.DTOs.Filter;
 using Klacks.Api.Domain.Enums;
+using Klacks.Api.Domain.Models.Filters;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Infrastructure.Interfaces;
@@ -152,6 +156,67 @@ public class StandInClientTypeNpgsqlTests
         (await new ResourceMonitorReadRepository(_context).GetEmployeeClientIds(ids, CancellationToken.None)).ShouldBe([_employeeId]);
         (await new ClientIdNumberReaderBridge(_context).GetClientIdsByIdNumbersAsync(idNumbers))
             .ShouldBe([_employeeId, _customerId], ignoreOrder: true);
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ScheduleBaseQuery_ShowsTheStandIn_ExactlyWhenTheFlagIsSet(bool showStandIns)
+    {
+        var searchService = new ClientSearchService();
+        var baseQueryService = new ClientBaseQueryService(
+            _context,
+            PassThroughGroupFilter(),
+            new ClientSearchFilterService(searchService),
+            searchService,
+            Substitute.For<IClientFuzzySearchService>());
+        var filter = new ClientBaseFilter
+        {
+            StartDate = PeriodFrom,
+            EndDate = PeriodUntil,
+            SearchString = string.Empty,
+            ShowEmployees = true,
+            ShowExtern = true,
+            ShowStandIns = showStandIns,
+        };
+
+        var ids = await (await baseQueryService.BuildBaseQuery(filter))
+            .Where(c => c.Name.StartsWith(TestPrefix))
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        ids.ShouldBe(showStandIns ? [_employeeId, _standInId] : [_employeeId], ignoreOrder: true);
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ClientList_ShowsTheStandIn_ExactlyWhenTheFlagIsSet(bool standIn)
+    {
+        var filterRepository = new ClientFilterRepository(
+            _context,
+            PassThroughGroupFilter(),
+            new ClientFilterService(),
+            new ClientMembershipFilterService(),
+            new ClientSearchService(),
+            new ClientSortingService(),
+            Substitute.For<IClientFuzzySearchService>());
+        var filter = new FilterMapper().ToClientFilter(new FilterResource { SearchString = string.Empty, SearchOnlyByName = true, StandIn = standIn });
+
+        var ids = await (await filterRepository.FilterClients(filter))
+            .Where(c => c.Name.StartsWith(TestPrefix))
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        ids.ShouldBe(standIn ? [_employeeId, _standInId, _customerId] : [_employeeId, _customerId], ignoreOrder: true);
+    }
+
+    private static IClientGroupFilterService PassThroughGroupFilter()
+    {
+        var groupFilter = Substitute.For<IClientGroupFilterService>();
+        groupFilter.FilterClientsByGroupId(Arg.Any<Guid?>(), Arg.Any<IQueryable<Client>>())
+            .Returns(callInfo => Task.FromResult(callInfo.ArgAt<IQueryable<Client>>(1)));
+        groupFilter.FilterClientsByGroupId(Arg.Any<Guid?>(), Arg.Any<IQueryable<Client>>(), Arg.Any<bool>())
+            .Returns(callInfo => Task.FromResult(callInfo.ArgAt<IQueryable<Client>>(1)));
+        return groupFilter;
     }
 
     private async Task SeedTestDataAsync()
