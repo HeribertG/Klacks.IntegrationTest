@@ -7,7 +7,8 @@
 /// whole-period close and the group close with StandInWorksPresentException although every service is confirmed; and
 /// the real GetPeriodIssuesQueryHandler reports the same count as one Error entry for the issues card, which
 /// PeriodCloseGates.CountErrors leaves out, because the automatic close and the close advice refuse on stand-ins on their own
-/// and no acknowledgement lifts that. The stand-in delete lock counts the real-plan works of one client on any date, container children included. The dates lie in 2091 so no other data falls into the period. Every row carries the prefix
+/// and no acknowledgement lifts that. The stand-in delete lock counts the works of one client in the real plan and in open
+/// scenarios on any date, container children included. The dates lie in 2091 so no other data falls into the period. Every row carries the prefix
 /// INTEGRATION_TEST_StandIn_ and only the rows created here are removed.
 /// </summary>
 
@@ -110,9 +111,9 @@ public class StandInCloseLockNpgsqlTests
     }
 
     [Test]
-    public async Task CountRealPlanWorksOfClient_CountsRealPlanWorksOnAnyDate_ChildrenIncluded_ButNoDeletedOrScenarioWork()
+    public async Task CountWorksOfClient_CountsRealPlanAndScenarioWorksOnAnyDate_ChildrenIncluded_ButNoDeletedWork()
     {
-        (await _workRepository.CountRealPlanWorksOfClientAsync(_standInId)).ShouldBe(5);
+        (await _workRepository.CountWorksOfClientAsync(_standInId)).ShouldBe(6);
     }
 
     [Test]
