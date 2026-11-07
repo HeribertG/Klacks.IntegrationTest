@@ -174,6 +174,7 @@ public class FrozenPeriodRecalculationPostgresTests
         var groupFilter = Substitute.For<IClientGroupFilterService>();
         groupFilter.FilterClientsByGroupId(GroupId, Arg.Any<IQueryable<Client>>())
             .Returns(call => call.Arg<IQueryable<Client>>().Where(client => client.Name.StartsWith(Prefix)));
+        groupFilter.IsCallerUnrestrictedAsync().Returns(true);
 
         var contractData = Substitute.For<IClientContractDataProvider>();
         contractData.GetEffectiveContractDataAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>(), Arg.Any<int?>())
@@ -202,6 +203,7 @@ public class FrozenPeriodRecalculationPostgresTests
             Substitute.For<IWorkNotificationService>(),
             Substitute.For<IBreakMacroService>(),
             audit,
+            Substitute.For<IUserService>(),
             Substitute.For<ILogger<RecalculatePeriodHoursCommandHandler>>());
     }
 
