@@ -47,6 +47,7 @@ public class BulkAddWorksIntegrationTests
 {
     private DataBaseContext _context = null!;
     private const string TemplatePrefix = "INTEGRATION_TEST_BulkAddTemplate_";
+    private const string StandInName = "INTEGRATION_TEST_StandIn_BulkAdd";
 
     private BulkAddWorksCommandHandler _handler = null!;
     private IContainerWorkExpansionService _expansionService = null!;
@@ -56,6 +57,7 @@ public class BulkAddWorksIntegrationTests
     private Guid _testShiftId;
     private Guid _testMacroId;
     private Guid _testContractId;
+    private Guid _standInClientId;
 
     [OneTimeSetUp]
     public void OneTimeSetUp()
@@ -172,7 +174,7 @@ public class BulkAddWorksIntegrationTests
             Substitute.For<IDayLockService>(),
             NonBlockingWriteGuard(),
             BuildDefaultExpensesApplier(),
-            Substitute.For<IClientPlanningPeriodGuard>(),
+            CreatePlanningPeriodGuard(),
             AllShiftsVisible(),
             Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
 
@@ -194,6 +196,7 @@ public class BulkAddWorksIntegrationTests
         // accumulate as soft-deleted rows because TearDown soft-deletes via the interceptor).
         _testMacroId = Guid.Parse("a3edd3f5-c31c-4746-a9a0-c613d14ffd23");
         _testContractId = Guid.NewGuid();
+        _standInClientId = Guid.NewGuid();
 
         var macro = new Macro
         {
@@ -328,9 +331,15 @@ OUTPUT 1, Round(TotalBonus, 2)",
         _context.ChangeTracker.Clear();
 
         var works = await _context.Work
-            .Where(w => w.ClientId == _testClientId)
+            .Where(w => w.ClientId == _testClientId || w.ClientId == _standInClientId)
             .ToListAsync();
         _context.Work.RemoveRange(works);
+
+        var standIn = await _context.Client.FindAsync(_standInClientId);
+        if (standIn != null)
+        {
+            _context.Client.Remove(standIn);
+        }
 
         var clientContracts = await _context.Set<ClientContract>()
             .Where(cc => cc.ClientId == _testClientId)
@@ -358,7 +367,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
         // Do NOT delete the macro: the test reuses the seeded AllShift macro and must not remove it.
 
         var periodHours = await _context.ClientPeriodHours
-            .Where(p => p.ClientId == _testClientId)
+            .Where(p => p.ClientId == _testClientId || p.ClientId == _standInClientId)
             .ToListAsync();
         _context.ClientPeriodHours.RemoveRange(periodHours);
 
@@ -609,6 +618,88 @@ OUTPUT 1, Round(TotalBonus, 2)",
         copied.Where(e => e.WorkId == scenarioWorkId).ShouldAllBe(e => e.AnalyseToken == scenarioToken);
         copied.Where(e => e.WorkId == realWorkId).Select(e => (e.Amount, e.Taxable))
             .ShouldBe(new[] { (12.5m, false), (30m, true) }, ignoreOrder: true);
+    }
+
+    [Test]
+    public async Task BulkAdd_WithStandInRow_PersistsAll()
+    {
+        _context.Client.Add(new Klacks.Api.Domain.Models.Staffs.Client
+        {
+            Id = _standInClientId,
+            Name = StandInName,
+            Type = EntityTypeEnum.StandIn,
+            IsDeleted = false
+        });
+        await _context.SaveChangesAsync();
+
+        var monday = new DateOnly(2025, 1, 20);
+        var standInItem = CreateWorkItem(monday);
+        standInItem.ClientId = _standInClientId;
+        var request = new BulkAddWorksRequest
+        {
+            Works = [CreateWorkItem(monday), standInItem],
+            PeriodStart = new DateOnly(2025, 1, 1),
+            PeriodEnd = new DateOnly(2025, 1, 31)
+        };
+
+        var response = await _handler.Handle(
+            new BulkAddWorksCommand(request, PlanningPeriodCheck.SkipForPlannerOutput), CancellationToken.None);
+
+        response.SuccessCount.ShouldBe(2);
+        response.FailedCount.ShouldBe(0);
+        var stored = await _context.Work.AsNoTracking()
+            .Where(w => response.CreatedIds.Contains(w.Id))
+            .Select(w => w.ClientId)
+            .ToListAsync();
+        stored.ShouldBe([_testClientId, _standInClientId], ignoreOrder: true);
+    }
+
+    [Test]
+    public async Task BulkAdd_WithCustomerRow_IsRefusedAsAWhole()
+    {
+        _context.Client.Add(new Klacks.Api.Domain.Models.Staffs.Client
+        {
+            Id = _standInClientId,
+            Name = StandInName,
+            Type = EntityTypeEnum.Customer,
+            IsDeleted = false
+        });
+        await _context.SaveChangesAsync();
+
+        var monday = new DateOnly(2025, 1, 20);
+        var customerItem = CreateWorkItem(monday);
+        customerItem.ClientId = _standInClientId;
+        var request = new BulkAddWorksRequest
+        {
+            Works = [CreateWorkItem(monday), customerItem],
+            PeriodStart = new DateOnly(2025, 1, 1),
+            PeriodEnd = new DateOnly(2025, 1, 31)
+        };
+
+        await Should.ThrowAsync<Klacks.Api.Domain.Exceptions.InvalidRequestException>(() => _handler.Handle(
+            new BulkAddWorksCommand(request, PlanningPeriodCheck.SkipForPlannerOutput), CancellationToken.None));
+
+        (await _context.Work.AsNoTracking().CountAsync(w => w.ClientId == _testClientId || w.ClientId == _standInClientId))
+            .ShouldBe(0);
+    }
+
+    private IClientPlanningPeriodGuard CreatePlanningPeriodGuard()
+    {
+        var clientRepository = new Klacks.Api.Infrastructure.Repositories.Staffs.ClientRepository(
+            _context,
+            Substitute.For<IMacroEngine>(),
+            Substitute.For<IClientChangeTrackingService>(),
+            Substitute.For<IClientEntityManagementService>(),
+            new Klacks.Api.Infrastructure.Services.EntityCollectionUpdateService(_context),
+            Substitute.For<IClientValidator>(),
+            Substitute.For<ILogger<Klacks.Api.Infrastructure.Repositories.Staffs.ClientRepository>>());
+        var groupContextResolver = Substitute.For<ISelectedGroupContextResolver>();
+        groupContextResolver.ResolveVisibleGroupIdsAsync().Returns((List<Guid>?)null);
+        var groupFilterService = Substitute.For<Klacks.Api.Domain.Services.ShiftSchedule.IShiftGroupFilterService>();
+        groupFilterService.GetVisibleGroupIdsAsync(null).Returns(new List<Guid>());
+
+        return new Klacks.Api.Application.Services.Schedules.ClientPlanningPeriodGuard(
+            clientRepository, Substitute.For<IGroupItemRepository>(), groupContextResolver, groupFilterService);
     }
 
     private IShiftDefaultExpensesApplier BuildDefaultExpensesApplier()
