@@ -973,6 +973,7 @@ public sealed class CompliancePackageEffectivenessTests
         services.AddSingleton<IRestDayRotationRuleRepository, RestDayRotationRuleRepository>();
         services.AddSingleton<IRestrictedTimeWindowRuleRepository, RestrictedTimeWindowRuleRepository>();
         services.AddSingleton<ICompensatoryRestObligationRepository, CompensatoryRestObligationRepository>();
+        services.AddSingleton<IFrozenPeriodPolicy, FrozenPeriodPolicy>();
         services.AddSingleton<IPeriodHoursService, PeriodHoursService>();
         services.AddSingleton<IPeriodCapEvaluator, PeriodCapEvaluator>();
         services.AddSingleton<IRestDayRotationEvaluator, RestDayRotationEvaluator>();

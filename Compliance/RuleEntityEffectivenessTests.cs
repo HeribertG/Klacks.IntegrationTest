@@ -351,6 +351,7 @@ public class RuleEntityEffectivenessTests
         services.AddSingleton<ICounterRuleRepository, CounterRuleRepository>();
         services.AddSingleton<IRestDayRotationRuleRepository, RestDayRotationRuleRepository>();
         services.AddSingleton<IRestrictedTimeWindowRuleRepository, RestrictedTimeWindowRuleRepository>();
+        services.AddSingleton<IFrozenPeriodPolicy, FrozenPeriodPolicy>();
         services.AddSingleton<IPeriodHoursService, PeriodHoursService>();
         services.AddSingleton<IPeriodCapEvaluator, PeriodCapEvaluator>();
         services.AddSingleton<IRestDayRotationEvaluator, RestDayRotationEvaluator>();
