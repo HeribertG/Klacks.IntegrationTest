@@ -340,7 +340,7 @@ public partial class ShiftManipulationIntegrationTests
         var resolver = new ShiftDescendantResolver(_context);
 
         var list = await new SealedOrderListLoader(_context, resolver)
-            .LoadAsync(ResetOrderFrom, ResetOrderFrom, null, TestShiftPrefix);
+            .LoadAsync(ResetOrderFrom, ResetOrderFrom, null, TestShiftPrefix, null);
         var details = new SealedOrderDetailsLoader(_context, resolver, Substitute.For<IPeriodClosedEntryFilter>());
         var export = await new OrderExportDataLoader(_context, resolver, TestCompanyClock.Utc())
             .LoadAsync([noCustomerId, customerId, employeeId]);

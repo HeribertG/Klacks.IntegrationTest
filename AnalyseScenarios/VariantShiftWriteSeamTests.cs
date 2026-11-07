@@ -310,7 +310,7 @@ public class VariantShiftWriteSeamTests
         var promotedLookingClone = await CreateShiftAsync("EXPORT_SOURCED", null, sourceShiftId: real.Id, clientId: _client.Id);
         var loader = new SealedOrderListLoader(_context, new ShiftDescendantResolver(_context));
 
-        var listed = await loader.LoadAsync(null, null, null, TestPrefix);
+        var listed = await loader.LoadAsync(null, null, null, TestPrefix, null);
 
         listed.Select(item => item.Id).ShouldBe(new[] { real.Id });
         listed.ShouldNotContain(item => item.Id == key.Id || item.Id == clone.Id || item.Id == promotedLookingClone.Id);
@@ -326,8 +326,8 @@ public class VariantShiftWriteSeamTests
         await CreateShiftAsync("EXPORT_KEYPIECE", variant.Token, ShiftStatus.OriginalShift, originalId: other.Id);
         var loader = new SealedOrderListLoader(_context, new ShiftDescendantResolver(_context));
 
-        var byRealPiece = await loader.LoadAsync(null, null, null, TestPrefix + "EXPORT_REALPIECE");
-        var byKeyPiece = await loader.LoadAsync(null, null, null, TestPrefix + "EXPORT_KEYPIECE");
+        var byRealPiece = await loader.LoadAsync(null, null, null, TestPrefix + "EXPORT_REALPIECE", null);
+        var byKeyPiece = await loader.LoadAsync(null, null, null, TestPrefix + "EXPORT_KEYPIECE", null);
 
         byRealPiece.Select(item => item.Id).ShouldBe(new[] { real.Id });
         byKeyPiece.ShouldBeEmpty();
