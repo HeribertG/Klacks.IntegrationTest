@@ -9,6 +9,7 @@
 
 using Klacks.Api.Application.Services.Schedules;
 using Microsoft.Extensions.Logging.Abstractions;
+using Klacks.Api.Application.Interfaces;
 using Klacks.Api.Application.Interfaces.Schedules;
 using Klacks.Api.Domain.Interfaces.Schedules;
 using Klacks.Api.Infrastructure.Persistence;
@@ -107,6 +108,14 @@ public class Wizard4OptimizationCoreLiveTests
             _context);
         var keywordProvider = Substitute.For<IScheduleCommandKeywordProvider>();
         keywordProvider.GetAsync(Arg.Any<CancellationToken>()).Returns(ScheduleCommandKeywordTestFactory.Default);
+        static IClientRepository NoStandIns()
+        {
+            var clientRepository = Substitute.For<IClientRepository>();
+            clientRepository.GetStandInIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+                .Returns(new HashSet<Guid>());
+            return clientRepository;
+        }
+
         var wizardBuilder = new WizardContextBuilder(
             new WizardAgentSnapshotBuilder(provider, new Klacks.Api.Infrastructure.Repositories.Associations.MembershipWindowReader(_context)),
             new WizardShiftBuilder(_context),
@@ -116,7 +125,8 @@ public class Wizard4OptimizationCoreLiveTests
             eligibilityBuilder,
             availabilityService,
             warmStartBuilder,
-            restrictedWindowBuilder);
+            restrictedWindowBuilder,
+            NoStandIns());
         var objectiveContext = await wizardBuilder.BuildContextAsync(
             new WizardContextRequest(from, until, agentIds, null, null), CancellationToken.None);
 
