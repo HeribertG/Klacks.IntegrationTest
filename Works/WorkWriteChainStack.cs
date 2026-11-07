@@ -7,8 +7,8 @@
 /// and WorkHandOverService. Substituted: the SignalR senders (calls are counted), the timeline queue, the thorough
 /// recalculation queue (accepts every request, calls are counted), the Work macro
 /// (surcharges stay as given, the chain is under test, not the macro math), container expansion and default expenses,
-/// the contract data (fixed 40 h target), every visibility, day-lock, planning-period and write guard as pass-through,
-/// the restore authorizer (owner), the softening restore, the moved-work reversal and the new-owner recalculation
+/// the contract data (fixed 40 h target, also behind WorkRepository's period hours), every visibility, day-lock,
+/// planning-period and write guard as pass-through, the restore authorizer (owner), the softening restore, the moved-work reversal and the new-owner recalculation
 /// (succeeds). The overtime cascade is a substitute unless a test sets its own; the completion service is built per
 /// handler, so it uses the cascade set at that time.
 /// </summary>
@@ -74,7 +74,7 @@ public sealed class WorkWriteChainStack : IAsyncDisposable
             Substitute.For<ILogger<Work>>(),
             Substitute.For<IClientBaseQueryService>(),
             Substitute.For<IWorkMacroService>(),
-            Substitute.For<IClientContractDataProvider>());
+            FixedContractData());
         _containerCascade = new ContainerWorkCascadeService(Context, Substitute.For<ILogger<ContainerWorkCascadeService>>());
         _scheduleChangeTracker = new ScheduleChangeTracker(Context, WorkNotifications, _httpContextAccessor);
         ThoroughRecalculationQueue.QueueRecalculation(
@@ -93,6 +93,8 @@ public sealed class WorkWriteChainStack : IAsyncDisposable
     public UnitOfWork UnitOfWork { get; }
 
     public PeriodHoursService PeriodHoursService { get; }
+
+    public WorkRepository WorkRepository => _workRepository;
 
     public IWorkNotificationService WorkNotifications { get; } = Substitute.For<IWorkNotificationService>();
 

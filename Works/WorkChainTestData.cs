@@ -3,11 +3,13 @@
 /// <summary>
 /// Seed and cleanup for the Work write chain tests against the shared IT database klacks. Every client and shift name
 /// starts with the fixture prefix (INTEGRATION_TEST_WORKCHAIN_...), every date lies in 2099, and the cleanup hard-deletes
-/// only the Works, schedule changes, period hours and memberships of clients carrying that prefix, then those clients
-/// and the prefixed shifts. Each seed runs in its own retrying context so no interceptor of a test context sees it.
+/// only the Works, breaks, schedule changes, period hours and memberships of clients carrying that prefix, then those
+/// clients, the prefixed shifts and the absence types whose German name carries the prefix. Each seed runs in its own
+/// retrying context so no interceptor of a test context sees it.
 /// </summary>
 /// <param name="prefix">Fixture prefix; must start with INTEGRATION_TEST_WORKCHAIN_</param>
 
+using Klacks.Api.Domain.Common;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Infrastructure.Persistence;
@@ -97,6 +99,37 @@ public static class WorkChainTestData
         return work.Id;
     }
 
+    public static async Task<Guid> SeedAbsenceAsync(string prefix, string suffix, bool isOnCall)
+    {
+        var absence = new Absence
+        {
+            Id = Guid.NewGuid(),
+            Name = new MultiLanguage { De = prefix + suffix, En = prefix + suffix },
+            Abbreviation = new MultiLanguage { De = suffix },
+            Description = new MultiLanguage(),
+            IsOnCall = isOnCall
+        };
+        await SaveAsync(context => context.Absence.Add(absence));
+        return absence.Id;
+    }
+
+    public static async Task<Guid> SeedBreakAsync(Guid clientId, Guid absenceId, decimal workTime, decimal surcharges)
+    {
+        var breakEntry = new Break
+        {
+            Id = Guid.NewGuid(),
+            ClientId = clientId,
+            AbsenceId = absenceId,
+            CurrentDate = Day,
+            StartTime = TimeOnly.MinValue,
+            EndTime = TimeOnly.MinValue,
+            WorkTime = workTime,
+            Surcharges = surcharges
+        };
+        await SaveAsync(context => context.Break.Add(breakEntry));
+        return breakEntry.Id;
+    }
+
     public static async Task SoftDeleteWorkAsync(Guid workId)
     {
         await using var context = NewRetryingContext();
@@ -133,10 +166,12 @@ public static class WorkChainTestData
         var sql = $@"
             DELETE FROM schedule_change WHERE client_id IN ({prefixedClients});
             DELETE FROM client_period_hours WHERE client_id IN ({prefixedClients});
+            DELETE FROM break WHERE client_id IN ({prefixedClients});
             DELETE FROM work WHERE client_id IN ({prefixedClients});
             DELETE FROM membership WHERE client_id IN ({prefixedClients});
             DELETE FROM client WHERE starts_with(name, '{pattern}');
             DELETE FROM shift WHERE starts_with(name, '{pattern}');
+            DELETE FROM absence WHERE starts_with(name->>'de', '{pattern}');
         ";
         await using var context = NewRetryingContext();
         await context.Database.ExecuteSqlRawAsync(sql);
