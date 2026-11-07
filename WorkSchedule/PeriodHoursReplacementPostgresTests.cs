@@ -114,7 +114,8 @@ public class PeriodHoursReplacementPostgresTests
             Substitute.For<IWorkNotificationService>(),
             Substitute.For<IClientGroupFilterService>(),
             contractData,
-            Substitute.For<IWeekConfiguration>());
+            Substitute.For<IWeekConfiguration>(),
+            new FrozenPeriodPolicy(_context));
         var repository = new WorkRepository(
             _context,
             Substitute.For<ILogger<Work>>(),
@@ -170,7 +171,8 @@ public class PeriodHoursReplacementPostgresTests
             .Returns(new Dictionary<Guid, EffectiveContractData>());
         var service = new PeriodHoursService(
             _context, Substitute.For<ILogger<PeriodHoursService>>(), Substitute.For<IWorkNotificationService>(),
-            Substitute.For<IClientGroupFilterService>(), contractData, Substitute.For<IWeekConfiguration>());
+            Substitute.For<IClientGroupFilterService>(), contractData, Substitute.For<IWeekConfiguration>(),
+            new FrozenPeriodPolicy(_context));
         var repository = new WorkRepository(
             _context, Substitute.For<ILogger<Work>>(), Substitute.For<IClientBaseQueryService>(),
             Substitute.For<IWorkMacroService>(), contractData);

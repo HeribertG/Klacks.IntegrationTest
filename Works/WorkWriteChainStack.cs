@@ -67,7 +67,8 @@ public sealed class WorkWriteChainStack : IAsyncDisposable
             WorkNotifications,
             Substitute.For<IClientGroupFilterService>(),
             FixedContractData(),
-            MondayWeeks());
+            MondayWeeks(),
+            new FrozenPeriodPolicy(Context));
 
         _workRepository = new WorkRepository(
             Context,

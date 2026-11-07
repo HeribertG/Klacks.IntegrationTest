@@ -121,7 +121,8 @@ public class AcceptScenarioPeriodHoursRefreshSeamTests
         Substitute.For<IWorkNotificationService>(),
         Substitute.For<IClientGroupFilterService>(),
         _contractDataProvider,
-        Substitute.For<IWeekConfiguration>());
+        Substitute.For<IWeekConfiguration>(),
+        new FrozenPeriodPolicy(context));
 
     private WorkRepository WorkRepository(DataBaseContext context) => new(
         context,

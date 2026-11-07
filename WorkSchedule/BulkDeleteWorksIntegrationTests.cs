@@ -65,7 +65,8 @@ public class BulkDeleteWorksIntegrationTests
             workNotificationService,
             Substitute.For<IClientGroupFilterService>(),
             contractDataProvider,
-            CreateDefaultWeekConfiguration());
+            CreateDefaultWeekConfiguration(),
+            new FrozenPeriodPolicy(_context));
 
         var baseQueryService = new ClientBaseQueryService(_context, Substitute.For<IClientGroupFilterService>(), Substitute.For<IClientSearchFilterService>(), new Klacks.Api.Infrastructure.Services.Clients.ClientSearchService(), new Klacks.IntegrationTest.TestHelpers.EmptyClientFuzzySearchService());
         var workRepository = new WorkRepository(
