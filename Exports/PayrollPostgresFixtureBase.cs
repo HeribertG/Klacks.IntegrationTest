@@ -25,6 +25,7 @@ public abstract class PayrollPostgresFixtureBase
 {
     protected const string Prefix = "INTEGRATION_TEST_PayrollWp0b_";
     protected const string Actor = Prefix + "actor";
+    protected const string StandInPrefix = "INTEGRATION_TEST_StandIn_";
 
     protected static readonly DateOnly Day1 = new(2037, 3, 2);
     protected static readonly DateOnly Day2 = Day1.AddDays(1);
@@ -151,6 +152,34 @@ public abstract class PayrollPostgresFixtureBase
         }
 
         return id;
+    }
+
+    protected Guid AddStandIn(string label)
+    {
+        var id = Guid.NewGuid();
+        Context.Client.Add(new Client
+        {
+            Id = id,
+            Name = StandInPrefix + label + "_" + id.ToString("N")[..8],
+            FirstName = string.Empty,
+            Type = EntityTypeEnum.StandIn,
+        });
+        _clientIds.Add(id);
+        return id;
+    }
+
+    protected void AddReplacement(Guid workId, Guid substituteId)
+    {
+        Context.WorkChange.Add(new WorkChange
+        {
+            Id = Guid.NewGuid(),
+            WorkId = workId,
+            Type = WorkChangeType.ReplacementStart,
+            ChangeTime = 2m,
+            StartTime = new TimeOnly(8, 0),
+            EndTime = new TimeOnly(10, 0),
+            ReplaceClientId = substituteId,
+        });
     }
 
     protected Guid AddUngroupedShift()

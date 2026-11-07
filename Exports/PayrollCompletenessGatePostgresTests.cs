@@ -5,7 +5,9 @@
 /// with a group seal and an active membership is complete, a membership day no seal locks raises DayNotLocked, a
 /// global seal locks a person without a group (and without one the blocker asks for a global close), a day approval
 /// never counts, a work entry below Closed raises EntryNotClosed with the shift's group, and an export of an
-/// overlapping period raises OverlappingExport. Every query is restricted to the test's own persons so real plan data
+/// overlapping period raises OverlappingExport. A Work on a stand-in raises StandInAssigned although it is closed and
+/// sealed, and a check restricted to a person who replaces on a stand-in Work raises it too (the replacement hours would
+/// otherwise be dropped by PayrollWorkChangeLoader). Every query is restricted to the test's own persons so real plan data
 /// cannot influence the result.
 /// </summary>
 using Klacks.Api.Application.DTOs.Exports;
@@ -198,5 +200,42 @@ public class PayrollCompletenessGatePostgresTests : PayrollPostgresFixtureBase
 
         selected.IsComplete.ShouldBeTrue();
         both.Blockers.ShouldHaveSingleItem().ClientId.ShouldBe(open);
+    }
+
+    [Test]
+    public async Task StandInWork_Blocks_EvenClosedAndSealed()
+    {
+        var standIn = AddStandIn("Fair1");
+        AddWork(standIn, Day2, 8m, WorkLockLevel.Closed);
+        SealPeriod(GroupId);
+        await Context.SaveChangesAsync();
+
+        var result = await _gate.CheckAsync(Day1, Day3, [standIn]);
+
+        var blocker = result.Blockers.ShouldHaveSingleItem();
+        blocker.Reason.ShouldBe(PayrollExportBlockReason.StandInAssigned);
+        blocker.ClientId.ShouldBe(standIn);
+        blocker.Date.ShouldBe(Day2);
+        blocker.ClientName.ShouldStartWith(StandInPrefix + "Fair1_");
+        blocker.RequiresGlobalClose.ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task ReplacementOnStandInWork_Blocks_TheReplacingPersonsExport()
+    {
+        var substitute = AddPerson("Substitute", GroupId);
+        AddWork(substitute, Day1, 8m, WorkLockLevel.Closed);
+        var standIn = AddStandIn("Fair2");
+        var standInWork = AddWork(standIn, Day2, 8m, WorkLockLevel.Closed);
+        AddReplacement(standInWork, substitute);
+        SealPeriod(GroupId);
+        await Context.SaveChangesAsync();
+
+        var result = await _gate.CheckAsync(Day1, Day3, [substitute]);
+
+        var blocker = result.Blockers.ShouldHaveSingleItem();
+        blocker.Reason.ShouldBe(PayrollExportBlockReason.StandInAssigned);
+        blocker.ClientId.ShouldBe(standIn);
+        blocker.Date.ShouldBe(Day2);
     }
 }
