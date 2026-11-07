@@ -81,6 +81,22 @@ public static class WorkChainTestData
         return work.Id;
     }
 
+    public static async Task<Guid> SeedWorkOnDayAsync(Guid clientId, Guid shiftId, DateOnly day, decimal workTime)
+    {
+        var work = new Work
+        {
+            Id = Guid.NewGuid(),
+            ClientId = clientId,
+            ShiftId = shiftId,
+            CurrentDate = day,
+            StartTime = MorningStart,
+            EndTime = MorningEnd,
+            WorkTime = workTime
+        };
+        await SaveAsync(context => context.Work.Add(work));
+        return work.Id;
+    }
+
     public static async Task SoftDeleteWorkAsync(Guid workId)
     {
         await using var context = NewRetryingContext();

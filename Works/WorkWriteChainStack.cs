@@ -127,6 +127,14 @@ public sealed class WorkWriteChainStack : IAsyncDisposable
             Substitute.For<IDayLockService>(), UnitOfWork, _httpContextAccessor, NewWorkLockGuard(),
             Substitute.For<ILogger<DeleteCommandHandler>>());
 
+    public BulkAddWorksCommandHandler NewBulkAddHandler()
+        => new(
+            _workRepository, AllClientsVisible(), _scheduleMapper, PeriodHoursService, NewCompletionService(),
+            _notificationFacade, Substitute.For<IContainerWorkExpansionService>(), OvertimeCascade,
+            Substitute.For<IDayLockService>(), Substitute.For<IWorkWriteGuard>(),
+            Substitute.For<IShiftDefaultExpensesApplier>(), Substitute.For<IClientPlanningPeriodGuard>(),
+            AllShiftsVisible(), Substitute.For<ILogger<BulkAddWorksCommandHandler>>());
+
     public BulkDeleteWorksCommandHandler NewBulkDeleteHandler()
         => new(
             _workRepository, AllRowsVisible(), _scheduleMapper, PeriodHoursService, NewCompletionService(),
