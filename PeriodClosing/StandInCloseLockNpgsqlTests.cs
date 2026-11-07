@@ -6,7 +6,7 @@
 /// stand-in's works count, because the close would seal them), the group close only those on the group's own shifts; the real PeriodSealCompletenessGuard refuses the
 /// whole-period close and the group close with StandInWorksPresentException although every service is confirmed; and
 /// the real GetPeriodIssuesQueryHandler reports the same count as one Error entry, which the automatic close and the close
-/// advice count. The dates lie in 2091 so no other data falls into the period. Every row carries the prefix
+/// advice count. The stand-in delete lock counts the real-plan works of one client on any date, container children included. The dates lie in 2091 so no other data falls into the period. Every row carries the prefix
 /// INTEGRATION_TEST_StandIn_ and only the rows created here are removed.
 /// </summary>
 
@@ -106,6 +106,12 @@ public class StandInCloseLockNpgsqlTests
     public async Task CountStandInWorks_WholePeriod_CountsEveryGroup_ButNoEmployeeDeletedScenarioOrChildWork()
     {
         (await _workRepository.CountStandInWorksForCloseAsync(PeriodStart, PeriodEnd, null)).ShouldBe(4);
+    }
+
+    [Test]
+    public async Task CountRealPlanWorksOfClient_CountsRealPlanWorksOnAnyDate_ChildrenIncluded_ButNoDeletedOrScenarioWork()
+    {
+        (await _workRepository.CountRealPlanWorksOfClientAsync(_standInId)).ShouldBe(5);
     }
 
     [Test]
