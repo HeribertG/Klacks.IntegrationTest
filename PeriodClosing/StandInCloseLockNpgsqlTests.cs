@@ -2,8 +2,8 @@
 
 /// <summary>
 /// The period close lock for stand-ins against PostgreSQL (port 5434): the real WorkRepository counts only top-level
-/// real-plan works on stand-ins (any lock level, not deleted, not a scenario, not a container child, not on a soft-deleted
-/// stand-in), the group close only those on the group's own shifts; the real PeriodSealCompletenessGuard refuses the
+/// real-plan works on stand-ins (any lock level, not deleted, not a scenario, not a container child; a soft-deleted
+/// stand-in's works count, because the close would seal them), the group close only those on the group's own shifts; the real PeriodSealCompletenessGuard refuses the
 /// whole-period close and the group close with StandInWorksPresentException although every service is confirmed; and
 /// the real GetPeriodIssuesQueryHandler reports the same count as one Error entry, which the automatic close and the close
 /// advice count. The dates lie in 2091 so no other data falls into the period. Every row carries the prefix
@@ -97,15 +97,15 @@ public class StandInCloseLockNpgsqlTests
     }
 
     [Test]
-    public async Task CountStandInWorks_GroupClose_CountsOnlyTheGroupsOwnTopLevelRealPlanStandInWorks()
+    public async Task CountStandInWorks_GroupClose_CountsOnlyTheGroupsOwnTopLevelRealPlanStandInWorks_AlsoOfADeletedStandIn()
     {
-        (await _workRepository.CountStandInWorksForCloseAsync(PeriodStart, PeriodEnd, _groupId)).ShouldBe(2);
+        (await _workRepository.CountStandInWorksForCloseAsync(PeriodStart, PeriodEnd, _groupId)).ShouldBe(3);
     }
 
     [Test]
     public async Task CountStandInWorks_WholePeriod_CountsEveryGroup_ButNoEmployeeDeletedScenarioOrChildWork()
     {
-        (await _workRepository.CountStandInWorksForCloseAsync(PeriodStart, PeriodEnd, null)).ShouldBe(3);
+        (await _workRepository.CountStandInWorksForCloseAsync(PeriodStart, PeriodEnd, null)).ShouldBe(4);
     }
 
     [Test]
@@ -121,15 +121,15 @@ public class StandInCloseLockNpgsqlTests
         var byGroup = await Should.ThrowAsync<StandInWorksPresentException>(
             () => _sealGuard.EnsureAllSealedAsync(PeriodStart, PeriodEnd, _groupId));
 
-        whole.StandInWorkCount.ShouldBe(3);
-        byGroup.StandInWorkCount.ShouldBe(2);
+        whole.StandInWorkCount.ShouldBe(4);
+        byGroup.StandInWorkCount.ShouldBe(3);
     }
 
     [Test]
     public async Task Close_IsNoLongerRefused_OnceTheStandInWorksLieOnAPerson()
     {
         await _context.Work
-            .Where(w => w.ClientId == _standInId)
+            .Where(w => w.ClientId == _standInId || w.ClientId == _deletedStandInId)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(w => w.ClientId, _employeeId)
                 .SetProperty(w => w.LockLevel, WorkLockLevel.Confirmed));
@@ -145,7 +145,7 @@ public class StandInCloseLockNpgsqlTests
 
         var entry = issues.ShouldHaveSingleItem();
         entry.Code.ShouldBe(PeriodIssueLimits.StandInWorksCode);
-        entry.MessageParams["count"].ShouldBe(2.ToString(CultureInfo.InvariantCulture));
+        entry.MessageParams["count"].ShouldBe(3.ToString(CultureInfo.InvariantCulture));
         PeriodCloseGates.CountErrors(issues).ShouldBe(1);
     }
 
