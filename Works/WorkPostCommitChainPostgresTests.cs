@@ -5,15 +5,15 @@
 /// production (WorkWriteChainStack): commit of the Work, the overtime successor commit (CommittingOvertimeCascadeFake
 /// on a seeded later Work of the same day), the schedule change marker, the timeline queue and the period hours,
 /// followed by the handler notifications. A client_period_hours row with known stale values is seeded for the period
-/// the service itself resolves, so a skipped recalculation stays visible. The failure cases pin what stays committed
-/// today when the chain breaks after the first commit; a later change to the post-commit steps flips them on purpose.
-/// All state is read in a fresh context.
+/// the service itself resolves, so a skipped recalculation stays visible. When the chain breaks after the first commit,
+/// the create still succeeds: the Work stays committed, the response carries the live period hours, the stale cached
+/// row is dropped instead of left behind, no PeriodHoursUpdated is pushed and exactly one thorough recalculation of the
+/// pay period is queued for the client. All state is read in a fresh context.
 /// </summary>
 
 using Klacks.Api.Application.Commands;
 using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.DTOs.Notifications;
-using Klacks.Api.Domain.Exceptions;
 using NSubstitute;
 using NUnit.Framework;
 using Shouldly;
@@ -25,7 +25,6 @@ namespace Klacks.IntegrationTest.Works;
 public class WorkPostCommitChainPostgresTests
 {
     private const string Prefix = WorkChainTestData.PrefixRoot + "POST_";
-    private const string CreateOperationName = "CreateWork";
     private const string ClientSuffix = "CLIENT";
     private const decimal PostedWorkTime = 8m;
     private const decimal SuccessorWorkTime = 2m;
@@ -93,50 +92,56 @@ public class WorkPostCommitChainPostgresTests
     }
 
     [Test]
-    public async Task Post_WhenReprocessThrowsBeforeItsCommit_KeepsTheWork_LeavesMarkerPeriodHoursAndScheduleChangeUnwritten_PushesNothing_AndAnswersTheCatchAll()
+    public async Task Post_WhenReprocessThrowsBeforeItsCommit_KeepsTheWork_DiscardsTheMarker_AnswersWithLivePeriodHours_DropsTheStaleRow_AndQueuesTheRecalculation()
     {
         await using var stack = new WorkWriteChainStack();
         UseCommittingCascade(stack, throwBeforeCommit: true);
 
-        var exception = await Should.ThrowAsync<InvalidRequestException>(
-            () => stack.NewPostHandler().Handle(new PostCommand<WorkResource>(NewResource()), CancellationToken.None));
+        var result = await stack.NewPostHandler().Handle(new PostCommand<WorkResource>(NewResource()), CancellationToken.None);
 
-        exception.Message.ShouldBe(CatchAllMessage(CommittingOvertimeCascadeFake.FailureMessage));
+        result.ShouldNotBeNull();
+        var periodHoursAnswer = result.PeriodHours.ShouldNotBeNull();
+        periodHoursAnswer.Hours.ShouldBe(PostedWorkTime + SuccessorWorkTime);
+        periodHoursAnswer.Surcharges.ShouldBe(0m);
         var state = await ChainStateSnapshot.ReadAsync(_clientId);
         var live = state.LiveWorksOf(_clientId);
         live.Count.ShouldBe(SuccessorAndPostedWorkCount);
         live.Single(w => w.Id != _successorId).WorkTime.ShouldBe(PostedWorkTime);
         state.WorkById(_successorId).Surcharges.ShouldBe(0m);
-        ThenPeriodHoursAreStale(state);
+        ThenNoCachedPeriodHoursRowIsLeft(state);
         state.ScheduleChanges.ShouldBeEmpty();
-        stack.WorkNotifications.ReceivedCalls().ShouldBeEmpty();
-        stack.ShiftStatsNotifications.ReceivedCalls().ShouldBeEmpty();
-        stack.Timeline.ReceivedCalls().ShouldBeEmpty();
+        await ThenTheCreateWasNotifiedOnce_WithoutAPeriodHoursPush(stack);
+        stack.WorkNotifications.ReceivedCalls().Count().ShouldBe(1);
+        stack.Timeline.Received(1).QueueCheck(_clientId, WorkChainTestData.Day, null);
+        ThenExactlyThePeriodWasQueued(stack);
     }
 
     [Test]
-    public async Task Post_WhenThePeriodHoursSaveFails_KeepsWorkMarkerAndScheduleChange_PushesOnlyScheduleChangeTracked_AndAnswersTheCatchAll()
+    public async Task Post_WhenThePeriodHoursSaveFails_KeepsWorkMarkerAndScheduleChange_AnswersWithLivePeriodHours_DropsTheStaleRow_AndQueuesTheRecalculation()
     {
         var interceptor = new ClientPeriodHoursSaveFailureInterceptor();
         await using var stack = new WorkWriteChainStack(interceptor);
         UseCommittingCascade(stack);
 
-        var exception = await Should.ThrowAsync<InvalidRequestException>(
-            () => stack.NewPostHandler().Handle(new PostCommand<WorkResource>(NewResource()), CancellationToken.None));
+        var result = await stack.NewPostHandler().Handle(new PostCommand<WorkResource>(NewResource()), CancellationToken.None);
 
-        exception.Message.ShouldBe(CatchAllMessage(ClientPeriodHoursSaveFailureInterceptor.FailureMessage));
+        result.ShouldNotBeNull();
+        var periodHoursAnswer = result.PeriodHours.ShouldNotBeNull();
+        periodHoursAnswer.Hours.ShouldBe(PostedWorkTime + SuccessorWorkTime);
+        periodHoursAnswer.Surcharges.ShouldBe(CommittingOvertimeCascadeFake.SurchargeMarker);
         interceptor.FailureCount.ShouldBe(1);
         var state = await ChainStateSnapshot.ReadAsync(_clientId);
         state.LiveWorksOf(_clientId).Count.ShouldBe(SuccessorAndPostedWorkCount);
         state.WorkById(_successorId).Surcharges.ShouldBe(CommittingOvertimeCascadeFake.SurchargeMarker);
-        ThenPeriodHoursAreStale(state);
+        ThenNoCachedPeriodHoursRowIsLeft(state);
         state.LiveScheduleChangesOf(_clientId).Select(sc => sc.ChangeDate).ShouldBe([WorkChainTestData.Day]);
 
         await stack.WorkNotifications.Received(1).NotifyScheduleChangeTracked(
             Arg.Is<ScheduleChangeNotificationDto>(n => n.ClientId == _clientId && n.ChangeDate == WorkChainTestData.Day));
-        stack.WorkNotifications.ReceivedCalls().Count().ShouldBe(1);
-        stack.ShiftStatsNotifications.ReceivedCalls().ShouldBeEmpty();
+        await ThenTheCreateWasNotifiedOnce_WithoutAPeriodHoursPush(stack);
+        stack.WorkNotifications.ReceivedCalls().Count().ShouldBe(2);
         stack.Timeline.Received(1).QueueCheck(_clientId, WorkChainTestData.Day, null);
+        ThenExactlyThePeriodWasQueued(stack);
     }
 
     private CommittingOvertimeCascadeFake UseCommittingCascade(WorkWriteChainStack stack, bool throwBeforeCommit = false)
@@ -146,21 +151,34 @@ public class WorkPostCommitChainPostgresTests
         return cascade;
     }
 
-    private void ThenPeriodHoursAreStale(ChainStateSnapshot state)
+    private void ThenNoCachedPeriodHoursRowIsLeft(ChainStateSnapshot state)
+        => state.PeriodHours.Where(p => p.ClientId == _clientId).ShouldBeEmpty();
+
+    private async Task ThenTheCreateWasNotifiedOnce_WithoutAPeriodHoursPush(WorkWriteChainStack stack)
     {
-        var periodHours = state.PeriodHoursOf(_clientId);
-        periodHours.StartDate.ShouldBe(_period.Start);
-        periodHours.EndDate.ShouldBe(_period.End);
-        periodHours.Hours.ShouldBe(StaleHours);
-        periodHours.Surcharges.ShouldBe(StaleSurcharges);
+        await stack.WorkNotifications.Received(1).NotifyWorkCreated(
+            Arg.Is<WorkNotificationDto>(n => n.ClientId == _clientId));
+        await stack.ShiftStatsNotifications.Received(1).NotifyShiftStatsUpdated(
+            Arg.Is<ShiftStatsNotificationDto>(n => n.ShiftId == _shiftId));
+        stack.ShiftStatsNotifications.ReceivedCalls().Count().ShouldBe(1);
+        PeriodHoursPushCount(stack).ShouldBe(0);
+    }
+
+    private void ThenExactlyThePeriodWasQueued(WorkWriteChainStack stack)
+    {
+        stack.ThoroughRecalculationQueue.Received(1).QueueRecalculation(
+            _period.Start,
+            _period.End,
+            Arg.Is<Guid?>(group => group == null),
+            Arg.Is<Guid?>(token => token == null),
+            Arg.Is<IReadOnlyCollection<Guid>?>(ids => ids != null && ids.SequenceEqual(new[] { _clientId })));
+        stack.ThoroughRecalculationQueue.ReceivedCalls().Count().ShouldBe(1);
     }
 
     private static int PeriodHoursPushCount(WorkWriteChainStack stack)
         => stack.WorkNotifications.ReceivedCalls()
             .Count(call => call.GetMethodInfo().Name == nameof(stack.WorkNotifications.NotifyPeriodHoursUpdated));
 
-    private static string CatchAllMessage(string innerMessage)
-        => $"An unexpected error occurred during {CreateOperationName}: {innerMessage}";
 
     private WorkResource NewResource() => new()
     {

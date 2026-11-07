@@ -3,8 +3,9 @@
 /// <summary>
 /// Bulk deleting Works must not leave a stale client_period_hours row behind. Every period-hours reader prefers a cached
 /// row over the live sum (PeriodHoursService.GetPeriodHoursAsync, WorkRepository.GetPeriodHoursForClients), so a row that
-/// still counts the deleted Works shows too many hours after a reload. Runs against PostgreSQL (IT database klacks)
-/// through WorkWriteChainStack; the state is read in a fresh stack.
+/// still counts the deleted Works shows too many hours after a reload. The row is recalculated, not dropped, because the
+/// payroll export reads only the cached rows (ClientPeriodExportDataLoader). Runs against PostgreSQL (IT database klacks)
+/// through WorkWriteChainStack; the state is read in a fresh stack and a fresh context.
 /// </summary>
 
 using Klacks.Api.Application.Commands.Works;
@@ -52,7 +53,7 @@ public class WorkBulkDeletePeriodHoursPostgresTests
     public async Task TearDown() => await WorkChainTestData.CleanupAsync(Prefix);
 
     [Test]
-    public async Task BulkDelete_LeavesNoStalePeriodHours_SoAReloadShowsOnlyTheRemainingWorks()
+    public async Task BulkDelete_PersistsThePeriodHoursOfTheRemainingWorks_SoAReloadAndTheExportShowOnlyThem()
     {
         await using (var stack = new WorkWriteChainStack())
         {
@@ -68,5 +69,11 @@ public class WorkBulkDeletePeriodHoursPostgresTests
 
         shown[_clientId].Hours.ShouldBe(EveningWorkTime);
         shown[_clientId].Surcharges.ShouldBe(0m);
+
+        var persisted = (await ChainStateSnapshot.ReadAsync(_clientId)).PeriodHoursOf(_clientId);
+        persisted.StartDate.ShouldBe(_period.Start);
+        persisted.EndDate.ShouldBe(_period.End);
+        persisted.Hours.ShouldBe(EveningWorkTime);
+        persisted.Surcharges.ShouldBe(0m);
     }
 }

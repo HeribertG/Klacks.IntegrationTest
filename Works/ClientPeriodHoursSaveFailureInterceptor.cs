@@ -1,9 +1,11 @@
 // Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
 
 /// <summary>
-/// Fails every save that would write a client_period_hours row (Added or Modified in the change tracker) with a raw,
-/// non-transient DbUpdateException, the way an untranslated failure of PeriodHoursService's own SaveChanges reaches the
-/// handler. Saves without such a row pass unchanged, so the Work commits before it run as in production.
+/// Fails every save that would write a live client_period_hours row (Added, or Modified without IsDeleted, in the change
+/// tracker) with a raw, non-transient DbUpdateException, the way an untranslated failure of PeriodHoursService's own
+/// SaveChanges reaches the handler. Saves without such a row pass unchanged, so the Work commits before it run as in
+/// production, and so does dropping a cached row: DataBaseContext turns that delete into a Modified row with IsDeleted
+/// before the interceptor sees it.
 /// </summary>
 
 using Klacks.Api.Domain.Models.Schedules;
@@ -34,7 +36,8 @@ public sealed class ClientPeriodHoursSaveFailureInterceptor : SaveChangesInterce
     private void ThrowWhenPeriodHoursAreWritten(DbContext? context)
     {
         var writesPeriodHours = context != null && context.ChangeTracker.Entries<ClientPeriodHours>()
-            .Any(entry => entry.State is EntityState.Added or EntityState.Modified);
+            .Any(entry => entry.State == EntityState.Added
+                || (entry.State == EntityState.Modified && !entry.Entity.IsDeleted));
         if (!writesPeriodHours)
         {
             return;

@@ -223,7 +223,7 @@ public class WorkShiftVisibilityPostgresTests
             Substitute.For<IScheduleCompletionService>(), Substitute.For<IWorkNotificationFacade>(),
             Substitute.For<IShiftDefaultExpensesApplier>(), Substitute.For<IContainerWorkExpansionService>(),
             Substitute.For<ISelectedGroupContextResolver>(), Substitute.For<IDayLockService>(), _unitOfWork,
-            Substitute.For<IOvertimeCascadeService>(), Substitute.For<IWorkWriteGuard>(),
+            Substitute.For<IWorkWriteGuard>(),
             Substitute.For<IClientPlanningPeriodGuard>(), _shiftGuard, Substitute.For<ILogger<WorkPostHandler>>());
 
         using (ExecutionPrincipal.Begin(Guid.Parse(user.Id)))
@@ -250,7 +250,7 @@ public class WorkShiftVisibilityPostgresTests
             new ScheduleEntriesService(_context, Substitute.For<ILogger<ScheduleEntriesService>>()),
             Substitute.For<IScheduleCompletionService>(), Substitute.For<IWorkNotificationFacade>(),
             Substitute.For<IContainerWorkCascadeService>(), Substitute.For<ISelectedGroupContextResolver>(),
-            Substitute.For<IDayLockService>(), _unitOfWork, Substitute.For<IOvertimeCascadeService>(),
+            Substitute.For<IDayLockService>(), _unitOfWork, 
             new Klacks.Api.Application.Services.Schedules.WorkWriteGuardService(Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftRepository>(), Substitute.For<Klacks.Api.Application.Interfaces.IWorkRepository>(), conflictChecker, Substitute.For<Klacks.Api.Domain.Interfaces.Schedules.IShiftVisibilityReader>()),
             Substitute.For<IHttpContextAccessor>(), new ParentWorkLockGuard(new WorkLockLevelService()),
             Substitute.For<IClientPlanningPeriodGuard>(), _shiftGuard, Substitute.For<ILogger<WorkPutHandler>>());

@@ -4,11 +4,13 @@
 /// The Work write chain wired against PostgreSQL the way production runs it: one DataBaseContext with
 /// EnableRetryOnFailure, the real UnitOfWork, WorkRepository, ContainerWorkCascadeService, PeriodHoursService,
 /// ScheduleChangeTracker, ScheduleCompletionService, WorkNotificationFacade, ScheduleEntriesService, ParentWorkLockGuard
-/// and WorkHandOverService. Substituted: the SignalR senders (calls are counted), the timeline queue, the Work macro
+/// and WorkHandOverService. Substituted: the SignalR senders (calls are counted), the timeline queue, the thorough
+/// recalculation queue (accepts every request, calls are counted), the Work macro
 /// (surcharges stay as given, the chain is under test, not the macro math), container expansion and default expenses,
 /// the contract data (fixed 40 h target), every visibility, day-lock, planning-period and write guard as pass-through,
 /// the restore authorizer (owner), the softening restore, the moved-work reversal and the new-owner recalculation
-/// (succeeds). The overtime cascade is a substitute unless a test sets its own.
+/// (succeeds). The overtime cascade is a substitute unless a test sets its own; the completion service is built per
+/// handler, so it uses the cascade set at that time.
 /// </summary>
 /// <param name="interceptors">Interceptors added to the handler context, e.g. to fail one save of the chain</param>
 
@@ -46,7 +48,7 @@ public sealed class WorkWriteChainStack : IAsyncDisposable
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly WorkRepository _workRepository;
     private readonly ContainerWorkCascadeService _containerCascade;
-    private readonly ScheduleCompletionService _completionService;
+    private readonly ScheduleChangeTracker _scheduleChangeTracker;
     private readonly WorkNotificationFacade _notificationFacade;
     private readonly ScheduleEntriesService _scheduleEntriesService;
     private readonly ISelectedGroupContextResolver _groupContextResolver;
@@ -74,12 +76,11 @@ public sealed class WorkWriteChainStack : IAsyncDisposable
             Substitute.For<IWorkMacroService>(),
             Substitute.For<IClientContractDataProvider>());
         _containerCascade = new ContainerWorkCascadeService(Context, Substitute.For<ILogger<ContainerWorkCascadeService>>());
-        _completionService = new ScheduleCompletionService(
-            UnitOfWork,
-            new ScheduleChangeTracker(Context, WorkNotifications, _httpContextAccessor),
-            Timeline,
-            PeriodHoursService,
-            _httpContextAccessor);
+        _scheduleChangeTracker = new ScheduleChangeTracker(Context, WorkNotifications, _httpContextAccessor);
+        ThoroughRecalculationQueue.QueueRecalculation(
+                Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(), Arg.Any<Guid?>(),
+                Arg.Any<IReadOnlyCollection<Guid>?>())
+            .Returns(true);
         _notificationFacade = new WorkNotificationFacade(
             WorkNotifications, ShiftStatsNotifications, OneAssignmentPerShiftDay(), _scheduleMapper, _httpContextAccessor);
         _scheduleEntriesService = new ScheduleEntriesService(Context, Substitute.For<ILogger<ScheduleEntriesService>>());
@@ -101,32 +102,34 @@ public sealed class WorkWriteChainStack : IAsyncDisposable
 
     public IOvertimeCascadeService OvertimeCascade { get; set; } = Substitute.For<IOvertimeCascadeService>();
 
+    public IThoroughRecalculationQueue ThoroughRecalculationQueue { get; } = Substitute.For<IThoroughRecalculationQueue>();
+
     public PostCommandHandler NewPostHandler()
         => new(
             _workRepository, AllClientsVisible(), _scheduleMapper, PeriodHoursService, _scheduleEntriesService,
-            _completionService, _notificationFacade, Substitute.For<IShiftDefaultExpensesApplier>(),
+            NewCompletionService(), _notificationFacade, Substitute.For<IShiftDefaultExpensesApplier>(),
             Substitute.For<IContainerWorkExpansionService>(), _groupContextResolver, Substitute.For<IDayLockService>(),
-            UnitOfWork, OvertimeCascade, Substitute.For<IWorkWriteGuard>(), Substitute.For<IClientPlanningPeriodGuard>(),
+            UnitOfWork, Substitute.For<IWorkWriteGuard>(), Substitute.For<IClientPlanningPeriodGuard>(),
             AllShiftsVisible(), Substitute.For<ILogger<PostCommandHandler>>());
 
     public PutCommandHandler NewPutHandler()
         => new(
             _workRepository, AllRowsVisible(), _scheduleMapper, PeriodHoursService, _scheduleEntriesService,
-            _completionService, _notificationFacade, _containerCascade, _groupContextResolver,
-            Substitute.For<IDayLockService>(), UnitOfWork, OvertimeCascade, Substitute.For<IWorkWriteGuard>(),
+            NewCompletionService(), _notificationFacade, _containerCascade, _groupContextResolver,
+            Substitute.For<IDayLockService>(), UnitOfWork, Substitute.For<IWorkWriteGuard>(),
             _httpContextAccessor, NewWorkLockGuard(), Substitute.For<IClientPlanningPeriodGuard>(), AllShiftsVisible(),
             Substitute.For<ILogger<PutCommandHandler>>());
 
     public DeleteCommandHandler NewDeleteHandler()
         => new(
             _workRepository, AllRowsVisible(), _scheduleMapper, PeriodHoursService, _scheduleEntriesService,
-            _completionService, _notificationFacade, _containerCascade, _groupContextResolver,
-            Substitute.For<IDayLockService>(), UnitOfWork, OvertimeCascade, _httpContextAccessor, NewWorkLockGuard(),
+            NewCompletionService(), _notificationFacade, _containerCascade, _groupContextResolver,
+            Substitute.For<IDayLockService>(), UnitOfWork, _httpContextAccessor, NewWorkLockGuard(),
             Substitute.For<ILogger<DeleteCommandHandler>>());
 
     public BulkDeleteWorksCommandHandler NewBulkDeleteHandler()
         => new(
-            _workRepository, AllRowsVisible(), _scheduleMapper, PeriodHoursService, _completionService,
+            _workRepository, AllRowsVisible(), _scheduleMapper, PeriodHoursService, NewCompletionService(),
             _notificationFacade, OvertimeCascade, _containerCascade, Substitute.For<IDayLockService>(),
             _httpContextAccessor, NewWorkLockGuard(), Substitute.For<ILogger<BulkDeleteWorksCommandHandler>>());
 
@@ -136,9 +139,9 @@ public sealed class WorkWriteChainStack : IAsyncDisposable
         authorizer.Resolve(Arg.Any<Work>()).Returns(WorkRestoreAccess.Owner);
         return new(
             _workRepository, AllRowsVisible(), _scheduleMapper, PeriodHoursService, _scheduleEntriesService,
-            _completionService, _notificationFacade, _containerCascade, Substitute.For<IWorkSofteningRepository>(),
+            NewCompletionService(), _notificationFacade, _containerCascade, Substitute.For<IWorkSofteningRepository>(),
             _groupContextResolver, Substitute.For<IDayLockService>(), Substitute.For<IWorkWriteGuard>(), authorizer,
-            UnitOfWork, OvertimeCascade, Substitute.For<ILogger<RestoreWorkCommandHandler>>());
+            UnitOfWork, Substitute.For<ILogger<RestoreWorkCommandHandler>>());
     }
 
     public ReassignWorkClientCommandHandler NewReassignHandler()
@@ -147,14 +150,19 @@ public sealed class WorkWriteChainStack : IAsyncDisposable
         childrenManager.RecalculateForNewOwnerAsync(Arg.Any<Work>(), Arg.Any<CancellationToken>()).Returns(true);
         return new(
             _workRepository, AllRowsVisible(), _scheduleMapper, PeriodHoursService, _scheduleEntriesService,
-            _completionService, _notificationFacade, _containerCascade,
+            NewCompletionService(), _notificationFacade, _containerCascade,
             new WorkHandOverService(_containerCascade, childrenManager), _groupContextResolver,
-            Substitute.For<IDayLockService>(), UnitOfWork, OvertimeCascade, Substitute.For<IWorkWriteGuard>(),
+            Substitute.For<IDayLockService>(), UnitOfWork, Substitute.For<IWorkWriteGuard>(),
             _httpContextAccessor, NewWorkLockGuard(), Substitute.For<IClientPlanningPeriodGuard>(),
             Substitute.For<IMovedWorkReversal>(), Substitute.For<ILogger<ReassignWorkClientCommandHandler>>());
     }
 
     public async ValueTask DisposeAsync() => await Context.DisposeAsync();
+
+    private ScheduleCompletionService NewCompletionService()
+        => new(
+            UnitOfWork, _scheduleChangeTracker, Timeline, PeriodHoursService, _httpContextAccessor, OvertimeCascade,
+            ThoroughRecalculationQueue, Substitute.For<ILogger<ScheduleCompletionService>>());
 
     private static ParentWorkLockGuard NewWorkLockGuard() => new(new WorkLockLevelService());
 
