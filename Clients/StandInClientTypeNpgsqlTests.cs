@@ -1,7 +1,7 @@
 // Copyright (c) Heribert Gasparoli. SPDX-License-Identifier: AGPL-3.0-only
 
 /// <summary>
-/// Stand-in clients against PostgreSQL (port 5434): the Wizard-4 agent resolver plans them, the replacement person
+/// Stand-in clients against PostgreSQL (port 5434): the schedule scope and the Wizard-4 agent resolver plan them, the replacement person
 /// list leaves them out like the replacement write guard, and the contract data provider gives a contractless
 /// stand-in no target hours while a contractless employee keeps the settings defaults. Every row carries the prefix
 /// INTEGRATION_TEST_StandIn_ and only those rows are removed.
@@ -73,6 +73,19 @@ public class StandInClientTypeNpgsqlTests
     }
 
     [Test]
+    public async Task ScheduleScope_KeepsTheEmployeeAndTheStandIn_LeavesTheCustomerOut()
+    {
+        var ids = new[] { _employeeId, _standInId, _customerId };
+
+        var scoped = await ScheduleClientScope
+            .ActiveInPeriod(_context.Client.AsNoTracking().Where(client => ids.Contains(client.Id)), PeriodFrom, PeriodUntil)
+            .Select(client => client.Id)
+            .ToListAsync();
+
+        scoped.ShouldBe([_employeeId, _standInId], ignoreOrder: true);
+    }
+
+    [Test]
     public async Task ClientsForReplacement_ExcludeTheStandIn_LikeTheWriteGuard()
     {
         var groupFilter = Substitute.For<IClientGroupFilterService>();
@@ -128,6 +141,11 @@ public class StandInClientTypeNpgsqlTests
             NewClient(_customerId, "Customer", EntityTypeEnum.Customer));
         await _context.SaveChangesAsync();
 
+        _context.Membership.AddRange(
+            NewMembership(_employeeId),
+            NewMembership(_standInId),
+            NewMembership(_customerId));
+
         _context.GroupItem.AddRange(
             new GroupItem { Id = Guid.NewGuid(), ClientId = _employeeId, GroupId = _groupId },
             new GroupItem { Id = Guid.NewGuid(), ClientId = _standInId, GroupId = _groupId },
@@ -135,6 +153,13 @@ public class StandInClientTypeNpgsqlTests
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
     }
+
+    private static Membership NewMembership(Guid clientId) => new()
+    {
+        Id = Guid.NewGuid(),
+        ClientId = clientId,
+        ValidFrom = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+    };
 
     private static Client NewClient(Guid id, string suffix, EntityTypeEnum type) => new()
     {
@@ -150,6 +175,9 @@ public class StandInClientTypeNpgsqlTests
     {
         await _context.Database.ExecuteSqlRawAsync(
             "DELETE FROM group_item WHERE client_id IN (SELECT id FROM client WHERE name LIKE {0})",
+            TestPrefix + "%");
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM membership WHERE client_id IN (SELECT id FROM client WHERE name LIKE {0})",
             TestPrefix + "%");
         await _context.Database.ExecuteSqlRawAsync(
             "DELETE FROM client WHERE name LIKE {0}", TestPrefix + "%");
