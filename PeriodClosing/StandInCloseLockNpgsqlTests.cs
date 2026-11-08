@@ -5,8 +5,9 @@
 /// real-plan works on stand-ins (any lock level, not deleted, not a scenario, not a container child; a soft-deleted
 /// stand-in's works count, because the close would seal them), the group close only those on the group's own shifts; the real PeriodSealCompletenessGuard refuses the
 /// whole-period close and the group close with StandInWorksPresentException although every service is confirmed; and
-/// the real GetPeriodIssuesQueryHandler reports the same count as one Error entry, which the automatic close and the close
-/// advice count. The stand-in delete lock counts the real-plan works of one client on any date, container children included. The dates lie in 2091 so no other data falls into the period. Every row carries the prefix
+/// the real GetPeriodIssuesQueryHandler reports the same count as one Error entry for the issues card, which
+/// PeriodCloseGates.CountErrors leaves out, because the automatic close and the close advice refuse on stand-ins on their own
+/// and no acknowledgement lifts that. The stand-in delete lock counts the real-plan works of one client on any date, container children included. The dates lie in 2091 so no other data falls into the period. Every row carries the prefix
 /// INTEGRATION_TEST_StandIn_ and only the rows created here are removed.
 /// </summary>
 
@@ -145,14 +146,18 @@ public class StandInCloseLockNpgsqlTests
     }
 
     [Test]
-    public async Task PeriodIssues_ReportTheGuardCount_AsOneError_ForTheGroup()
+    public async Task PeriodIssues_ShowTheGuardCount_AsTheStandInEntry_WhichTheErrorCountLeavesOut_ForTheGroup()
     {
+        var guardCount = await _sealGuard.CountStandInWorksAsync(PeriodStart, PeriodEnd, _groupId);
+
         var issues = await IssuesHandler().Handle(new GetPeriodIssuesQuery(PeriodStart, PeriodEnd, _groupId), CancellationToken.None);
 
+        guardCount.ShouldBe(3);
         var entry = issues.ShouldHaveSingleItem();
         entry.Code.ShouldBe(PeriodIssueLimits.StandInWorksCode);
-        entry.MessageParams["count"].ShouldBe(3.ToString(CultureInfo.InvariantCulture));
-        PeriodCloseGates.CountErrors(issues).ShouldBe(1);
+        entry.Severity.ShouldBe(ScheduleValidationType.Error);
+        entry.MessageParams["count"].ShouldBe(guardCount.ToString(CultureInfo.InvariantCulture));
+        PeriodCloseGates.CountErrors(issues).ShouldBe(0);
     }
 
     private GetPeriodIssuesQueryHandler IssuesHandler()
