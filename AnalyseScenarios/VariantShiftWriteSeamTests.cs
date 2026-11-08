@@ -594,7 +594,7 @@ public class VariantShiftWriteSeamTests
             _mapper,
             _unitOfWork,
             Substitute.For<ISealedOrderFamilyDeletion>(),
-            Substitute.For<IHttpContextAccessor>(),
+            Substitute.For<Klacks.Api.Domain.Interfaces.IUserService>(),
             visibility,
             _writeGuard,
             Substitute.For<ILogger<DeleteCommandHandler>>());

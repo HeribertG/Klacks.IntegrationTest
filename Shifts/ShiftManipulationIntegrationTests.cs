@@ -184,7 +184,7 @@ public partial class ShiftManipulationIntegrationTests
         var putHandlerLogger = Substitute.For<ILogger<PutCommandHandler>>();
         _putHandler = new PutCommandHandler(_shiftRepository, _requirementRepository, _scheduleMapper, _unitOfWork, AllShiftsVisible(), Substitute.For<IClientReferenceGuard>(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), _shiftFamilyEndService, putHandlerLogger);
         _familyDeletion = new SealedOrderFamilyDeletion(
-            _shiftRepository, _unitOfWork, Substitute.For<ILogger<SealedOrderFamilyDeletion>>());
+            _shiftRepository, _unitOfWork, AllShiftsVisible(), Substitute.For<ILogger<SealedOrderFamilyDeletion>>());
         _deleteHandler = DeleteHandlerFor(role: null);
 
         var batchCutsHandlerLogger = Substitute.For<ILogger<PostBatchCutsCommandHandler>>();
@@ -2600,16 +2600,10 @@ public partial class ShiftManipulationIntegrationTests
 
     private DeleteCommandHandler DeleteHandlerFor(string? role)
     {
-        var accessor = Substitute.For<IHttpContextAccessor>();
-        var httpContext = new DefaultHttpContext();
-        if (role != null)
-        {
-            httpContext.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "test"));
-        }
-
-        accessor.HttpContext.Returns(httpContext);
+        var userService = Substitute.For<Klacks.Api.Domain.Interfaces.IUserService>();
+        userService.GetRights().Returns(Permissions.ExpandRoles(role != null ? [role] : []));
         return new DeleteCommandHandler(
-            _shiftRepository, _scheduleMapper, _unitOfWork, _familyDeletion, accessor, AllShiftsVisible(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<DeleteCommandHandler>>());
+            _shiftRepository, _scheduleMapper, _unitOfWork, _familyDeletion, userService, AllShiftsVisible(), Substitute.For<Klacks.Api.Application.Interfaces.IVariantShiftWriteGuard>(), Substitute.For<ILogger<DeleteCommandHandler>>());
     }
 
     private async Task AddWorkAsync(Guid shiftId, Guid? analyseToken = null, bool deleted = false)
@@ -2729,14 +2723,23 @@ public partial class ShiftManipulationIntegrationTests
         (await FamilyRowsAsync(family.SealedOrder)).ShouldAllBe(row => !row.IsDeleted);
     }
 
-    [TestCase(Roles.Authorised)]
-    [TestCase(null)]
-    public async Task Lock_FamilyDelete_ForASupervisorOrWithoutARole_IsRefused_EvenWithoutWorks(string? role)
+    [Test]
+    public async Task Lock_FamilyDelete_ForASupervisor_DeletesTheWholeFamily()
     {
-        var family = await CreateLockedFamilyAsync($"Lock_FamilyRole{role ?? "None"}");
+        var family = await CreateLockedFamilyAsync("Lock_FamilyRoleSupervisor");
+
+        await DeleteHandlerFor(Roles.Authorised).Handle(new DeleteCommand<ShiftResource>(family.SealedOrder), CancellationToken.None);
+
+        (await FamilyRowsAsync(family.SealedOrder)).ShouldAllBe(row => row.IsDeleted);
+    }
+
+    [Test]
+    public async Task Lock_FamilyDelete_WithoutARole_IsRefused_EvenWithoutWorks()
+    {
+        var family = await CreateLockedFamilyAsync("Lock_FamilyRoleNone");
 
         await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() =>
-            DeleteHandlerFor(role).Handle(new DeleteCommand<ShiftResource>(family.SealedOrder), CancellationToken.None));
+            DeleteHandlerFor(null).Handle(new DeleteCommand<ShiftResource>(family.SealedOrder), CancellationToken.None));
 
         (await FamilyRowsAsync(family.SealedOrder)).ShouldAllBe(row => !row.IsDeleted);
     }
@@ -2756,13 +2759,14 @@ public partial class ShiftManipulationIntegrationTests
     }
 
     [Test]
-    public async Task Lock_DeleteShiftSkill_AdministratorDeletesTheFamily_SupervisorGetsTheRefusal()
+    public async Task Lock_DeleteShiftSkill_AdministratorAndSupervisorDeleteTheFamily_PlannerGetsTheRefusal()
     {
+        var plannerSkillFamily = await CreateLockedFamilyAsync("Lock_SkillPlanner");
         var supervisorSkillFamily = await CreateLockedFamilyAsync("Lock_SkillSupervisor");
         var adminFamily = await CreateLockedFamilyAsync("Lock_SkillAdmin");
         var mediator = Substitute.For<IMediator>();
         mediator.Send(Arg.Any<DeleteCommand<ShiftResource>>(), Arg.Any<CancellationToken>())
-            .Returns(call => DeleteHandlerFor(Roles.Authorised).Handle(call.Arg<DeleteCommand<ShiftResource>>(), CancellationToken.None));
+            .Returns(call => DeleteHandlerFor(null).Handle(call.Arg<DeleteCommand<ShiftResource>>(), CancellationToken.None));
         var skill = new DeleteShiftSkill(_shiftRepository, mediator, _familyDeletion, AllShiftsVisible());
         SkillExecutionContext Ctx(params string[] permissions) => new()
         {
@@ -2773,12 +2777,16 @@ public partial class ShiftManipulationIntegrationTests
         };
 
         await Should.ThrowAsync<Klacks.Api.Application.Exceptions.ShiftLockedException>(() => skill.ExecuteAsync(
-            Ctx("CanDeleteShifts"), new Dictionary<string, object> { ["shiftId"] = supervisorSkillFamily.SealedOrder.ToString() }));
+            Ctx(Permissions.PlannerFloor.ToArray()), new Dictionary<string, object> { ["shiftId"] = plannerSkillFamily.SealedOrder.ToString() }));
+        var supervisorResult = await skill.ExecuteAsync(
+            Ctx(Permissions.ExpandRoles([Roles.Authorised]).ToArray()), new Dictionary<string, object> { ["shiftId"] = supervisorSkillFamily.SealedOrder.ToString() });
         var result = await skill.ExecuteAsync(
             Ctx(Roles.Admin, "CanDeleteShifts"), new Dictionary<string, object> { ["shiftId"] = adminFamily.SealedOrder.ToString() });
 
+        supervisorResult.Success.ShouldBeTrue();
         result.Success.ShouldBeTrue();
-        (await FamilyRowsAsync(supervisorSkillFamily.SealedOrder)).ShouldAllBe(row => !row.IsDeleted);
+        (await FamilyRowsAsync(plannerSkillFamily.SealedOrder)).ShouldAllBe(row => !row.IsDeleted);
+        (await FamilyRowsAsync(supervisorSkillFamily.SealedOrder)).ShouldAllBe(row => row.IsDeleted);
         (await FamilyRowsAsync(adminFamily.SealedOrder)).ShouldAllBe(row => row.IsDeleted);
     }
 
