@@ -49,6 +49,8 @@ public class RegionProfileBootSampleTests
         yield return new TestCaseData("li.json", "LI", "de", null, 5).SetName("LI (core de, base seed)");
         yield return new TestCaseData("gb.json", "GB", "en", null, 5).SetName("GB (core en, base seed)");
         yield return new TestCaseData("us.json", "USA", "en", null, 5).SetName("US (federal calendar via NY)");
+        yield return new TestCaseData("be.json", "BE", "fr", "nl", 5).SetName("BE (core fr, base seed, nl pack installed)");
+        yield return new TestCaseData("ie.json", "IE", "en", null, 5).SetName("IE (core en, base seed)");
         yield return new TestCaseData("es.json", "ES", "es", "es", 5).SetName("ES");
         yield return new TestCaseData("pt.json", "PT", "pt", "pt", 5).SetName("PT");
         yield return new TestCaseData("cz.json", "CZ", "cs", "cs", 5).SetName("CZ");
