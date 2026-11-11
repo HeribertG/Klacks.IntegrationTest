@@ -172,7 +172,7 @@ public static class WizardSolutionAnalyzer
             {
                 return false;
             }
-            var shiftTypeIndex = ShiftTypeInference.FromStartTimeString(s.StartTime);
+            var shiftTypeIndex = ShiftTypeInference.FromSpanString(s.StartTime, s.EndTime);
             return shiftTypeIndex == 0 || agentsShiftCapable > 0;
         });
 
