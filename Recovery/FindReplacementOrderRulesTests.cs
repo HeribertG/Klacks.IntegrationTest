@@ -91,18 +91,18 @@ public sealed class FindReplacementOrderRulesTests : WizardHarnessTestBase
     public async Task Directives_Of_A_Day_Combine_Cumulatively()
     {
         var tokens = await KeywordTokensAsync();
-        await AddCommandAsync(tokens.NegEarlyToken);
+        await AddCommandAsync(tokens.NegLateToken);
         await AddCommandAsync(tokens.NegNightToken);
 
-        var onlyLate = await SendAsync(Query());
-        onlyLate.Eligible.ShouldContain(c => c.ClientId == _candidateId, "-EARLY and -NIGHT leave the late kind open (08:00-16:00 reaches the late band)");
+        var onlyEarly = await SendAsync(Query());
+        onlyEarly.Eligible.ShouldContain(c => c.ClientId == _candidateId, "-LATE and -NIGHT leave the early kind open (08:00-16:00 is an early shift)");
 
-        await AddCommandAsync(tokens.NegLateToken);
+        await AddCommandAsync(tokens.NegEarlyToken);
 
         var closed = await SendAsync(Query());
         closed.Excluded.ShouldContain(
             c => c.ClientId == _candidateId && c.Reason == ScheduleValidationKeys.DayDirective,
-            "-LATE on top of -EARLY and -NIGHT closes the day");
+            "-EARLY on top of -LATE and -NIGHT closes the day");
     }
 
     private async Task<Klacks.Api.Domain.Models.Schedules.ScheduleCommandKeywordSet> KeywordTokensAsync()
