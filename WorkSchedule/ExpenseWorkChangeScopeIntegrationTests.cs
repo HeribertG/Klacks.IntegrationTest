@@ -464,6 +464,9 @@ public class ExpenseWorkChangeScopeIntegrationTests
         var workRepository = Substitute.For<IWorkRepository>();
         workRepository.ListMovedByScenarioAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
             .Returns(new List<Klacks.Api.Domain.Models.Schedules.Work>());
+        workRepository.ListMovedByScenarioAsync(
+                Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Klacks.Api.Domain.Models.Schedules.Work>());
         return workRepository;
     }
 
