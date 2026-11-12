@@ -4,15 +4,20 @@
 /// Measurement, not a regression test (Explicit): what the list of alternatives (FindReplacementQuery) costs with a
 /// large root, against real Postgres. The requested group has GroupMembers people plus the one who falls out; four
 /// sister groups under the same root hold more people than CrossGroupPoolCap, so the cap is exercised and the search
-/// judges the group and the capped number of borrowed people. Everybody has ten works around the day. Measured twice:
+/// judges the group and the capped number of borrowed people. Everybody has ten works around the day, and the plan
+/// carries the rules of FindReplacementRuleSeed (counter rule, month cap, rolling average, rest-day rotation, restricted
+/// time window, one open compensatory-rest obligation per person), bound to the seeded contract and group only, so the
+/// rule evaluators read the seeded people like in a real plan. Measured twice:
 /// on the real plan, and inside the scenario a cover of the absent person created (there the borrowed people are
 /// checked against the real plan as well). Per case WarmUpRuns runs are discarded and MeasuredRuns are reported to
-/// the test output: wall-clock time, SQL commands per search (total and per table label of the last run) and how many
-/// candidates came out eligible and excluded. What is real: the mediator pipeline, the handler, the conflict checker,
+/// the test output: wall-clock time, SQL commands per search (total and per table label of the last run), how many
+/// candidates came out eligible and excluded, and what the shared database holds besides the seeded rules (foreign
+/// active rules, foreign overtime caps, whether compensatory rest is enabled). What is real: the mediator pipeline, the handler, the conflict checker,
 /// the repositories and Postgres (localhost, warm connection pool). What is not: the caller. Group and scenario
 /// visibility are the unrestricted stand-ins of the test host, so the visibility lookups of a restricted planner, the
 /// HTTP layer and the phone lookup of the planner endpoint are not in the numbers. The only assertions are structural:
-/// the interceptor saw commands and every run judged the expected number of people.
+/// the interceptor saw commands, every run judged the expected number of people and reported a finding of every seeded
+/// rule family; there is no time assertion.
 /// </summary>
 
 using System.Diagnostics;
@@ -50,9 +55,10 @@ public sealed class FindReplacementLargeRootMeasurementTests : FindReplacementCo
 
         // Act
         var samples = await MeasureAsync(SearchFor(seed, analyseToken: null));
+        var landscape = await ReadRuleLandscapeAsync();
 
         // Assert
-        Report("real_plan", samples);
+        Report("real_plan", samples, landscape);
         AssertStructure(samples);
     }
 
@@ -65,9 +71,10 @@ public sealed class FindReplacementLargeRootMeasurementTests : FindReplacementCo
 
         // Act
         var samples = await MeasureAsync(SearchFor(seed, cover.Token));
+        var landscape = await ReadRuleLandscapeAsync();
 
         // Assert
-        Report("cover_scenario", samples);
+        Report("cover_scenario", samples, landscape);
         AssertStructure(samples);
     }
 
@@ -90,6 +97,7 @@ public sealed class FindReplacementLargeRootMeasurementTests : FindReplacementCo
                     result.Eligible.Count,
                     result.Excluded.Count,
                     result.Eligible.Count(c => c.IsBorrowed) + result.Excluded.Count(c => c.IsBorrowed)));
+                AssertSeededRulesReported(result);
             }
         }
 
@@ -109,7 +117,7 @@ public sealed class FindReplacementLargeRootMeasurementTests : FindReplacementCo
         }
     }
 
-    private static void Report(string scenario, IReadOnlyList<Sample> samples)
+    private static void Report(string scenario, IReadOnlyList<Sample> samples, FindReplacementRuleLandscape landscape)
     {
         var text = new StringBuilder();
         text.AppendLine(FormattableString.Invariant(
@@ -127,6 +135,7 @@ public sealed class FindReplacementLargeRootMeasurementTests : FindReplacementCo
                 .Select(entry => FormattableString.Invariant($"{entry.Key}={entry.Value}"))));
         }
 
+        text.AppendLine(landscape.Describe());
         TestContext.Out.WriteLine(text.ToString());
     }
 

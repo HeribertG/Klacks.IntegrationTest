@@ -2,14 +2,15 @@
 
 /// <summary>
 /// Seeds the plan the find_replacement cost fixtures search in and removes it again: one root group, the requested
-/// group and any number of sister groups under that root, one all-week contract, one absence type, one shift per
-/// group and the people of each group. Every person has ten works on the shift of their own group inside the
-/// HomeWorkHalfWindowDays before and after Day: two days on and one off, the free day shifted by one per person. The
-/// first person of the requested group (SlotHolderId) works on Day and holds the requested shift, the one who then
-/// falls out; of the others about a third are free on Day and the rest collide with the slot.
-/// Every seeded row hangs off a name that starts with INTEGRATION_TEST_FRM_ plus the scope of the fixture; the
-/// cleanup deletes by that prefix only, scenario rows by the token the cover returned. Two fixtures with different
-/// scopes do not touch each other's rows.
+/// group and any number of sister groups under that root, one all-week contract bound to one scheduling rule, one
+/// absence type, one shift per group and the people of each group, plus the planning rules and per-person
+/// compensatory-rest obligations of FindReplacementRuleSeed. Every person has ten works on the shift of their own
+/// group inside the HomeWorkHalfWindowDays before and after Day: two days on and one off, the free day shifted by one
+/// per person. The first person of the requested group (SlotHolderId) works on Day and holds the requested shift, the
+/// one who then falls out; of the others about a third are free on Day and the rest collide with the slot.
+/// Every seeded row hangs off a name or import source key that starts with INTEGRATION_TEST_FRM_ plus the scope of the
+/// fixture (the obligations off the seeded clients); the cleanup deletes by that prefix only, scenario rows by the
+/// token the cover returned. Two fixtures with different scopes do not touch each other's rows.
 /// </summary>
 /// <param name="scope">Short upper-case label of the fixture, part of every seeded name</param>
 /// <param name="groupPeople">People in the requested group, including the one who holds the requested shift on Day</param>
@@ -35,6 +36,7 @@ public sealed class FindReplacementPoolSeed
     private const string PrefixEnd = "_";
     private const string SeededFirstName = "FRM";
     private const string ShiftAbbreviationPrefix = "FRM";
+    private const string GroupLabel = "GROUP";
     private const int HomeWorkHalfWindowDays = 7;
     private const int FreeEveryNthDay = 3;
     private const decimal ShiftHours = 8m;
@@ -61,6 +63,8 @@ public sealed class FindReplacementPoolSeed
 
     private static readonly string[] PrefixPurgeStatements =
     [
+        .. FindReplacementRuleSeed.RulePurgeStatements,
+        "DELETE FROM compensatory_rest_obligation WHERE client_id IN (" + SeededClients + ")",
         "DELETE FROM work_change WHERE work_id IN (SELECT id FROM work WHERE client_id IN (" + SeededClients + "))",
         "DELETE FROM break WHERE client_id IN (" + SeededClients + ")",
         "DELETE FROM work WHERE client_id IN (" + SeededClients + ")",
@@ -75,6 +79,7 @@ public sealed class FindReplacementPoolSeed
         "DELETE FROM \"group\" WHERE starts_with(name, {0})",
         "DELETE FROM client_contract WHERE client_id IN (" + SeededClients + ")",
         "DELETE FROM contract WHERE starts_with(name, {0})",
+        FindReplacementRuleSeed.SchedulingRulePurgeStatement,
         "DELETE FROM break WHERE absence_id IN (" + SeededAbsences + ")",
         "DELETE FROM absence WHERE starts_with(name->>'de', {0})",
         "DELETE FROM client WHERE starts_with(name, {0})",
@@ -82,6 +87,7 @@ public sealed class FindReplacementPoolSeed
 
     private readonly string _prefix;
     private readonly Guid _contractId = Guid.NewGuid();
+    private readonly Guid _schedulingRuleId = Guid.NewGuid();
     private int _seededPeople;
 
     private FindReplacementPoolSeed(string scope)
@@ -124,12 +130,14 @@ public sealed class FindReplacementPoolSeed
         }
     }
 
-    private static string PrefixOf(string scope) => PrefixRoot + scope + PrefixEnd;
+    public static string PrefixOf(string scope) => PrefixRoot + scope + PrefixEnd;
 
     private void Add(DataBaseContext context, int groupPeople, IReadOnlyList<int> sisterGroupSizes)
     {
         var rootId = Guid.NewGuid();
         context.Group.Add(new Group { Id = rootId, Name = _prefix + "ROOT", ValidFrom = ValidFrom });
+        FindReplacementRuleSeed.AddSchedulingRule(context, _prefix, _schedulingRuleId);
+        FindReplacementRuleSeed.AddRules(context, _prefix, _schedulingRuleId, _prefix + GroupLabel, Day);
         context.Contract.Add(new Contract
         {
             Id = _contractId,
@@ -139,6 +147,7 @@ public sealed class FindReplacementPoolSeed
             MaximumHours = 200m,
             FullTime = 40m,
             PerformsShiftWork = true,
+            SchedulingRuleId = _schedulingRuleId,
             WorkOnMonday = true,
             WorkOnTuesday = true,
             WorkOnWednesday = true,
@@ -157,7 +166,7 @@ public sealed class FindReplacementPoolSeed
             IsOnCall = false,
         });
 
-        AddGroupWithPeople(context, rootId, GroupId, ShiftId, "GROUP", groupPeople, SlotHolderId);
+        AddGroupWithPeople(context, rootId, GroupId, ShiftId, GroupLabel, groupPeople, SlotHolderId);
         for (var sister = 0; sister < sisterGroupSizes.Count; sister++)
         {
             AddGroupWithPeople(
@@ -211,6 +220,7 @@ public sealed class FindReplacementPoolSeed
             IsActive = true,
         });
         context.GroupItem.Add(new GroupItem { Id = Guid.NewGuid(), ClientId = clientId, GroupId = groupId, ValidFrom = ValidFrom });
+        FindReplacementRuleSeed.AddObligation(context, clientId, Day);
     }
 
     private static void AddHomeWorks(DataBaseContext context, Guid clientId, Guid shiftId, int freeDayShift)

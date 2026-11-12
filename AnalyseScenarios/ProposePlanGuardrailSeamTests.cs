@@ -67,9 +67,12 @@ public class ProposePlanGuardrailSeamTests
             Substitute.For<ILogger<TimelineCalculationService>>());
 
         var resolver = Substitute.For<ISchedulingPolicyResolver>();
-        resolver.GetForClientAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>())
-            .Returns(new SchedulingPolicy(
-                TimeSpan.FromHours(11), TimeSpan.FromHours(10), 6, TimeSpan.FromHours(50), 2));
+        var policy = new SchedulingPolicy(
+            TimeSpan.FromHours(11), TimeSpan.FromHours(10), 6, TimeSpan.FromHours(50), 2);
+        resolver.GetForClientAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>()).Returns(policy);
+        resolver.GetForClientsAsync(Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<DateOnly>())
+            .Returns(call => (IReadOnlyDictionary<Guid, SchedulingPolicy>)call.Arg<IReadOnlyList<Guid>>()
+                .ToDictionary(clientId => clientId, _ => policy));
 
         var enforcementResolver = Substitute.For<IComplianceEnforcementResolver>();
         enforcementResolver.GetModeAsync(Arg.Any<string>()).Returns(RuleEnforcementMode.Warn);
@@ -78,17 +81,17 @@ public class ProposePlanGuardrailSeamTests
 
         var periodCapEvaluator = Substitute.For<IPeriodCapEvaluator>();
         periodCapEvaluator
-            .EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, decimal Hours)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .EvaluatePlannedForClientsAsync(Arg.Any<IReadOnlyList<ClientPlannedHours>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
 
         var restDayRotationEvaluator = Substitute.For<IRestDayRotationEvaluator>();
         restDayRotationEvaluator
-            .EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, TimeOnly StartTime, TimeOnly EndTime)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .EvaluatePlannedRowsAsync(Arg.Any<IReadOnlyList<PlannedWorkRow>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
 
         var counterRuleEvaluator = Substitute.For<ICounterRuleEvaluator>();
         counterRuleEvaluator
-            .EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, TimeOnly StartTime, TimeOnly EndTime)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .EvaluatePlannedRowsAsync(Arg.Any<IReadOnlyList<PlannedWorkRow>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
 
         var restrictedTimeWindowEvaluator = new RestrictedTimeWindowEvaluator(
@@ -98,7 +101,7 @@ public class ProposePlanGuardrailSeamTests
 
         var holidayWorkEvaluator = Substitute.For<IHolidayWorkEvaluator>();
         holidayWorkEvaluator
-            .EvaluateAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyCollection<DateOnly>>(), Arg.Any<CancellationToken>())
+            .EvaluateForClientsAsync(Arg.Any<IReadOnlyList<ClientWorkDates>>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
 
         _checker = new PreCommitConflictChecker(_context, new Klacks.Api.Infrastructure.Repositories.Associations.ShiftRequiredQualificationRepository(_context, NSubstitute.Substitute.For<Microsoft.Extensions.Logging.ILogger<Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification>>()), timeline, resolver, new Klacks.Api.Application.Services.Schedules.ComplianceEscalationService(enforcementResolver), settingsReader, periodCapEvaluator, restDayRotationEvaluator, counterRuleEvaluator, restrictedTimeWindowEvaluator,
@@ -238,7 +241,7 @@ public class ProposePlanGuardrailSeamTests
     private static ICompensatoryRestEvaluator NonReportingCompensatoryRestEvaluator()
     {
         var evaluator = Substitute.For<ICompensatoryRestEvaluator>();
-        evaluator.EvaluateAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+        evaluator.EvaluateForClientsAsync(Arg.Any<IReadOnlyList<ClientAsOfDate>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
         return evaluator;
     }

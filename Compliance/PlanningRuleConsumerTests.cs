@@ -195,22 +195,22 @@ public class PlanningRuleConsumerTests
         var enforcement = Substitute.For<IComplianceEnforcementResolver>();
         enforcement.GetModeAsync(Arg.Any<string>()).Returns(RuleEnforcementMode.Warn);
         var periodCap = Substitute.For<IPeriodCapEvaluator>();
-        periodCap.EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, decimal Hours)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+        periodCap.EvaluatePlannedForClientsAsync(Arg.Any<IReadOnlyList<ClientPlannedHours>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
         var restDayRotation = Substitute.For<IRestDayRotationEvaluator>();
-        restDayRotation.EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, TimeOnly StartTime, TimeOnly EndTime)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+        restDayRotation.EvaluatePlannedRowsAsync(Arg.Any<IReadOnlyList<PlannedWorkRow>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
         var counterRule = Substitute.For<ICounterRuleEvaluator>();
-        counterRule.EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, TimeOnly StartTime, TimeOnly EndTime)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+        counterRule.EvaluatePlannedRowsAsync(Arg.Any<IReadOnlyList<PlannedWorkRow>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
         var restrictedTimeWindow = Substitute.For<IRestrictedTimeWindowEvaluator>();
-        restrictedTimeWindow.EvaluatePlannedAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<(DateOnly Date, TimeOnly StartTime, TimeOnly EndTime, Guid? ShiftId)>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+        restrictedTimeWindow.EvaluatePlannedRowsAsync(Arg.Any<IReadOnlyList<PlannedWorkRow>>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
         var compensatoryRest = Substitute.For<ICompensatoryRestEvaluator>();
-        compensatoryRest.EvaluateAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<DateOnly>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+        compensatoryRest.EvaluateForClientsAsync(Arg.Any<IReadOnlyList<ClientAsOfDate>>(), Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
         var holidayWork = Substitute.For<IHolidayWorkEvaluator>();
-        holidayWork.EvaluateAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<IReadOnlyCollection<DateOnly>>(), Arg.Any<CancellationToken>())
+        holidayWork.EvaluateForClientsAsync(Arg.Any<IReadOnlyList<ClientWorkDates>>(), Arg.Any<CancellationToken>())
             .Returns(new List<ScheduleValidationNotificationDto>());
 
         return new PreCommitConflictChecker(
@@ -282,7 +282,8 @@ public class PlanningRuleConsumerTests
         var resolver = Substitute.For<ISchedulingPolicyResolver>();
         resolver.GetForClientAsync(Arg.Any<Guid>(), Arg.Any<DateOnly>()).Returns(policy);
         resolver.GetForClientsAsync(Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<DateOnly>())
-            .Returns(new Dictionary<Guid, SchedulingPolicy>());
+            .Returns(call => (IReadOnlyDictionary<Guid, SchedulingPolicy>)call.Arg<IReadOnlyList<Guid>>()
+                .ToDictionary(clientId => clientId, _ => policy));
         return resolver;
     }
 

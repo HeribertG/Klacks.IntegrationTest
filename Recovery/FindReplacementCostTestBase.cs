@@ -5,13 +5,16 @@
 /// in-process host whose contexts report their SQL commands (SqlCountingTestWebApplicationFactory), a context built
 /// by hand for seeding and cleanup (its commands are not counted), and the seed of the fixture's scope: purged before
 /// every test and after it, scenario rows of a cover by their token first. Every request runs in a scope of its own,
-/// like one HTTP request.
+/// like one HTTP request. It also reads what the shared database holds besides the fixture's own rules
+/// (FindReplacementRuleLandscape) and checks that a search reported a finding of every seeded rule family, so a
+/// measurement is known to have run the rule evaluators on the seeded people.
 /// </summary>
 /// <param name="Scope">Label of the fixture inside the INTEGRATION_TEST_FRM_ prefix, so two fixtures never purge each other's rows</param>
 
 using Klacks.Api.Application.Commands.Schedules;
 using Klacks.Api.Application.DTOs.Schedules;
 using Klacks.Api.Application.Queries.Schedules;
+using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Infrastructure.Mediator;
 using Klacks.Api.Infrastructure.Persistence;
@@ -21,11 +24,21 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using NUnit.Framework;
+using Shouldly;
 
 namespace Klacks.IntegrationTest.Recovery;
 
 public abstract class FindReplacementCostTestBase
 {
+    private static readonly string[] SeededRuleFindings =
+    [
+        ScheduleValidationKeys.CounterRule,
+        ScheduleValidationKeys.PeriodCap,
+        ScheduleValidationKeys.RollingAverage,
+        ScheduleValidationKeys.RestDayRotation,
+        ScheduleValidationKeys.RestrictedTimeWindow,
+    ];
+
     private readonly List<Guid> _scenarioTokens = [];
 
     protected SqlCountingTestWebApplicationFactory Factory { get; private set; } = null!;
@@ -79,6 +92,22 @@ public abstract class FindReplacementCostTestBase
 
     protected Task<FindReplacementPoolSeed> SeedAsync(int groupPeople, IReadOnlyList<int> sisterGroupSizes)
         => FindReplacementPoolSeed.CreateAsync(Context, Scope, groupPeople, sisterGroupSizes);
+
+    protected Task<FindReplacementRuleLandscape> ReadRuleLandscapeAsync()
+        => FindReplacementRuleLandscape.ReadAsync(Context, FindReplacementPoolSeed.PrefixOf(Scope));
+
+    protected static void AssertSeededRulesReported(ReplacementSearchResult result)
+    {
+        var reported = result.Eligible
+            .SelectMany(candidate => candidate.SoftConflicts.Select(conflict => conflict.Comment))
+            .Concat(result.Excluded.Select(excluded => excluded.Reason))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var finding in SeededRuleFindings)
+        {
+            reported.ShouldContain(
+                finding, "a seeded rule family reported nothing, so its evaluator did not run on the seeded people (rule seeded but not applied, or the family's enforcement mode left no finding)");
+        }
+    }
 
     protected async Task PurgeSeedAsync()
     {
