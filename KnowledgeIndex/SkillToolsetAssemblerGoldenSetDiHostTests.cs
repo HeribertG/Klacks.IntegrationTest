@@ -54,7 +54,10 @@
 /// </param>
 /// <param name="KLACKS_GOLDENSET_SETS">
 /// Optional environment variable: comma-separated set keys to run (core, ext, langs, gaps, context). Unset means all.
-/// Lets a mode comparison run the context set alone, or core plus ext, without capping any set.
+/// Lets a mode comparison run the context set alone, or core plus ext, without capping any set. Two further keys run
+/// only when named explicitly: offtopic (GoldenSetOffTopicProbe over knowledge-index-offtopic.json) and correction
+/// (GoldenSetCorrectionProbe over correction-v1.json). Every measured set also reports its assembler misses with the
+/// offered tools (GoldenSetMissDiagnostics) and the correction score rule over its toolsets (CorrectionAmbiguityTally).
 /// </param>
 /// <param name="KnowledgeIndex__SkillRerankMode">
 /// Optional environment variable: Always, Adaptive or Never. When set, the fixture replaces the SkillRerankOptions
@@ -98,6 +101,8 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
     private const string LanguageSetKey = "langs";
     private const string GapsSetKey = "gaps";
     private const string ContextSetKey = "context";
+    private const string OffTopicSetKey = "offtopic";
+    private const string CorrectionSetKey = "correction";
     private const string ContextLabel = "ASSEMBLER CONTEXT";
     private const string PlannerRole = "Planner";
     private const string ConversationIdPrefix = "goldenset-context-";
@@ -131,6 +136,12 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 
     private static readonly string ContextGoldenSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-context.json");
+
+    private static readonly string OffTopicSetPath =
+        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-offtopic.json");
+
+    private static readonly string CorrectionGoldsetPath =
+        Path.Combine(AppContext.BaseDirectory, "Application", "Skills", "Goldsets", "correction-v1.json");
 
     private sealed class NoOpPendingConfirmationStore : IPendingConfirmationStore
     {
@@ -336,6 +347,27 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
             measured.Add((context, await probe.MeasureSetAsync(ContextLabel, context)));
         }
 
+        // Opt-in only: neither set is part of the default (all) run.
+        var adminRights = ResolveRights(null);
+        var extraSets = 0;
+        if (IsExplicitlySelected(selectedSets, OffTopicSetKey))
+        {
+            extraSets += await new GoldenSetOffTopicProbe(assembler, agent, adminRights, TestUserId, toolBudget)
+                .MeasureAsync(OffTopicSetPath);
+        }
+
+        if (IsExplicitlySelected(selectedSets, CorrectionSetKey))
+        {
+            extraSets += (await new GoldenSetCorrectionProbe(assembler, agent, adminRights, TestUserId, toolBudget)
+                .MeasureAsync(CorrectionGoldsetPath)).Turns;
+        }
+
+        if (measured.Count == 0)
+        {
+            extraSets.ShouldBeGreaterThan(0);
+            return;
+        }
+
         // Retrieval failing inside AssembleAsync is caught there and degrades to always-on plus
         // guarantees. That would still produce plausible-looking figures, so it is checked explicitly.
         var retrievedTotal = measured.Sum(m => m.Recall.RetrievedSourceFunctions);
@@ -483,6 +515,8 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
             var perSubsetRetrievalHits = new Dictionary<string, int>(StringComparer.Ordinal);
             var assembleMsWarm = new List<double>();
             var retrieveMsWarm = new List<double>();
+            var correctionTally = new CorrectionAmbiguityTally();
+            var assemblerMissDetail = new List<string>();
 
             for (var index = 0; index < golden.Count; index++)
             {
@@ -509,6 +543,12 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 
                 var accepted = toolset.Functions.FirstOrDefault(f => item.Accepts(f.Name));
                 var assemblerHit = accepted is not null;
+                correctionTally.Add(toolset.Functions);
+                if (!assemblerHit)
+                {
+                    assemblerMissDetail.AddRange(GoldenSetMissDiagnostics.Describe(
+                        item, index, toolset, await AssembleAtReferenceCapAsync(item, rights, conversationId)));
+                }
                 toolsetSizeSum += toolset.Functions.Count;
                 retrievedSourceFunctions += toolset.Functions.Count(f => f.ToolsetSource == ToolsetSkillSource.Retrieved);
                 if (toolset.Functions.Count >= _toolBudget)
@@ -648,10 +688,31 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
                 TestContext.WriteLine(miss);
             }
 
+            TestContext.WriteLine($"--- Assembler misses with offered tools ({golden.Count - assemblerHits}) ---");
+            foreach (var line in assemblerMissDetail)
+            {
+                TestContext.WriteLine(line);
+            }
+
+            correctionTally.Write(label);
+
             return new AssemblerSetRecall(
                 assemblerHits, retrievalHits, golden.Count, liftDetail.Count, lossDetail.Count,
                 retrievedSourceFunctions);
         }
+
+        /// <summary>
+        /// Re-assembles a missed case at the reference cap so the miss report can show which source the target holds
+        /// there; null when the fixture already runs at the reference cap. The co-required expansion only runs at this
+        /// cap, so the re-assembly can carry an extra expansion skill the measured toolset never had.
+        /// </summary>
+        private async Task<SkillToolsetResult?> AssembleAtReferenceCapAsync(
+            HardGoldenSetItem item, List<string> rights, string? conversationId) =>
+            _toolBudget >= KnowledgeIndexConstants.MaxToolsForProvider
+                ? null
+                : await _assembler.AssembleAsync(
+                    _agent, rights, item.Query, conversationId, item.Route, TestUserId, item.LangCode,
+                    maxToolsForProvider: KnowledgeIndexConstants.MaxToolsForProvider, applyLearnedPhraseGuarantee: true);
 
         /// <summary>
         /// A case without history keeps conversationId null, exactly as before. A case with history gets a fresh
@@ -699,7 +760,10 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
     }
 
     private static bool IsSelected(string[]? selectedSets, string setKey) =>
-        selectedSets is null || selectedSets.Contains(setKey, StringComparer.OrdinalIgnoreCase);
+        selectedSets is null || IsExplicitlySelected(selectedSets, setKey);
+
+    private static bool IsExplicitlySelected(string[]? selectedSets, string setKey) =>
+        selectedSets is not null && selectedSets.Contains(setKey, StringComparer.OrdinalIgnoreCase);
 
     private static int? ResolveCaseCap()
     {
