@@ -23,6 +23,15 @@
 /// The co-required expansion skips with a small random probability (SkillRetrievalExpander), so the
 /// assembler figure can move by a case or two between runs without any code change; expansion only ever
 /// adds skills, so it can turn a miss into a hit but never the reverse.
+/// The context set (knowledge-index-golden-context.json) carries route, role and history per case: the route goes to
+/// both arms, the rights are built like ChatController.GetCurrentUserRights() (Permissions.ExpandRoles over the role
+/// claims) and given to both arms, and the history is served from GoldenSetConversationHistoryStore so the
+/// production RetrievalQueryBuilder anchors the query; the retrieval-only arm embeds that same anchored query. The
+/// short AssembleAsync overload is used, so previousTurnSkillNames and continuationSkillNames stay null: the
+/// follow-through and same-skill continuation guarantees are NOT measured by the follow-up cases.
+/// The retrieval-only arm passes no kindFilter (same call as the hard report), and SkillRerankMode applies only to
+/// passes with kindFilter Skill, so that arm is always cross-encoder ranked: only the assembler figure moves with
+/// the rerank mode.
 /// </summary>
 /// <param name="KLACKS_GOLDENSET_MAX_CASES">
 /// Optional environment variable: caps every set to its first N cases so a smoke run finishes in
@@ -39,15 +48,31 @@
 /// carries cases for skills whose description changed without any case in the other sets (search_shifts views,
 /// open_schedule, get_client_details notes, annotation skills, close_period).
 /// </param>
+/// <param name="KLACKS_GOLDENSET_TOOL_BUDGET">
+/// Optional environment variable: maxToolsForProvider handed to AssembleAsync. Unset or non-positive means
+/// KnowledgeIndexConstants.MaxToolsForProvider (30); production goes down to ContextBudgetPolicy.MinToolsForProvider (12).
+/// </param>
+/// <param name="KLACKS_GOLDENSET_SETS">
+/// Optional environment variable: comma-separated set keys to run (core, ext, langs, gaps, context). Unset means all.
+/// Lets a mode comparison run the context set alone, or core plus ext, without capping any set.
+/// </param>
+/// <param name="KnowledgeIndex__SkillRerankMode">
+/// Optional environment variable: Always, Adaptive or Never. When set, the fixture replaces the SkillRerankOptions
+/// singleton with that mode (exploration rate 0, so Adaptive stays deterministic) instead of relying on the host
+/// binding environment variables before the services are registered. The active mode is printed at the start.
+/// </param>
 
 using Klacks.Api.Application.Interfaces.Assistant;
 using Klacks.Api.Application.Interfaces.Settings;
+using Klacks.Api.Application.Services.Assistant;
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces.Assistant;
+using Klacks.Api.Domain.Interfaces.Playground;
 using Klacks.Api.Domain.Models.Assistant;
 using Klacks.Api.KnowledgeIndex.Application.Constants;
 using Klacks.Api.KnowledgeIndex.Application.Interfaces;
+using Klacks.Api.KnowledgeIndex.Application.Services;
 using Klacks.IntegrationTest.SignalR;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -65,6 +90,17 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
     public const string MaxCasesEnvVar = "KLACKS_GOLDENSET_MAX_CASES";
     public const string LanguageSetSourcesEnvVar = "KLACKS_GOLDENSET_LANGS_SOURCES";
     public const string SkipGapsSetEnvVar = "KLACKS_GOLDENSET_SKIP_GAPS";
+    public const string ToolBudgetEnvVar = "KLACKS_GOLDENSET_TOOL_BUDGET";
+    public const string SetsEnvVar = "KLACKS_GOLDENSET_SETS";
+    public const string RerankModeEnvVar = "KnowledgeIndex__SkillRerankMode";
+    private const string CoreSetKey = "core";
+    private const string ExtendedSetKey = "ext";
+    private const string LanguageSetKey = "langs";
+    private const string GapsSetKey = "gaps";
+    private const string ContextSetKey = "context";
+    private const string ContextLabel = "ASSEMBLER CONTEXT";
+    private const string PlannerRole = "Planner";
+    private const string ConversationIdPrefix = "goldenset-context-";
     private const char SourceListSeparator = ',';
     private const string GapsLabel = "ASSEMBLER GAPS";
 
@@ -92,6 +128,9 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 
     private static readonly string GapsGoldenSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-hard-gaps.json");
+
+    private static readonly string ContextGoldenSetPath =
+        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-context.json");
 
     private sealed class NoOpPendingConfirmationStore : IPendingConfirmationStore
     {
@@ -165,6 +204,24 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
                 services.AddSingleton<IPendingConfirmationStore, NoOpPendingConfirmationStore>();
                 services.RemoveAll<IPendingPlanningProfileDraftStore>();
                 services.AddSingleton<IPendingPlanningProfileDraftStore, NoOpPendingPlanningProfileDraftStore>();
+                services.RemoveAll<IPendingRecipeStore>();
+                services.AddSingleton<IPendingRecipeStore, NoOpPendingRecipeStore>();
+                services.RemoveAll<IPendingOrderReviewDraftStore>();
+                services.AddSingleton<IPendingOrderReviewDraftStore, NoOpPendingOrderReviewDraftStore>();
+
+                // Conversation history of the follow-up cases comes from memory, never from the shared database.
+                services.RemoveAll<IPlaygroundConversationStore>();
+                services.AddSingleton<GoldenSetConversationHistoryStore>();
+                services.AddSingleton<IPlaygroundConversationStore>(sp =>
+                    sp.GetRequiredService<GoldenSetConversationHistoryStore>());
+
+                var rerankMode = Environment.GetEnvironmentVariable(RerankModeEnvVar);
+                if (!string.IsNullOrWhiteSpace(rerankMode))
+                {
+                    services.RemoveAll<SkillRerankOptions>();
+                    services.AddSingleton(SkillRerankOptions.FromConfiguration(
+                        rerankMode, KnowledgeIndexConstants.DefaultSkillRerankMarginThreshold, explorationRate: 0));
+                }
             });
         }
     }
@@ -191,24 +248,27 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
         var retrieval = scope.ServiceProvider.GetRequiredService<IKnowledgeRetrievalService>();
         var assembler = scope.ServiceProvider.GetRequiredService<ISkillToolsetAssembler>();
         var agentRepository = scope.ServiceProvider.GetRequiredService<IAgentRepository>();
+        var queryBuilder = scope.ServiceProvider.GetRequiredService<IRetrievalQueryBuilder>();
+        var historyStore = scope.ServiceProvider.GetRequiredService<GoldenSetConversationHistoryStore>();
+        var skillCache = scope.ServiceProvider.GetRequiredService<ISkillCacheService>();
 
         TestContext.WriteLine($"Active embedding space: {embeddingProvider.EmbeddingSpaceId}");
+        TestContext.WriteLine(
+            $"Skill rerank mode: {scope.ServiceProvider.GetRequiredService<SkillRerankOptions>().Mode}");
 
         // Same resolution as the chat paths (SkillCacheService.GetDefaultAgentAsync reads this row):
         // AssembleAsync returns an empty toolset for a null agent, so the agent has to be real.
         var agent = await agentRepository.GetDefaultAgentAsync(CancellationToken.None);
         agent.ShouldNotBeNull("No default agent in the database - the assembler cannot build a toolset.");
 
-        // Mirrors ChatController.GetCurrentUserRights(): the role name itself (the assembler keys isAdmin
-        // and the permission bypass on it) plus the granular rights it expands to.
-        var userRights = Permissions.ExpandRoles([Roles.Admin]);
-
         var alwaysOnNames = await LoadAlwaysOnSkillNamesAsync(scope);
         TestContext.WriteLine(
             $"Always-on skills in the catalogue ({alwaysOnNames.Count}): " +
             $"{string.Join(", ", alwaysOnNames.OrderBy(n => n))}");
+
+        var toolBudget = ResolveToolBudget();
         TestContext.WriteLine(
-            $"Provider cap (maxToolsForProvider): {KnowledgeIndexConstants.MaxToolsForProvider}, " +
+            $"Provider cap (maxToolsForProvider): {toolBudget}, " +
             $"retrieval width (DefaultTopK): {KnowledgeIndexConstants.DefaultTopK}");
 
         var caseCap = ResolveCaseCap();
@@ -219,32 +279,66 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
                 "smoke run, not comparable to the full sets.");
         }
 
-        var core = ApplyCap(HardGoldenSetItem.Load(GoldenSetPath), caseCap);
-        var extended = ApplyCap(HardGoldenSetItem.Load(ExtendedGoldenSetPath), caseCap);
-        var languages = ApplyCap(
-            ApplySourceFilter(HardGoldenSetItem.Load(LanguageCoverageSetPath), ResolveLanguageSetSources()),
-            caseCap);
+        var selectedSets = ResolveSelectedSets();
+        if (selectedSets is not null)
+        {
+            TestContext.WriteLine($"Set selection active ({SetsEnvVar}): {string.Join(", ", selectedSets)}");
+        }
 
-        var probe = new AssemblerProbe(assembler, retrieval, agent, userRights, alwaysOnNames);
+        var probe = new AssemblerProbe(
+            assembler, retrieval, agent, alwaysOnNames, queryBuilder, historyStore, toolBudget);
+
+        var measured = new List<(List<HardGoldenSetItem> Cases, AssemblerSetRecall Recall)>();
 
         // Reported per set, never merged: every hard-fixture figure refers to CORE and EXTENDED
         // separately, and the language set has its own denominator.
-        var coreRecall = await probe.MeasureSetAsync(CoreLabel, core);
-        var extRecall = await probe.MeasureSetAsync(ExtendedLabel, extended);
-        WriteCombined(coreRecall, extRecall);
+        AssemblerSetRecall? coreRecall = null;
+        AssemblerSetRecall? extRecall = null;
+        if (IsSelected(selectedSets, CoreSetKey))
+        {
+            var core = ApplyCap(HardGoldenSetItem.Load(GoldenSetPath), caseCap);
+            coreRecall = await probe.MeasureSetAsync(CoreLabel, core);
+            measured.Add((core, coreRecall.Value));
+        }
 
-        var langRecall = await probe.MeasureSetAsync(LanguageCoverageLabel, languages);
+        if (IsSelected(selectedSets, ExtendedSetKey))
+        {
+            var extended = ApplyCap(HardGoldenSetItem.Load(ExtendedGoldenSetPath), caseCap);
+            extRecall = await probe.MeasureSetAsync(ExtendedLabel, extended);
+            measured.Add((extended, extRecall.Value));
+        }
 
-        if (Environment.GetEnvironmentVariable(SkipGapsSetEnvVar) != bool.TrueString
+        if (coreRecall is not null && extRecall is not null)
+        {
+            WriteCombined(coreRecall.Value, extRecall.Value);
+        }
+
+        if (IsSelected(selectedSets, LanguageSetKey))
+        {
+            var languages = ApplyCap(
+                ApplySourceFilter(HardGoldenSetItem.Load(LanguageCoverageSetPath), ResolveLanguageSetSources()),
+                caseCap);
+            measured.Add((languages, await probe.MeasureSetAsync(LanguageCoverageLabel, languages)));
+        }
+
+        if (IsSelected(selectedSets, GapsSetKey)
+            && Environment.GetEnvironmentVariable(SkipGapsSetEnvVar) != bool.TrueString
             && File.Exists(GapsGoldenSetPath))
         {
-            await probe.MeasureSetAsync(GapsLabel, HardGoldenSetItem.Load(GapsGoldenSetPath));
+            var gaps = HardGoldenSetItem.Load(GapsGoldenSetPath);
+            measured.Add((gaps, await probe.MeasureSetAsync(GapsLabel, gaps)));
+        }
+
+        if (IsSelected(selectedSets, ContextSetKey) && File.Exists(ContextGoldenSetPath))
+        {
+            var context = ApplyCap(HardGoldenSetItem.Load(ContextGoldenSetPath), caseCap);
+            await WriteCatalogueCheckAsync(skillCache, agent.Id, context);
+            measured.Add((context, await probe.MeasureSetAsync(ContextLabel, context)));
         }
 
         // Retrieval failing inside AssembleAsync is caught there and degrades to always-on plus
         // guarantees. That would still produce plausible-looking figures, so it is checked explicitly.
-        var retrievedTotal = coreRecall.RetrievedSourceFunctions + extRecall.RetrievedSourceFunctions +
-                             langRecall.RetrievedSourceFunctions;
+        var retrievedTotal = measured.Sum(m => m.Recall.RetrievedSourceFunctions);
         TestContext.WriteLine(
             $"Retrieved-source functions across all assembled toolsets: {retrievedTotal}");
         if (retrievedTotal == 0)
@@ -255,10 +349,52 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
                 "the guarantee layers alone.");
         }
 
-        core.Count.ShouldBeGreaterThan(0);
-        extended.Count.ShouldBeGreaterThan(0);
-        languages.Count.ShouldBeGreaterThan(0);
+        measured.ShouldNotBeEmpty();
+        foreach (var (cases, _) in measured)
+        {
+            cases.Count.ShouldBeGreaterThan(0);
+        }
     }
+
+    /// <summary>
+    /// The context set names skills and roles by hand, while the assembler reads the agent's skills from the
+    /// database. A case whose target is missing there, or not permitted for the case's role, can only ever miss,
+    /// so it is reported as INVALID instead of being read as a retrieval failure.
+    /// </summary>
+    private static async Task WriteCatalogueCheckAsync(
+        ISkillCacheService skillCache, Guid agentId, List<HardGoldenSetItem> cases)
+    {
+        var skills = await skillCache.GetEnabledSkillsAsync(agentId, CancellationToken.None);
+        var invalid = 0;
+        foreach (var item in cases)
+        {
+            var rights = ResolveRights(item.Role);
+            var reachable = skills.Any(s =>
+                item.Accepts(s.Name) && Permissions.HasAllRequiredPermissions(rights, s.RequiredPermission));
+            if (!reachable)
+            {
+                invalid++;
+                TestContext.WriteLine(
+                    $"INVALID CASE | expected={item.ExpectedDisplay} | role={item.Role ?? Roles.Admin} | " +
+                    $"query=\"{item.Query}\" - no accepted target is enabled and permitted for this role");
+            }
+        }
+
+        TestContext.WriteLine($"Catalogue check of the context set: {invalid} invalid of {cases.Count}");
+    }
+
+    /// <summary>
+    /// Mirrors ChatController.GetCurrentUserRights(): Permissions.ExpandRoles over the role claims. The planner is a
+    /// caller without any role claim, which expands to the planner floor. An unknown role fails the run instead of
+    /// silently measuring as Admin.
+    /// </summary>
+    private static List<string> ResolveRights(string? role) => role switch
+    {
+        null or Roles.Admin => Permissions.ExpandRoles([Roles.Admin]),
+        Roles.Authorised => Permissions.ExpandRoles([Roles.Authorised]),
+        PlannerRole => Permissions.ExpandRoles([]),
+        _ => throw new InvalidOperationException($"Unknown role '{role}' in the golden set.")
+    };
 
     private static void WriteCombined(AssemblerSetRecall coreRecall, AssemblerSetRecall extRecall)
     {
@@ -291,28 +427,36 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 
     /// <summary>
     /// Runs the two arms for one golden set and writes its report. Kept as a class so the fixed inputs
-    /// (agent, rights, always-on names) are not threaded through every call.
+    /// (agent, always-on names, budget, history source) are not threaded through every call. Rights, route and
+    /// history come from each case; a case without them measures as before (Admin, no route, no history).
     /// </summary>
     private sealed class AssemblerProbe
     {
         private readonly ISkillToolsetAssembler _assembler;
         private readonly IKnowledgeRetrievalService _retrieval;
         private readonly Agent _agent;
-        private readonly List<string> _userRights;
         private readonly IReadOnlySet<string> _alwaysOnNames;
+        private readonly IRetrievalQueryBuilder _queryBuilder;
+        private readonly GoldenSetConversationHistoryStore _historyStore;
+        private readonly int _toolBudget;
+        private int _conversationCounter;
 
         public AssemblerProbe(
             ISkillToolsetAssembler assembler,
             IKnowledgeRetrievalService retrieval,
             Agent agent,
-            List<string> userRights,
-            IReadOnlySet<string> alwaysOnNames)
+            IReadOnlySet<string> alwaysOnNames,
+            IRetrievalQueryBuilder queryBuilder,
+            GoldenSetConversationHistoryStore historyStore,
+            int toolBudget)
         {
             _assembler = assembler;
             _retrieval = retrieval;
             _agent = agent;
-            _userRights = userRights;
             _alwaysOnNames = alwaysOnNames;
+            _queryBuilder = queryBuilder;
+            _historyStore = historyStore;
+            _toolBudget = toolBudget;
         }
 
         public async Task<AssemblerSetRecall> MeasureSetAsync(string label, List<HardGoldenSetItem> golden)
@@ -330,51 +474,94 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
             var liftDetail = new List<string>();
             var lossDetail = new List<string>();
             var missBothDetail = new List<string>();
+            var caseDetail = new List<string>();
             var perLanguageTotal = new Dictionary<string, int>();
             var perLanguageAssemblerHits = new Dictionary<string, int>();
             var perLanguageRetrievalHits = new Dictionary<string, int>();
+            var perSubsetTotal = new Dictionary<string, int>(StringComparer.Ordinal);
+            var perSubsetAssemblerHits = new Dictionary<string, int>(StringComparer.Ordinal);
+            var perSubsetRetrievalHits = new Dictionary<string, int>(StringComparer.Ordinal);
+            var assembleMsWarm = new List<double>();
+            var retrieveMsWarm = new List<double>();
 
-            foreach (var item in golden)
+            for (var index = 0; index < golden.Count; index++)
             {
+                var item = golden[index];
                 if (AcceptsAlwaysOn(item))
                 {
                     alwaysOnCases++;
                 }
 
                 perLanguageTotal[item.LangCode] = perLanguageTotal.GetValueOrDefault(item.LangCode) + 1;
+                if (item.Subset is not null)
+                {
+                    perSubsetTotal[item.Subset] = perSubsetTotal.GetValueOrDefault(item.Subset) + 1;
+                }
 
-                // The production call, minus the conversation: no history anchor, no route, so the
-                // retrieval query inside is the bare golden question - the same text the arm below embeds.
+                var rights = ResolveRights(item.Role);
+                var conversationId = StartConversation(item);
+
+                var assembleWatch = System.Diagnostics.Stopwatch.StartNew();
                 var toolset = await _assembler.AssembleAsync(
-                    _agent, _userRights, item.Query, conversationId: null, currentRoute: null,
-                    TestUserId, item.LangCode, applyLearnedPhraseGuarantee: true);
+                    _agent, rights, item.Query, conversationId, item.Route,
+                    TestUserId, item.LangCode, maxToolsForProvider: _toolBudget, applyLearnedPhraseGuarantee: true);
+                assembleWatch.Stop();
 
                 var accepted = toolset.Functions.FirstOrDefault(f => item.Accepts(f.Name));
                 var assemblerHit = accepted is not null;
                 toolsetSizeSum += toolset.Functions.Count;
                 retrievedSourceFunctions += toolset.Functions.Count(f => f.ToolsetSource == ToolsetSkillSource.Retrieved);
-                if (toolset.Functions.Count >= KnowledgeIndexConstants.MaxToolsForProvider)
+                if (toolset.Functions.Count >= _toolBudget)
                 {
                     cappedToolsets++;
                 }
 
-                // One retrieval per case, identical to the hard fixture's toolset call, so the two
-                // reports agree on what "retrieval-only" means and the cross-encoder runs once for it.
+                // Same query, rights and route as the assembler's retrieval: for a follow-up case the query is the
+                // history-anchored text the production builder produces, not the bare golden question.
+                var retrievalQuery = await _queryBuilder.BuildAsync(item.Query, conversationId, TestUserId);
+                var retrieveWatch = System.Diagnostics.Stopwatch.StartNew();
                 var retrieved = await _retrieval.RetrieveAsync(
-                    item.Query, [], isAdmin: true, KnowledgeIndexConstants.DefaultTopK, currentRoute: null,
-                    CancellationToken.None);
+                    retrievalQuery, rights, rights.Contains(Roles.Admin), KnowledgeIndexConstants.DefaultTopK,
+                    item.Route, CancellationToken.None);
+                retrieveWatch.Stop();
                 var retrievalHit = retrieved.Candidates.Any(c => item.Accepts(c.Entry.SourceId));
+
+                // The first case of a set carries the ONNX cold start and the skill-cache fill.
+                if (index > 0)
+                {
+                    assembleMsWarm.Add(assembleWatch.Elapsed.TotalMilliseconds);
+                    retrieveMsWarm.Add(retrieveWatch.Elapsed.TotalMilliseconds);
+                }
 
                 if (assemblerHit)
                 {
                     assemblerHits++;
                     perLanguageAssemblerHits[item.LangCode] = perLanguageAssemblerHits.GetValueOrDefault(item.LangCode) + 1;
+                    if (item.Subset is not null)
+                    {
+                        perSubsetAssemblerHits[item.Subset] = perSubsetAssemblerHits.GetValueOrDefault(item.Subset) + 1;
+                    }
                 }
 
                 if (retrievalHit)
                 {
                     retrievalHits++;
                     perLanguageRetrievalHits[item.LangCode] = perLanguageRetrievalHits.GetValueOrDefault(item.LangCode) + 1;
+                    if (item.Subset is not null)
+                    {
+                        perSubsetRetrievalHits[item.Subset] = perSubsetRetrievalHits.GetValueOrDefault(item.Subset) + 1;
+                    }
+                }
+
+                if (item.Subset is not null)
+                {
+                    caseDetail.Add(
+                        $"CASE | {item.Subset} #{index} | assembler={(assemblerHit ? "HIT" : "MISS")} " +
+                        $"source={accepted?.ToolsetSource?.ToString() ?? "-"} | " +
+                        $"retrieval={(retrievalHit ? "HIT" : "MISS")} | expected={item.ExpectedDisplay} | " +
+                        $"role={item.Role ?? Roles.Admin} | route={item.Route ?? "-"} | history={item.History.Count} | " +
+                        $"toolset={toolset.Functions.Count} | assembleMs={assembleWatch.Elapsed.TotalMilliseconds:F0} | " +
+                        $"query=\"{item.Query}\"");
                 }
 
                 if (assemblerHit && !retrievalHit)
@@ -416,15 +603,34 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
                 $"Always-on cases in the set: {alwaysOnCases} (always reached by the assembler, so they " +
                 "can only ever appear as lift)");
             TestContext.WriteLine(
-                $"Toolsets at the provider cap ({KnowledgeIndexConstants.MaxToolsForProvider}): " +
+                $"Toolsets at the provider cap ({_toolBudget}): " +
                 $"{cappedToolsets}/{golden.Count}; mean toolset size {(double)toolsetSizeSum / golden.Count:F1} " +
                 $"({elapsedMinutes:F1} min)");
+            TestContext.WriteLine(
+                $"Mean latency per case without the first (cold) case: AssembleAsync " +
+                $"{(assembleMsWarm.Count == 0 ? 0 : assembleMsWarm.Average()):F0} ms, RetrieveAsync " +
+                $"{(retrieveMsWarm.Count == 0 ? 0 : retrieveMsWarm.Average()):F0} ms");
+
+            foreach (var subset in perSubsetTotal.Keys.OrderBy(k => k, StringComparer.Ordinal))
+            {
+                var total = perSubsetTotal[subset];
+                var aHits = perSubsetAssemblerHits.GetValueOrDefault(subset);
+                var rHits = perSubsetRetrievalHits.GetValueOrDefault(subset);
+                TestContext.WriteLine(
+                    $"  SUBSET {subset,-10}: assembler {aHits,2}/{total,-2} = {(double)aHits / total:P1}, " +
+                    $"retrieval-only {rHits,2}/{total,-2} = {(double)rHits / total:P1}");
+            }
 
             TestContext.WriteLine($"--- {AssemblerArmTag} recall per query language ---");
             WritePerLanguage(AssemblerArmTag, perLanguageTotal, perLanguageAssemblerHits);
             TestContext.WriteLine(
                 $"--- {RetrievalArmTag} recall@{KnowledgeIndexConstants.DefaultTopK} per query language ---");
             WritePerLanguage(RetrievalArmTag, perLanguageTotal, perLanguageRetrievalHits);
+
+            foreach (var line in caseDetail)
+            {
+                TestContext.WriteLine(line);
+            }
 
             foreach (var loss in lossDetail)
             {
@@ -447,6 +653,22 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
                 retrievedSourceFunctions);
         }
 
+        /// <summary>
+        /// A case without history keeps conversationId null, exactly as before. A case with history gets a fresh
+        /// conversation id: the scoped LLMConversationManager memoizes history per conversation for the whole run.
+        /// </summary>
+        private string? StartConversation(HardGoldenSetItem item)
+        {
+            if (item.History.Count == 0)
+            {
+                return null;
+            }
+
+            var conversationId = $"{ConversationIdPrefix}{++_conversationCounter}";
+            _historyStore.Set(conversationId, item.History);
+            return conversationId;
+        }
+
         private bool AcceptsAlwaysOn(HardGoldenSetItem item) =>
             _alwaysOnNames.Contains(item.ExpectedSourceId)
             || item.AlsoAcceptedSourceIds.Any(_alwaysOnNames.Contains);
@@ -461,6 +683,23 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
             }
         }
     }
+
+    private static int ResolveToolBudget()
+    {
+        var raw = Environment.GetEnvironmentVariable(ToolBudgetEnvVar);
+        return int.TryParse(raw, out var budget) && budget > 0 ? budget : KnowledgeIndexConstants.MaxToolsForProvider;
+    }
+
+    private static string[]? ResolveSelectedSets()
+    {
+        var raw = Environment.GetEnvironmentVariable(SetsEnvVar);
+        return string.IsNullOrWhiteSpace(raw)
+            ? null
+            : raw.Split(SourceListSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private static bool IsSelected(string[]? selectedSets, string setKey) =>
+        selectedSets is null || selectedSets.Contains(setKey, StringComparer.OrdinalIgnoreCase);
 
     private static int? ResolveCaseCap()
     {
