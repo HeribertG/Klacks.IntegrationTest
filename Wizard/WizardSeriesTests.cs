@@ -148,7 +148,8 @@ public class WizardSeriesTests : WizardHarnessTestBase
             guaranteedHoursPerClient: _ => FlatGuaranteedHours,
             shiftQuantity: DemandQuantity(clientCount));
 
-        var result = await RunScenarioAsync(spec, maxGenerations: maxGenerations, earlyStop: maxGenerations);
+        // Fifty clients without a time budget: the second run from the rotation wheel would roughly double an already long run, so this scale test measures the first run only.
+        var (result, _) = await RunScenarioWithSolutionAsync(spec, maxGenerations, maxGenerations, firstRunOnly: true);
 
         AssertFeasibleFullCoverage(result);
         result.Metrics.CoveragePercent.ShouldBe(1.0, "coverage must be 100%");
@@ -203,7 +204,7 @@ public class WizardSeriesTests : WizardHarnessTestBase
     }
 
     private async Task<(WizardAnalysisResult result, Klacks.ScheduleOptimizer.Models.CoreScenario best)>
-        RunScenarioWithSolutionAsync(WizardScenarioSpec spec, int maxGenerations, int earlyStop)
+        RunScenarioWithSolutionAsync(WizardScenarioSpec spec, int maxGenerations, int earlyStop, bool firstRunOnly = false)
     {
         var seeded = await _builder.SeedAsync(spec);
 
@@ -217,7 +218,8 @@ public class WizardSeriesTests : WizardHarnessTestBase
         };
 
         var stopwatch = Stopwatch.StartNew();
-        var (best, context) = await BuildContextAndRunAsync(seeded.ContextRequest, config);
+        var context = await BuildContextAsync(seeded.ContextRequest);
+        var best = firstRunOnly ? RunFirstRunOnly(context, config) : RunLoop(context, config);
         stopwatch.Stop();
 
         var result = WizardSolutionAnalyzer.Analyze(

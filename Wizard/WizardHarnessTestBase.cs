@@ -4,6 +4,10 @@ using Klacks.Api.Infrastructure.Persistence;
 using Klacks.IntegrationTest.SignalR;
 using Klacks.ScheduleOptimizer.Models;
 using Klacks.ScheduleOptimizer.TokenEvolution;
+using Klacks.ScheduleOptimizer.TokenEvolution.Auction;
+using Klacks.ScheduleOptimizer.TokenEvolution.Constraints;
+using Klacks.ScheduleOptimizer.TokenEvolution.Initialization;
+using Klacks.ScheduleOptimizer.TokenEvolution.Operators;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -89,4 +93,26 @@ public abstract class WizardHarnessTestBase
     /// <summary>Runs the deterministic in-process token-evolution loop.</summary>
     protected static CoreScenario RunLoop(CoreWizardContext context, TokenEvolutionConfig config)
         => TokenEvolutionLoop.Create().Run(context, config);
+
+    /// <summary>
+    /// Runs only the first run of Wizard 1, without the second run from the rotation wheel (the loop as
+    /// TokenEvolutionLoop.Create() wires it before that run is added). For scale smoke tests that run without a
+    /// time budget, where the second run would roughly double the runtime.
+    /// </summary>
+    protected static CoreScenario RunFirstRunOnly(CoreWizardContext context, TokenEvolutionConfig config)
+        => new TokenEvolutionLoop(
+            new TokenPopulationBuilder(
+                new AuctionTokenStrategy(),
+                new CoverageFirstTokenStrategy(),
+                new GreedyTokenStrategy(),
+                new RandomTokenStrategy(),
+                new WarmStartTokenStrategy(),
+                new RotationTemplateTokenStrategy()),
+            new BlockCrossover(),
+            new TokenSwapMutation(),
+            new BlockSplitMutation(),
+            new BlockMergeMutation(),
+            new ReassignMutation(),
+            new TokenRepair(new TokenConstraintChecker()))
+            .Run(context, config);
 }
