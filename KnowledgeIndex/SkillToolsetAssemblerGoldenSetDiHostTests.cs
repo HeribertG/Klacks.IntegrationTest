@@ -53,7 +53,7 @@
 /// KnowledgeIndexConstants.MaxToolsForProvider (30); production goes down to ContextBudgetPolicy.MinToolsForProvider (12).
 /// </param>
 /// <param name="KLACKS_GOLDENSET_SETS">
-/// Optional environment variable: comma-separated set keys to run (core, ext, langs, gaps, context, plain). Unset means all.
+/// Optional environment variable: comma-separated set keys to run (core, ext, langs, gaps, context, plain, plainh, plain2). Unset means all.
 /// Lets a mode comparison run the context set alone, or core plus ext, without capping any set. Two further keys run
 /// only when named explicitly: offtopic (GoldenSetOffTopicProbe over knowledge-index-offtopic.json) and correction
 /// (GoldenSetCorrectionProbe over correction-v1.json). Every measured set also reports its assembler misses with the
@@ -102,10 +102,14 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
     private const string GapsSetKey = "gaps";
     private const string ContextSetKey = "context";
     private const string PlainSetKey = "plain";
+    private const string PlainHoldoutSetKey = "plainh";
+    private const string PlainSecondSetKey = "plain2";
     private const string OffTopicSetKey = "offtopic";
     private const string CorrectionSetKey = "correction";
     private const string ContextLabel = "ASSEMBLER CONTEXT";
     private const string PlainLabel = "ASSEMBLER PLAIN";
+    private const string PlainHoldoutLabel = "ASSEMBLER PLAIN HOLDOUT";
+    private const string PlainSecondLabel = "ASSEMBLER PLAIN 2";
     private const string PlannerRole = "Planner";
     private const string ConversationIdPrefix = "goldenset-context-";
     private const char SourceListSeparator = ',';
@@ -141,6 +145,12 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 
     private static readonly string PlainGoldenSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-plain.json");
+
+    private static readonly string PlainHoldoutGoldenSetPath =
+        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-plain-holdout.json");
+
+    private static readonly string PlainSecondGoldenSetPath =
+        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-plain-2.json");
 
     private static readonly string OffTopicSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-offtopic.json");
@@ -357,6 +367,20 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
             var plain = ApplyCap(HardGoldenSetItem.Load(PlainGoldenSetPath), caseCap);
             await WriteCatalogueCheckAsync(skillCache, agent.Id, plain);
             measured.Add((plain, await probe.MeasureSetAsync(PlainLabel, plain)));
+        }
+
+        if (IsSelected(selectedSets, PlainHoldoutSetKey) && File.Exists(PlainHoldoutGoldenSetPath))
+        {
+            var holdout = ApplyCap(HardGoldenSetItem.Load(PlainHoldoutGoldenSetPath), caseCap);
+            await WriteCatalogueCheckAsync(skillCache, agent.Id, holdout);
+            measured.Add((holdout, await probe.MeasureSetAsync(PlainHoldoutLabel, holdout)));
+        }
+
+        if (IsSelected(selectedSets, PlainSecondSetKey) && File.Exists(PlainSecondGoldenSetPath))
+        {
+            var plainSecond = ApplyCap(HardGoldenSetItem.Load(PlainSecondGoldenSetPath), caseCap);
+            await WriteCatalogueCheckAsync(skillCache, agent.Id, plainSecond);
+            measured.Add((plainSecond, await probe.MeasureSetAsync(PlainSecondLabel, plainSecond)));
         }
 
         // Opt-in only: neither set is part of the default (all) run.

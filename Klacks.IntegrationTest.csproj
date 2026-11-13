@@ -57,6 +57,12 @@
 		<None Update="KnowledgeIndex\knowledge-index-golden-plain.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
+		<None Update="KnowledgeIndex\knowledge-index-golden-plain-2.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="KnowledgeIndex\knowledge-index-golden-plain-holdout.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
 		<None Update="KnowledgeIndex\knowledge-index-golden-recipes.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
