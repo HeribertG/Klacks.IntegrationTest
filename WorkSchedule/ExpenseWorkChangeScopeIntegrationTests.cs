@@ -276,6 +276,9 @@ public class ExpenseWorkChangeScopeIntegrationTests
         otherScenario.ShouldBeEmpty();
         (await repository.IsReplacementInScenarioAsync(_scenarioToken, _clientId)).ShouldBeTrue();
         (await repository.IsReplacementInScenarioAsync(Guid.NewGuid(), _clientId)).ShouldBeFalse();
+        (await repository.IsReplacementInScenarioOnDayAsync(_scenarioToken, _clientId, Day, CancellationToken.None)).ShouldBeTrue();
+        (await repository.IsReplacementInScenarioOnDayAsync(_scenarioToken, _clientId, Day.AddDays(1), CancellationToken.None)).ShouldBeFalse();
+        (await repository.IsReplacementInScenarioOnDayAsync(Guid.NewGuid(), _clientId, Day, CancellationToken.None)).ShouldBeFalse();
         var slotStart = stored.StartTime;
         var slotEnd = stored.EndTime;
         (await repository.HasOverlappingScenarioReplacementAsync(_scenarioToken, _clientId, Day, slotStart, slotStart, slotEnd)).ShouldBeTrue();

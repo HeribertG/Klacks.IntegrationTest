@@ -4,8 +4,9 @@
 /// Parity of the automatic absence cover and the list of alternatives against PostgreSQL: whoever the cover picks as a
 /// direct replacement (free or on call, from the group or borrowed from the sister group under the same root) is
 /// eligible in find_replacement on the real plan before the cover is accepted, the borrowed person marked IsBorrowed.
-/// The temporary membership the cover writes into its scenario does not turn the borrowed person into a member, and
-/// adding that membership again widens it instead of doubling it. Every seeded row hangs off an INTEGRATION_TEST_RAP_
+/// The temporary membership the cover writes into its scenario does not turn the borrowed person into a member; a
+/// membership added on another day stays a day row of its own (no span over the days between), and the same day is
+/// not doubled. Every seeded row hangs off an INTEGRATION_TEST_RAP_
 /// key or one of the two fixed absence ids and is removed by that key; scenario rows are removed by their token.
 /// </summary>
 
@@ -136,9 +137,9 @@ public sealed class RecoveryAlternativesParityTests : WizardHarnessTestBase
 
     [TestCase(1)]
     [TestCase(4)]
-    public async Task ATemporaryMembershipAddedAgain_IsWidenedToTheSpan_NotDoubled(int daysLater)
+    public async Task ATemporaryMembershipAddedOnAnotherDay_StaysADayRowOfItsOwn_NotASpan(int daysLater)
     {
-        // Arrange: one row per client, group and token, so a later day spans the days between as well.
+        // Arrange: one row per client, group, token and day, so neither the next day nor a later day widens the first.
         await SeedAsync(withGroupMember: false);
         var outcome = await CoverAsync();
         var nextDay = Day.AddDays(daysLater);
@@ -153,10 +154,38 @@ public sealed class RecoveryAlternativesParityTests : WizardHarnessTestBase
         }
 
         // Assert
-        var membership = (await ScenarioMembershipsAsync(outcome.Token)).ShouldHaveSingleItem();
-        membership.ValidFrom.ShouldBe(Day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
-        membership.ValidUntil.ShouldBe(nextDay.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
+        var memberships = (await ScenarioMembershipsAsync(outcome.Token)).OrderBy(membership => membership.ValidFrom).ToList();
+        memberships.Count.ShouldBe(2);
+        memberships[0].ValidFrom.ShouldBe(UtcDay(Day));
+        memberships[0].ValidUntil.ShouldBe(UtcDay(Day));
+        memberships[1].ValidFrom.ShouldBe(UtcDay(nextDay));
+        memberships[1].ValidUntil.ShouldBe(UtcDay(nextDay));
+        memberships.ShouldAllBe(membership => membership.IsTemporary);
     }
+
+    [Test]
+    public async Task ATemporaryMembershipAddedAgainOnTheSameDay_IsNotDoubled()
+    {
+        // Arrange
+        await SeedAsync(withGroupMember: false);
+        var outcome = await CoverAsync();
+
+        // Act
+        using (var scope = CreateScope())
+        {
+            var scenarioService = scope.ServiceProvider.GetRequiredService<IAnalyseScenarioService>();
+            await scenarioService.AddScenarioMembershipAsync(
+                outcome.Token, _sisterId, _groupId, Day, Day, CancellationToken.None);
+            await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().CompleteAsync();
+        }
+
+        // Assert
+        var membership = (await ScenarioMembershipsAsync(outcome.Token)).ShouldHaveSingleItem();
+        membership.ValidFrom.ShouldBe(UtcDay(Day));
+        membership.ValidUntil.ShouldBe(UtcDay(Day));
+    }
+
+    private static DateTime UtcDay(DateOnly day) => day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
 
     private FindReplacementQuery AlternativesOnTheRealPlan() => new(
         ShiftId: _shiftId,
