@@ -170,7 +170,8 @@ public partial class ShiftManipulationIntegrationTests
             new EntityCollectionUpdateService(_context),
             new ContainerTemplateService(_unitOfWork, NullLogger<ContainerTemplateService>.Instance));
         return new CreateContainerTemplateSkill(
-            _shiftRepository, templates, selfApi, new Klacks.Api.Infrastructure.Services.Assistant.SelfApiRouteResolver(), AllShiftsVisible());
+            _shiftRepository, templates, selfApi, new Klacks.Api.Infrastructure.Services.Assistant.SelfApiRouteResolver(), AllShiftsVisible(),
+            NullLogger<CreateContainerTemplateSkill>.Instance);
     }
 
     private const int StatusCodesOk = 200;

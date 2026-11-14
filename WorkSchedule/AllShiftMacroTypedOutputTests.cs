@@ -163,7 +163,7 @@ OUTPUT 14, BonusHoliday
         _service = new MacroCompilationService(
             new MacroManagementService(_context, new MacroCache(), Substitute.For<ILogger<MacroManagementService>>()),
             new MacroCache(),
-            new MacroEngine(),
+            new MacroEngine(Microsoft.Extensions.Logging.Abstractions.NullLogger<MacroEngine>.Instance),
             Substitute.For<ILogger<MacroCompilationService>>());
     }
 

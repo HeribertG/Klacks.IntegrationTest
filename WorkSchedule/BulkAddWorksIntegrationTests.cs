@@ -110,7 +110,7 @@ public class BulkAddWorksIntegrationTests
             Substitute.For<IWorkChangeEffectiveTimeService>(),
             CreateDefaultWeekConfiguration());
 
-        var macroEngine = new MacroEngine();
+        var macroEngine = new MacroEngine(Microsoft.Extensions.Logging.Abstractions.NullLogger<MacroEngine>.Instance);
 
         var macroCompilationService = new MacroCompilationService(
             macroManagementService,
@@ -735,7 +735,7 @@ OUTPUT 1, Round(TotalBonus, 2)",
             _context,
             macroCache,
             Substitute.For<ILogger<MacroManagementService>>());
-        var macroEngine = new MacroEngine();
+        var macroEngine = new MacroEngine(Microsoft.Extensions.Logging.Abstractions.NullLogger<MacroEngine>.Instance);
 
         var macroCompilationService = new MacroCompilationService(
             macroManagementService,

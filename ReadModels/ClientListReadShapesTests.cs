@@ -251,7 +251,7 @@ public class ClientListReadShapesTests
             _context,
             SeededOnlyGroupFilter(),
             new ClientFilterService(),
-            new ClientMembershipFilterService(),
+            new ClientMembershipFilterService(Klacks.IntegrationTest.TestHelpers.TestCompanyClock.Utc()),
             new ClientSearchService(),
             new ClientSortingService(),
             Substitute.For<IClientFuzzySearchService>());
@@ -325,7 +325,7 @@ public class ClientListReadShapesTests
             _context,
             SeededOnlyGroupFilter(),
             new ClientFilterService(),
-            new ClientMembershipFilterService(),
+            new ClientMembershipFilterService(Klacks.IntegrationTest.TestHelpers.TestCompanyClock.Utc()),
             new ClientSearchService(),
             new ClientSortingService(),
             Substitute.For<IClientFuzzySearchService>());

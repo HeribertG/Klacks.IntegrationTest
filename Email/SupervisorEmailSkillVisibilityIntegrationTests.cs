@@ -417,7 +417,7 @@ public class SupervisorEmailSkillVisibilityIntegrationTests
         var validator = new ClientValidator();
         return new ClientRepository(
             _context,
-            new MacroEngine(),
+            new MacroEngine(Microsoft.Extensions.Logging.Abstractions.NullLogger<MacroEngine>.Instance),
             new ClientChangeTrackingService(_context, new ClientSortingService()),
             new ClientEntityManagementService(validator),
             new EntityCollectionUpdateService(_context),

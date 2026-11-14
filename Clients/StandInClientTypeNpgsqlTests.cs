@@ -195,7 +195,7 @@ public class StandInClientTypeNpgsqlTests
             _context,
             PassThroughGroupFilter(),
             new ClientFilterService(),
-            new ClientMembershipFilterService(),
+            new ClientMembershipFilterService(Klacks.IntegrationTest.TestHelpers.TestCompanyClock.Utc()),
             new ClientSearchService(),
             new ClientSortingService(),
             Substitute.For<IClientFuzzySearchService>());

@@ -340,7 +340,7 @@ public class ShiftClientVisibilityPostgresTests
         var clientValidator = new ClientValidator();
         var clientRepository = new ClientRepository(
             _context,
-            new MacroEngine(),
+            new MacroEngine(Microsoft.Extensions.Logging.Abstractions.NullLogger<MacroEngine>.Instance),
             new ClientChangeTrackingService(_context, new ClientSortingService()),
             new ClientEntityManagementService(clientValidator),
             new EntityCollectionUpdateService(_context),
