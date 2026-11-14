@@ -43,6 +43,11 @@
 /// whose accepted targets include one of them (the other sets are untouched). Used to compare a skill change
 /// before and after on exactly the cases that can move.
 /// </param>
+/// <param name="KLACKS_GOLDENSET_LANGS_CODES">
+/// Optional environment variable: comma-separated language codes (de, ja, zh-CN, ...); the language-coverage set is
+/// reduced to those languages (the other sets are untouched). Lets a long comparison run one language per process, so
+/// an aborted run loses one language instead of all 25.
+/// </param>
 /// <param name="KLACKS_GOLDENSET_SKIP_GAPS">
 /// Optional environment variable: "True" leaves out the extra set knowledge-index-golden-hard-gaps.json, which
 /// carries cases for skills whose description changed without any case in the other sets (search_shifts views,
@@ -92,6 +97,7 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 {
     public const string MaxCasesEnvVar = "KLACKS_GOLDENSET_MAX_CASES";
     public const string LanguageSetSourcesEnvVar = "KLACKS_GOLDENSET_LANGS_SOURCES";
+    public const string LanguageSetCodesEnvVar = "KLACKS_GOLDENSET_LANGS_CODES";
     public const string SkipGapsSetEnvVar = "KLACKS_GOLDENSET_SKIP_GAPS";
     public const string ToolBudgetEnvVar = "KLACKS_GOLDENSET_TOOL_BUDGET";
     public const string SetsEnvVar = "KLACKS_GOLDENSET_SETS";
@@ -346,7 +352,9 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
         if (IsSelected(selectedSets, LanguageSetKey))
         {
             var languages = ApplyCap(
-                ApplySourceFilter(HardGoldenSetItem.Load(LanguageCoverageSetPath), ResolveLanguageSetSources()),
+                ApplyLanguageFilter(
+                    ApplySourceFilter(HardGoldenSetItem.Load(LanguageCoverageSetPath), ResolveLanguageSetSources()),
+                    ResolveListEnvVar(LanguageSetCodesEnvVar)),
                 caseCap);
             measured.Add((languages, await probe.MeasureSetAsync(LanguageCoverageLabel, languages)));
         }
@@ -830,6 +838,19 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 
     private static List<HardGoldenSetItem> ApplySourceFilter(List<HardGoldenSetItem> cases, string[]? sources) =>
         sources is null ? cases : cases.Where(item => sources.Any(item.Accepts)).ToList();
+
+    private static string[]? ResolveListEnvVar(string name)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
+        return string.IsNullOrWhiteSpace(raw)
+            ? null
+            : raw.Split(SourceListSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private static List<HardGoldenSetItem> ApplyLanguageFilter(List<HardGoldenSetItem> cases, string[]? codes) =>
+        codes is null
+            ? cases
+            : cases.Where(item => codes.Contains(item.LangCode, StringComparer.OrdinalIgnoreCase)).ToList();
 
     private static async Task<IReadOnlySet<string>> LoadAlwaysOnSkillNamesAsync(IServiceScope scope)
     {
