@@ -54,8 +54,8 @@
 /// </param>
 /// <param name="KLACKS_GOLDENSET_SETS">
 /// Optional environment variable: comma-separated set keys to run (core, ext, langs, gaps, context, plain, plainh, plain2). Unset means all.
-/// Lets a mode comparison run the context set alone, or core plus ext, without capping any set. Two further keys run
-/// only when named explicitly: offtopic (GoldenSetOffTopicProbe over knowledge-index-offtopic.json) and correction
+/// Lets a mode comparison run the context set alone, or core plus ext, without capping any set. Three further keys run
+/// only when named explicitly: multi (GoldenSetMultiToolProbe over knowledge-index-golden-multi.json), offtopic (GoldenSetOffTopicProbe over knowledge-index-offtopic.json) and correction
 /// (GoldenSetCorrectionProbe over correction-v1.json). Every measured set also reports its assembler misses with the
 /// offered tools (GoldenSetMissDiagnostics) and the correction score rule over its toolsets (CorrectionAmbiguityTally).
 /// </param>
@@ -106,6 +106,7 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
     private const string PlainSecondSetKey = "plain2";
     private const string OffTopicSetKey = "offtopic";
     private const string CorrectionSetKey = "correction";
+    private const string MultiToolSetKey = "multi";
     private const string ContextLabel = "ASSEMBLER CONTEXT";
     private const string PlainLabel = "ASSEMBLER PLAIN";
     private const string PlainHoldoutLabel = "ASSEMBLER PLAIN HOLDOUT";
@@ -151,6 +152,9 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
 
     private static readonly string PlainSecondGoldenSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-plain-2.json");
+
+    private static readonly string MultiToolGoldenSetPath =
+        Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-golden-multi.json");
 
     private static readonly string OffTopicSetPath =
         Path.Combine(AppContext.BaseDirectory, "KnowledgeIndex", "knowledge-index-offtopic.json");
@@ -390,6 +394,12 @@ public class SkillToolsetAssemblerGoldenSetDiHostTests
         {
             extraSets += await new GoldenSetOffTopicProbe(assembler, agent, adminRights, TestUserId, toolBudget)
                 .MeasureAsync(OffTopicSetPath);
+        }
+
+        if (IsExplicitlySelected(selectedSets, MultiToolSetKey))
+        {
+            extraSets += await new GoldenSetMultiToolProbe(assembler, agent, adminRights, TestUserId, toolBudget)
+                .MeasureAsync(MultiToolGoldenSetPath);
         }
 
         if (IsExplicitlySelected(selectedSets, CorrectionSetKey))
