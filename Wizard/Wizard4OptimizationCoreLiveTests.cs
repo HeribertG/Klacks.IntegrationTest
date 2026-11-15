@@ -118,7 +118,14 @@ public class Wizard4OptimizationCoreLiveTests
 
         var wizardBuilder = new WizardContextBuilder(
             new WizardAgentSnapshotBuilder(provider, new Klacks.Api.Infrastructure.Repositories.Associations.MembershipWindowReader(_context)),
-            new WizardShiftBuilder(_context),
+            new WizardShiftBuilder(
+                _context,
+                new Klacks.Api.Infrastructure.Services.ShiftSchedule.ShiftScheduleService(
+                    _context,
+                    new Klacks.Api.Infrastructure.Repositories.Associations.ShiftRequiredQualificationRepository(
+                        _context,
+                        Microsoft.Extensions.Logging.Abstractions.NullLogger<Klacks.Api.Domain.Models.Associations.ShiftRequiredQualification>.Instance),
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<Klacks.Api.Infrastructure.Services.ShiftSchedule.ShiftScheduleService>.Instance)),
             new WizardHardConstraintBuilder(_context, keywordProvider),
             periodHours,
             provider,

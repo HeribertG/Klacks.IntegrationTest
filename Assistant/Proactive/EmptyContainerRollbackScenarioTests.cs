@@ -176,6 +176,8 @@ public class EmptyContainerRollbackScenarioTests
             lockRepository,
             userService,
             Substitute.For<Klacks.Api.Application.Interfaces.IContainerVisibilityGuard>(),
+            new Klacks.Api.Application.Services.Schedules.ContainerFitGuard(
+                new Klacks.Api.Infrastructure.Repositories.Schedules.ShiftReader(context)),
             NullLogger<PostContainerTemplatesCommandHandler>.Instance);
 
     private static DeleteContainerTemplatesCommandHandler NewDeleteHandler(

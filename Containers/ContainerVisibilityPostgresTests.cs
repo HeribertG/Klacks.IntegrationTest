@@ -478,10 +478,12 @@ public class ContainerVisibilityPostgresTests
 
     private PostContainerTemplatesCommandHandler PostTemplatesHandler() =>
         new(_templateRepository, _unitOfWork, _mapper, _lockRepository, _userService, _containerGuard,
+            new Klacks.Api.Application.Services.Schedules.ContainerFitGuard(new Klacks.Api.Infrastructure.Repositories.Schedules.ShiftReader(_context)),
             Substitute.For<ILogger<PostContainerTemplatesCommandHandler>>());
 
     private PutContainerTemplatesCommandHandler PutTemplatesHandler() =>
         new(_templateRepository, _unitOfWork, _mapper, _lockRepository, _userService, _containerGuard,
+            new Klacks.Api.Application.Services.Schedules.ContainerFitGuard(new Klacks.Api.Infrastructure.Repositories.Schedules.ShiftReader(_context)),
             Substitute.For<ILogger<PutContainerTemplatesCommandHandler>>());
 
     private DeleteContainerTemplatesCommandHandler DeleteTemplatesHandler() =>
@@ -490,10 +492,12 @@ public class ContainerVisibilityPostgresTests
 
     private PostContainerShiftOverrideCommandHandler PostOverrideHandler() =>
         new(_overrideRepository, _lockRepository, _unitOfWork, _mapper, _userService, _containerGuard,
+            new Klacks.Api.Application.Services.Schedules.ContainerFitGuard(new Klacks.Api.Infrastructure.Repositories.Schedules.ShiftReader(_context)),
             Substitute.For<ILogger<PostContainerShiftOverrideCommandHandler>>());
 
     private PutContainerShiftOverrideCommandHandler PutOverrideHandler() =>
         new(_overrideRepository, _lockRepository, _unitOfWork, _mapper, _userService, _containerGuard,
+            new Klacks.Api.Application.Services.Schedules.ContainerFitGuard(new Klacks.Api.Infrastructure.Repositories.Schedules.ShiftReader(_context)),
             Substitute.For<ILogger<PutContainerShiftOverrideCommandHandler>>());
 
     private DeleteContainerShiftOverrideCommandHandler DeleteOverrideHandler() =>
