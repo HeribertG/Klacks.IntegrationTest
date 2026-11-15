@@ -35,6 +35,7 @@ public class ContainerChildSeatsPostgresTests
 {
     private const string TestPrefix = "INTEGRATION_TEST_CSEATS_";
     private static readonly DateOnly Day = new(2099, 11, 2);
+    private static readonly DateOnly OtherDay = Day.AddDays(1);
 
     private string _connectionString = null!;
     private DataBaseContext _context = null!;
@@ -48,6 +49,7 @@ public class ContainerChildSeatsPostgresTests
     private Shift _childClone = null!;
     private Shift _regularClone = null!;
     private ContainerTemplateItem _childItem = null!;
+    private ContainerTemplate _template = null!;
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp()
@@ -163,6 +165,30 @@ public class ContainerChildSeatsPostgresTests
         MarkerOf(partialRows, realRowWithSource).ShouldBeFalse();
     }
 
+    [Test]
+    public async Task PartialSchedule_OnADayTheTemplateDoesNotCover_MarksNothing_LikeTheFullSchedule_InBothWorlds()
+    {
+        await AssertPartialMatchesFullAsync(null, _child, _container, _regular);
+        await AssertPartialMatchesFullAsync(_scenarioToken, _childClone, _containerClone, _regularClone);
+
+        var partialRows = await _scheduleService.GetShiftSchedulePartialAsync(
+            [(_child.Id, Day), (_child.Id, OtherDay)]);
+        MarkerOf(partialRows, _child, Day).ShouldBeTrue();
+        MarkerOf(partialRows, _child, OtherDay).ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task PartialSchedule_HolidayOnlyTemplate_MarksNothing_LikeTheFullScheduleWithoutHolidays()
+    {
+        _template.IsHoliday = true;
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        await AssertPartialMatchesFullAsync(null, _child, _container, _regular);
+        var partialRows = await _scheduleService.GetShiftSchedulePartialAsync([(_child.Id, Day)]);
+        MarkerOf(partialRows, _child, Day).ShouldBeFalse();
+    }
+
     private async Task<IReadOnlyList<CoreShift>> BuildSeatsAsync(Guid? token, params Shift[] shifts)
         => await _builder.BuildAsync(shifts.Select(shift => shift.Id).ToList(), Day, Day, token, CancellationToken.None);
 
@@ -171,7 +197,24 @@ public class ContainerChildSeatsPostgresTests
             && seat.Date == Day.ToString(DateTimeFormats.IsoDate, CultureInfo.InvariantCulture));
 
     private static bool MarkerOf(IEnumerable<ShiftDayAssignment> rows, Shift shift)
-        => rows.Single(row => row.ShiftId == shift.Id && row.Date == Day).IsInTemplateContainer;
+        => MarkerOf(rows, shift, Day);
+
+    private static bool MarkerOf(IEnumerable<ShiftDayAssignment> rows, Shift shift, DateOnly date)
+        => rows.Single(row => row.ShiftId == shift.Id && row.Date == date).IsInTemplateContainer;
+
+    private async Task AssertPartialMatchesFullAsync(Guid? token, Shift child, Shift container, Shift regular)
+    {
+        var shifts = new[] { child, container, regular };
+        var fullRows = await _scheduleService.GetShiftScheduleListAsync(Day, OtherDay, analyseToken: token);
+        var pairs = shifts.SelectMany(shift => new[] { (shift.Id, Day), (shift.Id, OtherDay) }).ToList();
+        var partialRows = await _scheduleService.GetShiftSchedulePartialAsync(pairs, token);
+
+        foreach (var (shiftId, date) in pairs)
+        {
+            var shift = shifts.Single(candidate => candidate.Id == shiftId);
+            MarkerOf(partialRows, shift, date).ShouldBe(MarkerOf(fullRows, shift, date), $"{shift.Name} on {date}");
+        }
+    }
 
     private async Task SeedAsync()
     {
@@ -186,7 +229,7 @@ public class ContainerChildSeatsPostgresTests
         _regularClone = NewShift("REGULAR_CLONE", ShiftType.IsTask, _scenarioToken, _regular.Id);
         await _context.Shift.AddRangeAsync(_containerClone, _childClone, _regularClone);
 
-        var template = new ContainerTemplate
+        _template = new ContainerTemplate
         {
             Id = Guid.NewGuid(),
             ContainerId = _container.Id,
@@ -199,10 +242,10 @@ public class ContainerChildSeatsPostgresTests
         _childItem = new ContainerTemplateItem
         {
             Id = Guid.NewGuid(),
-            ContainerTemplateId = template.Id,
+            ContainerTemplateId = _template.Id,
             ShiftId = _child.Id
         };
-        await _context.ContainerTemplate.AddAsync(template);
+        await _context.ContainerTemplate.AddAsync(_template);
         await _context.ContainerTemplateItem.AddAsync(_childItem);
         await _context.SaveChangesAsync();
     }
@@ -215,7 +258,7 @@ public class ContainerChildSeatsPostgresTests
         Description = "Container seats",
         Status = ShiftStatus.OriginalShift,
         FromDate = Day,
-        UntilDate = Day,
+        UntilDate = OtherDay,
         StartShift = new TimeOnly(8, 0),
         EndShift = new TimeOnly(16, 0),
         IsMonday = true,
