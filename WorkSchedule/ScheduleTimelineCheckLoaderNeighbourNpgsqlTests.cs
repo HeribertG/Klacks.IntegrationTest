@@ -3,8 +3,8 @@
 /// <summary>
 /// Real-database proof for the neighbour-day queries of the live single check: the works of the day before and the
 /// breaks of the two days before and the day after the checked day, with the changes of those works, are loaded for the same client
-/// and scenario only;
-/// deleted rows, container children and rows two days away stay out. The unit tests run on the in-memory provider only.
+/// only; a scenario reads its own rows plus the real rows it holds no twin of (ScenarioRuleRows), the range check adds those
+/// real rows only for its people; deleted rows, container children and rows two days away stay out. The unit tests run on the in-memory provider only.
 /// Every row carries an INTEGRATION_TEST_ prefixed key, the cleanup deletes nothing else.
 /// </summary>
 
@@ -264,7 +264,42 @@ public class ScheduleTimelineCheckLoaderNeighbourNpgsqlTests
     }
 
     [Test]
-    public async Task Neighbourhood_OfAScenario_LeavesOutRealRows()
+    public async Task Neighbourhood_OfAScenario_AddsTheRealRowsTheScenarioHoldsNoTwinOf()
+    {
+        var date = new DateOnly(2099, 8, 12);
+        var realWork = await AddWorkAsync(_clientId, date.AddDays(-1));
+        var scenarioWork = await AddWorkAsync(_clientId, date.AddDays(-1), analyseToken: _scenarioToken);
+        var real = await _context.Work.SingleAsync(w => w.Id == realWork);
+        real.StartTime = new TimeOnly(14, 0);
+        real.EndTime = new TimeOnly(22, 0);
+        await _context.SaveChangesAsync();
+        var realBreak = await AddBreakAsync(_clientId, date.AddDays(1));
+
+        var rows = await LoadAsync(date, _scenarioToken);
+
+        rows.Works.Select(w => w.Id).ShouldBe([scenarioWork, realWork], ignoreOrder: true);
+        rows.Breaks.Select(b => b.Id).ShouldBe([realBreak]);
+    }
+
+    [Test]
+    public async Task Range_OfAScenario_AddsTheRealRowsOfItsPeopleOnly()
+    {
+        var date = new DateOnly(2099, 8, 12);
+        var scenarioWork = await AddWorkAsync(_clientId, date, analyseToken: _scenarioToken);
+        var realWork = await AddWorkAsync(_clientId, date.AddDays(1));
+        var foreignRealWork = await AddWorkAsync(_otherClientId, date);
+        var realBreak = await AddBreakAsync(_clientId, date.AddDays(2));
+
+        var rows = await _loader.LoadRangeAsync(date, date.AddDays(2), _scenarioToken, CancellationToken.None);
+
+        rows.Works.Select(w => w.Id).ShouldContain(scenarioWork);
+        rows.Works.Select(w => w.Id).ShouldContain(realWork);
+        rows.Works.Select(w => w.Id).ShouldNotContain(foreignRealWork, "the other client holds no row in the scenario");
+        rows.Breaks.Select(b => b.Id).ShouldContain(realBreak);
+    }
+
+    [Test]
+    public async Task Neighbourhood_OfAScenario_ReadsTheScenarioTwinsInsteadOfTheRealRows()
     {
         var date = new DateOnly(2099, 8, 12);
         await AddWorkAsync(_clientId, date.AddDays(-1));
