@@ -215,7 +215,7 @@ public class ProposePlanGuardrailSeamTests
     }
 
     [Test]
-    public async Task Checker_WithWrongToken_SeesEmptyWorld_NoCollision()
+    public async Task Checker_WithForeignToken_SeesTheRealDutyOutsideItsWorld_Collision()
     {
         var client = await CreateClientAsync();
         var shift = await CreateShiftAsync();
@@ -225,12 +225,15 @@ public class ProposePlanGuardrailSeamTests
         await _cloneService.CloneScenarioDataAsync(null, PeriodFrom, PeriodUntil, token, new[] { shift.Id }, null, CancellationToken.None);
         await _context.SaveChangesAsync();
 
-        // A different token addresses a scenario world that has no cloned work -> nothing to collide with.
+        // A different token carries no clone of the shift, so the real duty stays in its world (the clone of the other
+        // scenario never does) -> the placement collides with the real duty.
         var otherToken = Guid.NewGuid();
         var colliding = new PlannedWorkRow(client.Id, WorkDate, new TimeOnly(12, 0), new TimeOnly(20, 0), shift.Id);
         var result = await _checker.CheckAsync(new[] { colliding }, otherToken, CancellationToken.None);
 
-        result.HasBlocking.ShouldBeFalse();
+        result.HasBlocking.ShouldBeTrue();
+        result.NewConflicts.ShouldContain(c =>
+            c.Comment == "schedule.error-list.collision" && c.Type == ScheduleValidationType.Error);
     }
 
     /// <summary>
