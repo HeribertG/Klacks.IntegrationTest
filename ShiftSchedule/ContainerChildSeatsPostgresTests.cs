@@ -13,6 +13,7 @@ using System.Globalization;
 using Klacks.Api.Domain.Constants;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Associations;
+using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Associations;
@@ -50,6 +51,7 @@ public class ContainerChildSeatsPostgresTests
     private Shift _regularClone = null!;
     private ContainerTemplateItem _childItem = null!;
     private ContainerTemplate _template = null!;
+    private Client _person = null!;
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp()
@@ -189,6 +191,118 @@ public class ContainerChildSeatsPostgresTests
         MarkerOf(partialRows, _child, Day).ShouldBeFalse();
     }
 
+    [Test]
+    public async Task ContainerPlannedOnADay_TheChildCountsAsPlannedThatDayOnly_FullAndPartialAlike()
+    {
+        await AddWorkAsync(_container, token: null, Day);
+
+        var full = await _scheduleService.GetShiftScheduleListAsync(Day, OtherDay);
+        var partial = await _scheduleService.GetShiftSchedulePartialAsync([(_child.Id, Day), (_child.Id, OtherDay)]);
+
+        EngagedOf(full, _child, Day).ShouldBe(_child.SumEmployees * _child.Quantity);
+        EngagedOf(full, _child, OtherDay).ShouldBe(0);
+        EngagedOf(partial, _child, Day).ShouldBe(_child.SumEmployees * _child.Quantity);
+        EngagedOf(partial, _child, OtherDay).ShouldBe(0);
+        EngagedOf(full, _regular, Day).ShouldBe(0);
+    }
+
+    [Test]
+    public async Task SecondPartOfASplitContainerOnTheNextDay_DoesNotMarkTheNextDaysChildAsPlanned()
+    {
+        await AddTemplateForAsync(OtherDay);
+        var firstPart = await AddWorkAsync(_container, token: null, Day);
+        await AddWorkAsync(_container, token: null, OtherDay, splitFromWorkId: firstPart);
+
+        var full = await _scheduleService.GetShiftScheduleListAsync(Day, OtherDay);
+        var partial = await _scheduleService.GetShiftSchedulePartialAsync([(_child.Id, Day), (_child.Id, OtherDay)]);
+
+        EngagedOf(full, _child, Day).ShouldBe(_child.SumEmployees * _child.Quantity);
+        EngagedOf(full, _child, OtherDay).ShouldBe(0);
+        EngagedOf(partial, _child, Day).ShouldBe(_child.SumEmployees * _child.Quantity);
+        EngagedOf(partial, _child, OtherDay).ShouldBe(0);
+    }
+
+    [Test]
+    public async Task ContainerNotPlanned_TheChildStaysUnplanned()
+    {
+        var full = await _scheduleService.GetShiftScheduleListAsync(Day, Day);
+
+        EngagedOf(full, _child, Day).ShouldBe(0);
+    }
+
+    [Test]
+    public async Task ContainerPlannedInAScenario_OnlyTheScenarioChildCountsAsPlanned()
+    {
+        await AddWorkAsync(_containerClone, _scenarioToken, Day);
+
+        var scenarioRows = await _scheduleService.GetShiftScheduleListAsync(Day, Day, analyseToken: _scenarioToken);
+        var realRows = await _scheduleService.GetShiftScheduleListAsync(Day, Day);
+        var partialRows = await _scheduleService.GetShiftSchedulePartialAsync([(_childClone.Id, Day)], _scenarioToken);
+
+        EngagedOf(scenarioRows, _childClone, Day).ShouldBe(_childClone.SumEmployees * _childClone.Quantity);
+        EngagedOf(partialRows, _childClone, Day).ShouldBe(_childClone.SumEmployees * _childClone.Quantity);
+        EngagedOf(realRows, _child, Day).ShouldBe(0);
+    }
+
+    [Test]
+    public async Task ChildTakenOutOfTheContainer_IsNotPlannedByTheContainer()
+    {
+        await AddWorkAsync(_container, token: null, Day);
+        _context.ContainerTemplateItem.Remove(_childItem);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var full = await _scheduleService.GetShiftScheduleListAsync(Day, Day);
+
+        EngagedOf(full, _child, Day).ShouldBe(0);
+    }
+
+    private async Task AddTemplateForAsync(DateOnly date)
+    {
+        var template = new ContainerTemplate
+        {
+            Id = Guid.NewGuid(),
+            ContainerId = _container.Id,
+            Weekday = (int)date.DayOfWeek,
+            IsHoliday = false,
+            IsWeekdayAndHoliday = false,
+            FromTime = new TimeOnly(8, 0),
+            UntilTime = new TimeOnly(16, 0)
+        };
+        await _context.ContainerTemplate.AddAsync(template);
+        await _context.ContainerTemplateItem.AddAsync(new ContainerTemplateItem
+        {
+            Id = Guid.NewGuid(),
+            ContainerTemplateId = template.Id,
+            ShiftId = _child.Id
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+    }
+
+    private async Task<Guid> AddWorkAsync(Shift shift, Guid? token, DateOnly date, Guid? splitFromWorkId = null)
+    {
+        var id = Guid.NewGuid();
+        await _context.Work.AddAsync(new Work
+        {
+            Id = id,
+            SplitFromWorkId = splitFromWorkId,
+            ClientId = _person.Id,
+            ShiftId = shift.Id,
+            CurrentDate = date,
+            StartTime = new TimeOnly(8, 0),
+            EndTime = new TimeOnly(16, 0),
+            WorkTime = 8m,
+            AnalyseToken = token
+        });
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return id;
+    }
+
+    private static int EngagedOf(IEnumerable<ShiftDayAssignment> rows, Shift shift, DateOnly date)
+        => rows.Single(row => row.ShiftId == shift.Id && row.Date == date).Engaged;
+
     private async Task<IReadOnlyList<CoreShift>> BuildSeatsAsync(Guid? token, params Shift[] shifts)
         => await _builder.BuildAsync(shifts.Select(shift => shift.Id).ToList(), Day, Day, token, CancellationToken.None);
 
@@ -218,6 +332,17 @@ public class ContainerChildSeatsPostgresTests
 
     private async Task SeedAsync()
     {
+        _person = new Client
+        {
+            Id = Guid.NewGuid(),
+            Name = TestPrefix + "PERSON",
+            FirstName = "Test",
+            Company = string.Empty,
+            LegalEntity = false
+        };
+        await _context.Set<Client>().AddAsync(_person);
+        await _context.SaveChangesAsync();
+
         _container = NewShift("CONTAINER", ShiftType.IsContainer, token: null, sourceShiftId: null);
         _child = NewShift("CHILD", ShiftType.IsTask, token: null, sourceShiftId: null);
         _regular = NewShift("REGULAR", ShiftType.IsTask, token: null, sourceShiftId: null);
@@ -289,6 +414,7 @@ public class ContainerChildSeatsPostgresTests
     {
         context.ChangeTracker.Clear();
         var sql = $@"
+            DELETE FROM work WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestPrefix}%');
             DELETE FROM container_template_item
             WHERE shift_id IN (SELECT id FROM shift WHERE name LIKE '{TestPrefix}%')
                OR container_template_id IN (
@@ -299,6 +425,7 @@ public class ContainerChildSeatsPostgresTests
             WHERE container_id IN (SELECT id FROM shift WHERE name LIKE '{TestPrefix}%');
             UPDATE shift SET scenario_source_shift_id = NULL WHERE name LIKE '{TestPrefix}%';
             DELETE FROM shift WHERE name LIKE '{TestPrefix}%';
+            DELETE FROM client WHERE name LIKE '{TestPrefix}%';
         ";
         await context.Database.ExecuteSqlRawAsync(sql);
     }
