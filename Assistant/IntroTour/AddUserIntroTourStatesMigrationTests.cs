@@ -54,14 +54,14 @@ public class AddUserIntroTourStatesMigrationTests
 
             await migrator.MigrateAsync(PreviousMigration);
             (await TableExistsAsync(dbName)).ShouldBeFalse();
-            var existingA = await AddUserAsync(context, "a");
-            var existingB = await AddUserAsync(context, "b");
+            var existingA = await AddUserAsync(dbName, "a");
+            var existingB = await AddUserAsync(dbName, "b");
 
             await migrator.MigrateAsync(TheMigration);
             await AssertLegacyOfferAsync(dbName, existingA);
             await AssertLegacyOfferAsync(dbName, existingB);
 
-            var newcomer = await AddUserAsync(context, "c");
+            var newcomer = await AddUserAsync(dbName, "c");
             (await ScalarAsync(dbName, $"SELECT count(*) FROM {Table} WHERE user_id = '{newcomer}'")).ShouldBe(0L);
 
             await migrator.MigrateAsync(PreviousMigration);
@@ -89,22 +89,28 @@ public class AddUserIntroTourStatesMigrationTests
         (await ScalarAsync(dbName, $"SELECT last_offered_at FROM {Table} WHERE user_id = '{userId}'")).ShouldBeNull();
     }
 
-    private static async Task<string> AddUserAsync(DataBaseContext context, string suffix)
+    private static async Task<string> AddUserAsync(string dbName, string suffix)
     {
         var id = Guid.NewGuid().ToString();
         var email = $"intro-{suffix}-{id}@example.invalid";
-        context.AppUser.Add(new AppUser
-        {
-            Id = id,
-            UserName = email,
-            NormalizedUserName = email.ToUpperInvariant(),
-            Email = email,
-            NormalizedEmail = email.ToUpperInvariant(),
-            FirstName = "Intro",
-            LastName = suffix,
-            SecurityStamp = Guid.NewGuid().ToString()
-        });
-        await context.SaveChangesAsync();
+        await using var connection = new NpgsqlConnection(DbConnectionString(dbName));
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            """
+            INSERT INTO "AspNetUsers" (id, discriminator, user_name, normalized_user_name, email, normalized_email,
+                first_name, last_name, security_stamp, email_confirmed, phone_number_confirmed, two_factor_enabled,
+                lockout_enabled, access_failed_count)
+            VALUES (@id, @discriminator, @email, @normalized, @email, @normalized,
+                'Intro', @suffix, @stamp, false, false, false, false, 0)
+            """,
+            connection);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("discriminator", nameof(AppUser));
+        command.Parameters.AddWithValue("email", email);
+        command.Parameters.AddWithValue("normalized", email.ToUpperInvariant());
+        command.Parameters.AddWithValue("suffix", suffix);
+        command.Parameters.AddWithValue("stamp", Guid.NewGuid().ToString());
+        await command.ExecuteNonQueryAsync();
         return id;
     }
 
