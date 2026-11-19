@@ -57,7 +57,7 @@ public class UserReadShapesTests
             new IdentityErrorDescriber(),
             null!,
             NullLogger<UserManager<AppUser>>.Instance);
-        _reader = new AppUserReader(_userManager);
+        _reader = new AppUserReader(_userManager, _context);
         _sut = new UserManagementService(_userManager, _reader, NullLogger<UserManagementService>.Instance);
     }
 

@@ -10,6 +10,7 @@
 
 using Klacks.Api.Application.Commands.IdentityProviders;
 using Klacks.Api.Application.Interfaces;
+using Klacks.Api.Application.Services.Identity;
 using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Interfaces.Authentification;
 using Klacks.Api.Domain.Models.Associations;
@@ -20,6 +21,7 @@ using Klacks.Api.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
+using NSubstitute.ClearExtensions;
 using NUnit.Framework;
 using Shouldly;
 
@@ -82,7 +84,7 @@ public class LdapClientSyncIntegrationTests
 
         _createdProviderIds.Clear();
         _createdClientIds.Clear();
-        _factory.FakeLdapService.ClearReceivedCalls();
+        _factory.FakeLdapService.ClearSubstitute();
     }
 
     private DataBaseContext CreateContext()
@@ -118,16 +120,13 @@ public class LdapClientSyncIntegrationTests
         var providerId = await CreateTestProviderAsync();
         var externalId = $"{TestDataPrefix}guid-{Guid.NewGuid():N}";
 
-        _factory.FakeLdapService.GetUsersAsync(Arg.Any<IdentityProvider>()).Returns(new List<LdapUserEntry>
+        StubDirectory(providerId, isComplete: true, new LdapUserEntry
         {
-            new()
-            {
-                ObjectGuid = externalId,
-                DistinguishedName = $"cn={TestDataPrefix}NewUser,dc=example,dc=com",
-                GivenName = "IntegrationTest",
-                Surname = $"{TestDataPrefix}NewUser",
-                IsEnabled = true,
-            },
+            ObjectGuid = externalId,
+            DistinguishedName = $"cn={TestDataPrefix}NewUser,dc=example,dc=com",
+            GivenName = "IntegrationTest",
+            Surname = $"{TestDataPrefix}NewUser",
+            IsEnabled = true,
         });
 
         using var scope = _factory.Services.CreateScope();
@@ -160,71 +159,165 @@ public class LdapClientSyncIntegrationTests
     }
 
     [Test]
+    public async Task SyncClientsAsync_NewLdapUserWithOnlyAnEntryUuid_IsKeyedOnTheEntryUuid()
+    {
+        var providerId = await CreateTestProviderAsync();
+        var entryUuid = Guid.NewGuid().ToString();
+
+        StubDirectory(providerId, isComplete: true, new LdapUserEntry
+        {
+            EntryUuid = entryUuid,
+            DistinguishedName = $"uid={TestDataPrefix}Uuid,ou=people,dc=example,dc=com",
+            Surname = $"{TestDataPrefix}Uuid",
+            IsEnabled = true,
+        });
+
+        using var scope = _factory.Services.CreateScope();
+        var result = await scope.ServiceProvider.GetRequiredService<IMediator>().Send(new SyncClientsCommand(providerId));
+        var createdId = await FindClientIdByExternalIdAsync(entryUuid);
+
+        result.Success.ShouldBeTrue(result.ErrorMessage);
+        createdId.ShouldNotBeNull();
+        using var context = CreateContext();
+        var syncLog = await context.Set<IdentityProviderSyncLog>().FirstAsync(l => l.ClientId == createdId);
+        syncLog.ExternalId.ShouldBe(entryUuid);
+    }
+
+    [Test]
     public async Task SyncClientsAsync_UserNoLongerInLdap_DeactivatesMembership()
     {
-        // Arrange: seed a client that is already linked+active from a previous sync.
         var providerId = await CreateTestProviderAsync();
-        var externalId = $"{TestDataPrefix}guid-{Guid.NewGuid():N}";
-        Guid clientId;
+        var leaverExternalId = $"{TestDataPrefix}guid-{Guid.NewGuid():N}";
+        var stayerExternalId = $"{TestDataPrefix}guid-{Guid.NewGuid():N}";
+        var leaverClientId = await SeedActiveClientAsync(providerId, leaverExternalId, "Leaver");
 
-        using (var seedContext = CreateContext())
+        // LDAP still returns somebody else, but no longer this user (e.g. left the company).
+        StubDirectory(providerId, isComplete: true, new LdapUserEntry
         {
-            var client = new Client
-            {
-                Id = Guid.NewGuid(),
-                Name = $"{TestDataPrefix}Leaver",
-                FirstName = "IntegrationTest",
-                Type = EntityTypeEnum.Employee,
-                Gender = GenderEnum.Intersexuality,
-                IdentityProviderId = providerId,
-                LdapExternalId = externalId,
-            };
-            seedContext.Add(client);
-
-            var membership = new Membership
-            {
-                Id = Guid.NewGuid(),
-                ClientId = client.Id,
-                ValidFrom = DateTime.UtcNow.AddYears(-1),
-                ValidUntil = null,
-            };
-            seedContext.Add(membership);
-
-            var syncLog = new IdentityProviderSyncLog
-            {
-                Id = Guid.NewGuid(),
-                IdentityProviderId = providerId,
-                ClientId = client.Id,
-                ExternalId = externalId,
-                ExternalDn = $"cn={TestDataPrefix}Leaver,dc=example,dc=com",
-                LastSyncTime = DateTime.UtcNow.AddDays(-1),
-                IsActiveInSource = true,
-            };
-            seedContext.Add(syncLog);
-
-            await seedContext.SaveChangesAsync();
-            clientId = client.Id;
-            _createdClientIds.Add(clientId);
-        }
-
-        // LDAP no longer returns this user (e.g. left the company).
-        _factory.FakeLdapService.GetUsersAsync(Arg.Any<IdentityProvider>()).Returns(new List<LdapUserEntry>());
+            ObjectGuid = stayerExternalId,
+            DistinguishedName = $"cn={TestDataPrefix}Stayer,dc=example,dc=com",
+            Surname = $"{TestDataPrefix}Stayer",
+            IsEnabled = true,
+        });
 
         using var scope = _factory.Services.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
-        // Act
         var result = await mediator.Send(new SyncClientsCommand(providerId));
+        await FindClientIdByExternalIdAsync(stayerExternalId);
 
-        // Assert
         result.Success.ShouldBeTrue(result.ErrorMessage);
         result.DeactivatedClients.ShouldBe(1);
 
         using var context = CreateContext();
-        var membershipAfter = await context.Set<Membership>().FirstAsync(m => m.ClientId == clientId);
+        var membershipAfter = await context.Set<Membership>().FirstAsync(m => m.ClientId == leaverClientId);
         membershipAfter.ValidUntil.ShouldNotBeNull();
 
-        var syncLogAfter = await context.Set<IdentityProviderSyncLog>().FirstAsync(l => l.ClientId == clientId);
+        var syncLogAfter = await context.Set<IdentityProviderSyncLog>().FirstAsync(l => l.ClientId == leaverClientId);
         syncLogAfter.IsActiveInSource.ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task SyncClientsAsync_IncompleteDirectoryResult_AbortsAndLeavesMembershipsAlone()
+    {
+        var providerId = await CreateTestProviderAsync();
+        var externalId = $"{TestDataPrefix}guid-{Guid.NewGuid():N}";
+        var clientId = await SeedActiveClientAsync(providerId, externalId, "Employee");
+
+        StubDirectory(providerId, isComplete: false);
+
+        using var scope = _factory.Services.CreateScope();
+        var result = await scope.ServiceProvider.GetRequiredService<IMediator>().Send(new SyncClientsCommand(providerId));
+
+        result.Success.ShouldBeFalse();
+        result.ErrorMessage.ShouldBe(ClientSyncService.IncompleteResultMessage);
+        await AssertEmployeeUntouchedAsync(providerId, clientId);
+    }
+
+    [Test]
+    public async Task SyncClientsAsync_EmptyDirectoryResult_AbortsAndLeavesMembershipsAlone()
+    {
+        var providerId = await CreateTestProviderAsync();
+        var externalId = $"{TestDataPrefix}guid-{Guid.NewGuid():N}";
+        var clientId = await SeedActiveClientAsync(providerId, externalId, "Employee");
+
+        StubDirectory(providerId, isComplete: true);
+
+        using var scope = _factory.Services.CreateScope();
+        var result = await scope.ServiceProvider.GetRequiredService<IMediator>().Send(new SyncClientsCommand(providerId));
+
+        result.Success.ShouldBeFalse();
+        result.ErrorMessage.ShouldBe(ClientSyncService.EmptyResultMessage);
+        await AssertEmployeeUntouchedAsync(providerId, clientId);
+    }
+
+    private void StubDirectory(Guid providerId, bool isComplete, params LdapUserEntry[] entries)
+    {
+        _factory.FakeLdapService.GetUsersAsync(Arg.Is<IdentityProvider>(p => p.Id == providerId))
+            .Returns(new LdapUserSearchResult(entries, isComplete));
+    }
+
+    private async Task<Guid?> FindClientIdByExternalIdAsync(string externalId)
+    {
+        using var context = CreateContext();
+        var client = await context.Client.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.LdapExternalId == externalId);
+        if (client != null)
+        {
+            _createdClientIds.Add(client.Id);
+        }
+
+        return client?.Id;
+    }
+
+    private async Task<Guid> SeedActiveClientAsync(Guid providerId, string externalId, string nameSuffix)
+    {
+        using var seedContext = CreateContext();
+        var client = new Client
+        {
+            Id = Guid.NewGuid(),
+            Name = $"{TestDataPrefix}{nameSuffix}",
+            FirstName = "IntegrationTest",
+            Type = EntityTypeEnum.Employee,
+            Gender = GenderEnum.Intersexuality,
+            IdentityProviderId = providerId,
+            LdapExternalId = externalId,
+        };
+        seedContext.Add(client);
+
+        seedContext.Add(new Membership
+        {
+            Id = Guid.NewGuid(),
+            ClientId = client.Id,
+            ValidFrom = DateTime.UtcNow.AddYears(-1),
+            ValidUntil = null,
+        });
+
+        seedContext.Add(new IdentityProviderSyncLog
+        {
+            Id = Guid.NewGuid(),
+            IdentityProviderId = providerId,
+            ClientId = client.Id,
+            ExternalId = externalId,
+            ExternalDn = $"cn={TestDataPrefix}{nameSuffix},dc=example,dc=com",
+            LastSyncTime = DateTime.UtcNow.AddDays(-1),
+            IsActiveInSource = true,
+        });
+
+        await seedContext.SaveChangesAsync();
+        _createdClientIds.Add(client.Id);
+        return client.Id;
+    }
+
+    private async Task AssertEmployeeUntouchedAsync(Guid providerId, Guid clientId)
+    {
+        using var context = CreateContext();
+        var membership = await context.Set<Membership>().FirstAsync(m => m.ClientId == clientId);
+        membership.ValidUntil.ShouldBeNull();
+
+        var syncLog = await context.Set<IdentityProviderSyncLog>().FirstAsync(l => l.ClientId == clientId);
+        syncLog.IsActiveInSource.ShouldBeTrue();
+
+        var provider = await context.Set<IdentityProvider>().FirstAsync(p => p.Id == providerId);
+        provider.LastSyncError.ShouldNotBeNullOrEmpty();
     }
 }
