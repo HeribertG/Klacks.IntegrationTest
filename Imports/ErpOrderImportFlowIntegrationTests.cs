@@ -842,7 +842,7 @@ public class ErpOrderImportFlowIntegrationTests
         var clientValidator = new ClientValidator();
         var clientRepository = new ClientRepository(
             context,
-            new MacroEngine(Microsoft.Extensions.Logging.Abstractions.NullLogger<MacroEngine>.Instance),
+            new MacroEngine(),
             Substitute.For<IClientChangeTrackingService>(),
             new ClientEntityManagementService(clientValidator),
             collectionUpdateService,
