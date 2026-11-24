@@ -23,7 +23,6 @@ using Klacks.Api.Domain.Models.Staffs;
 using Klacks.Api.Domain.Services.Assistant;
 using Klacks.Api.Domain.Services.Clients;
 using Klacks.Api.Domain.Services.Common;
-using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Staffs;
 using Klacks.Api.Infrastructure.Services;
@@ -180,7 +179,6 @@ public class ClientListReadShapesTests
     {
         var clientRepository = new ClientRepository(
             _context,
-            Substitute.For<IMacroEngine>(),
             Substitute.For<IClientChangeTrackingService>(),
             Substitute.For<IClientEntityManagementService>(),
             new EntityCollectionUpdateService(_context),
@@ -272,7 +270,6 @@ public class ClientListReadShapesTests
 
         var clientRepository = new ClientRepository(
             _context,
-            Substitute.For<IMacroEngine>(),
             Substitute.For<IClientChangeTrackingService>(),
             Substitute.For<IClientEntityManagementService>(),
             new EntityCollectionUpdateService(_context),

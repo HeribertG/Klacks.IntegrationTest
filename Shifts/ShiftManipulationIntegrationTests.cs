@@ -17,7 +17,6 @@ using Klacks.Api.Infrastructure.Repositories;
 using Klacks.Api.Infrastructure.Repositories.Associations;
 using Klacks.Api.Infrastructure.Repositories.Schedules;
 using Klacks.Api.Infrastructure.Repositories.Staffs;
-using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Domain.Interfaces.Staffs;
 using Klacks.Api.Application.Exceptions;
 using Klacks.Api.Application.Services.Schedules;
@@ -1285,7 +1284,6 @@ public partial class ShiftManipulationIntegrationTests
 
     private ClientRepository CreateClientRepository() => new(
         _context,
-        Substitute.For<IMacroEngine>(),
         Substitute.For<IClientChangeTrackingService>(),
         Substitute.For<IClientEntityManagementService>(),
         new EntityCollectionUpdateService(_context),

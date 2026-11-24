@@ -15,7 +15,6 @@ using Klacks.Api.Domain.Enums;
 using Klacks.Api.Domain.Models.Filters;
 using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Staffs;
-using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Plugins;
 using Klacks.Api.Infrastructure.Repositories.Dashboard;
@@ -142,7 +141,6 @@ public class StandInClientTypeNpgsqlTests
         var ids = new[] { _employeeId, _standInId, _customerId };
         var clientRepository = new ClientRepository(
             _context,
-            Substitute.For<IMacroEngine>(),
             Substitute.For<IClientChangeTrackingService>(),
             Substitute.For<IClientEntityManagementService>(),
             new EntityCollectionUpdateService(_context),

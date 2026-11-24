@@ -23,7 +23,6 @@ using Klacks.Api.Domain.Models.Associations;
 using Klacks.Api.Domain.Models.Exports;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Staffs;
-using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories.Exports;
 using Klacks.Api.Infrastructure.Repositories.Schedules;
@@ -77,7 +76,6 @@ public class StandInCreateConvertNpgsqlTests
         _context = new DataBaseContext(options, Substitute.For<IHttpContextAccessor>());
         _clientRepository = new ClientRepository(
             _context,
-            Substitute.For<IMacroEngine>(),
             Substitute.For<IClientChangeTrackingService>(),
             Substitute.For<IClientEntityManagementService>(),
             new EntityCollectionUpdateService(_context),

@@ -12,7 +12,6 @@ using Klacks.Api.Domain.Interfaces.Associations;
 using Klacks.Api.Domain.Interfaces.Schedules;
 using Klacks.Api.Domain.Interfaces.Settings;
 using Klacks.Api.Domain.Models.Associations;
-using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Domain.Models.Macros;
 using Klacks.Api.Domain.Models.Schedules;
 using Klacks.Api.Domain.Models.Scheduling;
@@ -26,7 +25,6 @@ using Klacks.Api.Infrastructure.Services.PeriodHours;
 using Klacks.Api.Infrastructure.Services.Schedules;
 using Klacks.Api.Infrastructure.Services.Settings;
 using Klacks.Api.Infrastructure.Hubs;
-using Klacks.Api.Infrastructure.Interfaces;
 using Klacks.Api.Infrastructure.Scripting;
 using Klacks.Api.Infrastructure.Persistence;
 using Klacks.Api.Infrastructure.Repositories;
@@ -688,7 +686,6 @@ OUTPUT 1, Round(TotalBonus, 2)",
     {
         var clientRepository = new Klacks.Api.Infrastructure.Repositories.Staffs.ClientRepository(
             _context,
-            Substitute.For<IMacroEngine>(),
             Substitute.For<IClientChangeTrackingService>(),
             Substitute.For<IClientEntityManagementService>(),
             new Klacks.Api.Infrastructure.Services.EntityCollectionUpdateService(_context),
